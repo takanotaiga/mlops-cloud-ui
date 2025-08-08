@@ -4,76 +4,65 @@ import {
   Box,
   Flex,
   VStack,
-  SimpleGrid,
   Heading,
-  CheckboxGroup,
-  Checkbox,
-  Fieldset,
   Text,
   HStack,
-  For,
+  Badge,
+  Button,
+  Stack,
+  Image as CImage,
 } from "@chakra-ui/react"
-import ContentCard from "@/components/content-card"
+
+// Reference image placed under public/static/object-card.png
+const refImageSrc = "/static/object-card.png"
 
 export default function Page() {
   return (
-    <Box px="10%" py="20px">
-
-      <HStack align="center" justify="space-between" pb="10px">
-        <Heading size="2xl" >
-          Dataset / Person / hoge.MOV
-        </Heading>
+    <Box px="5%" py="20px">
+      <HStack align="center" justify="space-between" pb="16px">
+        <Heading size="2xl">Dataset / Person / Object</Heading>
+        <HStack gap="2">
+          <Button size="sm" variant="outline" rounded="full">Prev</Button>
+          <Button size="sm" variant="outline" rounded="full">Next</Button>
+        </HStack>
       </HStack>
 
+      <Flex align="flex-start" gap="24px">
+        {/* Left panel: object meta */}
+        <VStack align="stretch" w={{ base: "100%", md: "20%" }} gap="16px">
+          <Box p="16px" rounded="md" borderWidth="1px" bg="bg.panel">
+            <Text fontWeight="bold" mb="8px">Object Info</Text>
+            <Stack textStyle="sm" color="gray.600" gap="6px">
+              <HStack justify="space-between"><Text>ID</Text><Text>obj-001</Text></HStack>
+              <HStack justify="space-between"><Text>Source</Text><Text>hoge.MOV</Text></HStack>
+              <HStack justify="space-between"><Text>Frame</Text><Text>128</Text></HStack>
+              <HStack justify="space-between"><Text>Score</Text><Text>0.92</Text></HStack>
+            </Stack>
+            <Box my="12px" borderTopWidth="1px" />
+            <Text fontWeight="bold" mb="8px">Labels</Text>
+            <HStack wrap="wrap" gap="6px">
+              <Badge colorPalette="green">Person</Badge>
+              <Badge colorPalette="blue">Bounding Box</Badge>
+              <Badge>Track-12</Badge>
+            </HStack>
+          </Box>
 
-      <Flex align="flex-start">
-        <VStack align="start" w="25%" gap="10px">
-          <Fieldset.Root>
-            <Fieldset.Legend>
-              <Text fontWeight="bold">Label</Text>
-            </Fieldset.Legend>
-            <Fieldset.Content>
-              <CheckboxGroup name="label" defaultValue={["Bounding Box"]}>
-                <For each={["Bounding Box", "Segmentation", "Text"]}>
-                  {(value) => (
-                    <Checkbox.Root key={value} value={value}>
-                      <Checkbox.HiddenInput />
-                      <Checkbox.Control />
-                      <Checkbox.Label>{value}</Checkbox.Label>
-                    </Checkbox.Root>
-                  )}
-                </For>
-              </CheckboxGroup>
-            </Fieldset.Content>
-          </Fieldset.Root>
-
-          <Fieldset.Root>
-            <Fieldset.Legend>
-              <Text fontWeight="bold">Media Type</Text>
-            </Fieldset.Legend>
-            <Fieldset.Content>
-              <CheckboxGroup name="media" defaultValue={["Image"]}>
-                <For each={["Video", "Image", "PointCloud", "ROSBag"]}>
-                  {(value) => (
-                    <Checkbox.Root key={value} value={value}>
-                      <Checkbox.HiddenInput />
-                      <Checkbox.Control />
-                      <Checkbox.Label>{value}</Checkbox.Label>
-                    </Checkbox.Root>
-                  )}
-                </For>
-              </CheckboxGroup>
-            </Fieldset.Content>
-          </Fieldset.Root>
+          <Box p="16px" rounded="md" borderWidth="1px" bg="bg.panel">
+            <Text fontWeight="bold" mb="8px">Attributes</Text>
+            <Stack textStyle="sm" color="gray.600" gap="8px">
+              <HStack justify="space-between"><Text>Occluded</Text><Text>No</Text></HStack>
+              <HStack justify="space-between"><Text>Truncated</Text><Text>No</Text></HStack>
+              <HStack justify="space-between"><Text>Direction</Text><Text>Front</Text></HStack>
+            </Stack>
+          </Box>
         </VStack>
 
-        <Box flex="1" ml={8}>
-          <SimpleGrid columns={[2, 3, 4]} gap="10px">
-            {Array.from({ length: 11 }).map((_, i) => (
-              <ContentCard key={i} />
-            ))}
-          </SimpleGrid>
-        </Box>
+        {/* Right content: reference image and actions */}
+        <VStack flex="1" align="stretch" gap="16px">
+          <Box rounded="md" overflow="hidden" borderWidth="1px" bg="white">
+            <CImage src={refImageSrc} alt="object preview" w="100%" h="auto" />
+          </Box>
+        </VStack>
       </Flex>
     </Box>
   )

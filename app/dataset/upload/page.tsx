@@ -18,13 +18,13 @@ import { LuUpload } from "react-icons/lu"
 
 import { LuCloudUpload } from "react-icons/lu";
 
-const Demo = () => {
+const EncodeModeSelect = () => {
   return (
-    <Select.Root collection={frameworks} size="sm" width="320px">
+    <Select.Root collection={encodeModes} size="sm" width="320px">
       <Select.HiddenSelect />
       <Select.Control>
         <Select.Trigger>
-          <Select.ValueText placeholder="Select framework" />
+          <Select.ValueText placeholder="Select encode mode" />
         </Select.Trigger>
         <Select.IndicatorGroup>
           <Select.Indicator />
@@ -33,9 +33,9 @@ const Demo = () => {
       <Portal>
         <Select.Positioner>
           <Select.Content>
-            {frameworks.items.map((framework) => (
-              <Select.Item item={framework} key={framework.value}>
-                {framework.label}
+            {encodeModes.items.map((item) => (
+              <Select.Item item={item} key={item.value}>
+                {item.label}
                 <Select.ItemIndicator />
               </Select.Item>
             ))}
@@ -46,12 +46,12 @@ const Demo = () => {
   )
 }
 
-const frameworks = createListCollection({
+const encodeModes = createListCollection({
   items: [
-    { label: "React.js", value: "react" },
-    { label: "Vue.js", value: "vue" },
-    { label: "Angular", value: "angular" },
-    { label: "Svelte", value: "svelte" },
+    { label: "JPEG", value: "jpeg" },
+    { label: "PNG", value: "png" },
+    { label: "WebP", value: "webp" },
+    { label: "AVIF", value: "avif" },
   ],
 })
 
@@ -93,7 +93,7 @@ export default function Page() {
             </HStack>
             <HStack alignSelf="flex-start" pb="30px">
               <Text w="200px" ml="30px">Encode Mode</Text>
-              <Demo />
+              <EncodeModeSelect />
             </HStack>
           </Box>
           <Box alignSelf="flex-start" ml="30px">

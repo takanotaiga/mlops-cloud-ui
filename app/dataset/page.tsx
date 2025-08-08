@@ -17,7 +17,7 @@ import { LuSearch } from "react-icons/lu"
 
 import NextLink from "next/link"
 
-export default async function Page() {
+export default function Page() {
   return (
     <HStack justify="center">
       <VStack w="70%" >

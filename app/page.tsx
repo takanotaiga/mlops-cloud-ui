@@ -4,7 +4,7 @@ import {
 } from "@chakra-ui/react"
 import Image from "next/image"
 
-export default async function Page() {
+export default function Page() {
   return (
     <Box textAlign="center" fontSize="xl" pt="30vh">
       <VStack gap="8">
