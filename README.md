@@ -1,60 +1,43 @@
-# TypeScript Next.js Chakra example
+# MLOps Cloud UI
 
-This is a really simple project that shows the usage of Next.js with TypeScript.
+Modern Next.js + TypeScript + Chakra UI app for managing datasets, launching training, and shipping models.
 
-## Deploy your own
+## Tech Stack
+- Next.js App Router (TypeScript, strict mode)
+- Chakra UI (primitive components, color mode via next-themes)
+- Yarn (Node 18+)
 
-Deploy the example using [Vercel](https://vercel.com):
+## Scripts
+- `yarn dev`: Run local dev server with HMR
+- `yarn build`: Generate production build (offline font usage)
+- `yarn start`: Serve the production build
+- `yarn type-check`: TypeScript type check (no emit)
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/import/project?template=https://github.com/vercel/next.js/tree/canary/examples/with-typescript)
+## Project Structure
+- `app/`: Routes, layouts, and pages
+  - `/dataset`: Listing, details, and upload
+  - `/training`: Model training dashboard
+- `components/`: Reusable UI components
+- `components/ui/color-mode.tsx`: Color mode provider and toggle button
+- `public/static/`: Static assets served from `/static/*`
 
-## How to use it?
+## Development Notes
+- Use Yarn for all local development and CI.
+- Path alias: import with `@/*` as needed.
+- Chakra styling stays co-located with components.
+- Color mode toggle is available in the header; it uses `next-themes` under the hood.
 
-### Using `create-next-app`
+## Environment & Security
+- Put secrets in `.env.local` (git-ignored). Access via `process.env`.
+- Avoid importing large assets into client bundles; put assets in `public/static`.
 
-Execute
-[`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app)
-with [npm](https://docs.npmjs.com/cli/init) or
-[Yarn](https://yarnpkg.com/lang/en/docs/cli/create/) to bootstrap the example:
+## Accessibility
+- Prefer semantic markup and Chakra components.
+- Verify color-mode contrast via the header toggle.
 
-```bash
-npx create-next-app --example with-typescript with-typescript-app
-# or
-yarn create next-app --example with-typescript with-typescript-app
-```
-
-### Download manually
-
-Download the example:
-
-```bash
-curl https://codeload.github.com/vercel/next.js/tar.gz/canary | tar -xz --strip=2 next.js-canary/examples/with-typescript
-cd with-typescript
-```
-
-Install it and run:
-
-```bash
-npm install
-npm run dev
-# or
-yarn
-yarn dev
-```
-
-Deploy it to the cloud with
-[Vercel](https://vercel.com/import?filter=next.js&utm_source=github&utm_medium=readme&utm_campaign=next-example)
-([Documentation](https://nextjs.org/docs/deployment)).
-
-## Notes
-
-This example shows how to integrate the TypeScript type system into Next.js.
-Since TypeScript is supported out of the box with Next.js, all we have to do is
-to install TypeScript.
-
-```
-npm install --save-dev typescript
-```
+## Contributing
+- Conventional Commits (e.g., `feat:`, `fix:`) are preferred.
+- Keep PRs small and focused; include screenshots for UI changes.
 
 To enable TypeScript's features, we install the type declarations for React and
 Node.
