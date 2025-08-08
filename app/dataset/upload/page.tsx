@@ -25,7 +25,7 @@ import { LuCloudUpload, LuPartyPopper, LuSparkles, LuCheck } from "react-icons/l
 import { S3Client } from "@aws-sdk/client-s3";
 import { Upload as S3MultipartUpload } from "@aws-sdk/lib-storage";
 import { MINIO_CONFIG } from "@/app/secrets/minio-config";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 
 type EncodeModeSelectProps = {
   value: string
@@ -88,6 +88,18 @@ export default function Page() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [view, setView] = useState<"form" | "progress" | "done">("form")
   const [progress, setProgress] = useState<number[]>([])
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  const resetFileSelection = useCallback(() => {
+    setSelectedFiles([])
+    setCounts({ images: 0, videos: 0 })
+    setFilesInvalid(false)
+    setError(null)
+    setProgress([])
+    if (fileInputRef.current) {
+      try { fileInputRef.current.value = "" } catch {}
+    }
+  }, [])
   // uploading state omitted; we infer from view/progress
 
   const handleFileChange = useCallback<React.ChangeEventHandler<HTMLInputElement>>(
@@ -315,7 +327,7 @@ export default function Page() {
             </Table.Root>
 
             <HStack mt="16px">
-              <Button rounded="full" onClick={() => setView("form")}>Upload more</Button>
+              <Button rounded="full" onClick={() => { resetFileSelection(); setView("form") }}>Upload more</Button>
             </HStack>
           </Box>
         </VStack>
@@ -392,7 +404,12 @@ export default function Page() {
           <Box alignSelf="flex-start" ml="30px">
             <Field.Root invalid={filesInvalid}>
               <FileUpload.Root maxW="xl" alignItems="stretch" maxFiles={10}>
-                <FileUpload.HiddenInput accept="image/*,video/*" multiple onChange={handleFileChange} />
+                <FileUpload.HiddenInput
+                  accept="image/*,video/*"
+                  multiple
+                  onChange={handleFileChange}
+                  ref={(el) => { fileInputRef.current = el as unknown as HTMLInputElement | null }}
+                />
                 <FileUpload.Dropzone borderColor={filesInvalid ? "red.500" : undefined} borderWidth={filesInvalid ? "2px" : undefined}>
                   <Icon size="md" color="fg.muted">
                     <LuUpload />
