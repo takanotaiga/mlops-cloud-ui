@@ -17,6 +17,7 @@ import { FileUpload, Icon } from "@chakra-ui/react"
 import { LuUpload } from "react-icons/lu"
 
 import { LuCloudUpload } from "react-icons/lu";
+import { useState, useCallback } from "react";
 
 const EncodeModeSelect = () => {
   return (
@@ -57,6 +58,31 @@ const encodeModes = createListCollection({
 
 
 export default function Page() {
+  const [error, setError] = useState<string | null>(null)
+  const MAX_FILE_SIZE = 50 * 1024 * 1024 * 1024 // 50GB
+
+  const handleFileChange = useCallback<React.ChangeEventHandler<HTMLInputElement>>(
+    (e) => {
+      const files = e.target.files ? Array.from(e.target.files) : []
+      for (const file of files) {
+        const isImage = file.type.startsWith("image/")
+        const isVideo = file.type.startsWith("video/")
+        if (!isImage && !isVideo) {
+          setError("画像または動画のみアップロードできます")
+          // reset selection
+          e.target.value = ""
+          return
+        }
+        if (file.size > MAX_FILE_SIZE) {
+          setError("1ファイルあたり最大50GBまでです")
+          e.target.value = ""
+          return
+        }
+      }
+      setError(null)
+    },
+    []
+  )
   return (
 
     <HStack justify="center">
@@ -98,17 +124,22 @@ export default function Page() {
           </Box>
           <Box alignSelf="flex-start" ml="30px">
             <FileUpload.Root maxW="xl" alignItems="stretch" maxFiles={10}>
-              <FileUpload.HiddenInput />
+              <FileUpload.HiddenInput accept="image/*,video/*" onChange={handleFileChange} />
               <FileUpload.Dropzone>
                 <Icon size="md" color="fg.muted">
                   <LuUpload />
                 </Icon>
                 <FileUpload.DropzoneContent>
                   <Box>Drag and drop files here</Box>
-                  <Box color="fg.muted">.png, .jpg up to 5MB</Box>
+                  <Box color="fg.muted">Images/Videos only, up to 50GB per file</Box>
                 </FileUpload.DropzoneContent>
               </FileUpload.Dropzone>
             </FileUpload.Root>
+            {error && (
+              <Box color="red.500" mt="2" ml="2">
+                {error}
+              </Box>
+            )}
           </Box>
         </HStack>
 
