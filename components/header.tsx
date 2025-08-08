@@ -1,4 +1,4 @@
-import { Box, HStack, Heading, Text, LinkBox, LinkOverlay } from "@chakra-ui/react"
+import { Box, HStack, Heading, Text, LinkBox, LinkOverlay, Badge } from "@chakra-ui/react"
 
 export default function Header() {
     return (
@@ -15,7 +15,10 @@ export default function Header() {
             <HStack justify="space-between" w="85%" maxW="7xl" mx="auto">
                 <LinkBox marginEnd="auto" h="25px">
                     <LinkOverlay href="/" >
-                        <Heading size="md" marginEnd="auto">MLOps Cloud</Heading>
+                        <HStack>
+                            <Heading size="md" marginEnd="auto">MLOps Cloud</Heading>
+                            <Badge size="md" rounded="full" colorPalette="purple" variant="subtle">Beta</Badge>
+                        </HStack>
                     </LinkOverlay>
                 </LinkBox>
 
