@@ -3,7 +3,7 @@ import {
   HStack,
   VStack,
   Heading,
-  Wrap,
+  SimpleGrid,
   Button,
   Box,
   Input,
@@ -40,12 +40,11 @@ export default async function Page() {
             </InputGroup>
           </Box>
         </HStack>
-        <Wrap align="end" gap="30px" mx="auto" justify="space-around">
-          <ImageCard />
-          <ImageCard />
-          <ImageCard />
-          <ImageCard />
-        </Wrap>
+        <SimpleGrid columns={[2, 3, 4]} gap="30px" mx="auto">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <ImageCard key={i} />
+          ))}
+        </SimpleGrid>
       </VStack>
     </HStack>
   )
