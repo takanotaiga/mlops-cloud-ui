@@ -510,6 +510,12 @@ export default function Page() {
                 )}
               </Field.Root>
             </HStack>
+            <HStack alignSelf="flex-start" ml="30px" pt="8px">
+              <Button variant="subtle" rounded="full" w="220px" onClick={handleUploadClick}>
+                <LuCloudUpload />
+                Upload to cloud
+              </Button>
+            </HStack>
           </Box>
           <Box alignSelf="flex-start" ml="30px">
             <Field.Root invalid={filesInvalid}>
@@ -529,15 +535,6 @@ export default function Page() {
                       <Text>ファイルを選択</Text>
                     </HStack>
                   </Button>
-                  <FileUpload.Dropzone borderColor={filesInvalid ? "red.500" : undefined} borderWidth={filesInvalid ? "2px" : undefined}>
-                    <Icon size="md" color="fg.muted">
-                      <LuUpload />
-                    </Icon>
-                    <FileUpload.DropzoneContent>
-                      <Box>ここにドラッグ＆ドロップ</Box>
-                      <Box color="fg.muted">画像/動画のみ・1ファイル最大50GB</Box>
-                    </FileUpload.DropzoneContent>
-                  </FileUpload.Dropzone>
                 </VStack>
               </FileUpload.Root>
               {filesInvalid && (
@@ -552,7 +549,7 @@ export default function Page() {
             {selectedFiles.length > 0 && (
               <Box mt="4">
                 <Text mb="2" color="fg.muted">選択済み: {selectedFiles.length} ファイル</Text>
-                <SimpleGrid columns={{ base: 2, md: 4 }} gap="3">
+                <SimpleGrid columns={{ base: 2, md: 3 }} gap="3">
                   {selectedFiles.map((file, i) => {
                     const isImage = file.type.startsWith("image/")
                     const isVideo = file.type.startsWith("video/")
@@ -576,7 +573,6 @@ export default function Page() {
                         </Box>
                         <Box p="2">
                           <Text fontSize="sm" style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{file.name}</Text>
-                          <Text fontSize="xs" color="fg.muted">{(file.size / (1024 * 1024)).toFixed(1)} MB</Text>
                         </Box>
                       </Box>
                     )
@@ -584,15 +580,6 @@ export default function Page() {
                 </SimpleGrid>
               </Box>
             )}
-          </Box>
-        </HStack>
-
-        <HStack w="95%" justify="space-between" pb="40px" pt="40px">
-          <Box alignSelf="flex-start" ml="30px">
-            <Button variant="subtle" rounded="full" w="200px" onClick={handleUploadClick}>
-              <LuCloudUpload />
-              Upload to cloud
-            </Button>
           </Box>
         </HStack>
       </VStack>
