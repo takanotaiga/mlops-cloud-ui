@@ -72,7 +72,7 @@ export default function Page() {
         <HStack w="95%" justify="space-between" pb="40px" pt="40px">
           <Box alignSelf="flex-start" ml="30px">
             <HStack alignSelf="flex-start" pb="15px">
-              <Heading size="md" >Infomation</Heading>
+              <Heading size="md" >Information</Heading>
             </HStack>
             <HStack alignSelf="flex-start" pb="10px">
               <Text w="100px" ml="30px">Image</Text>
@@ -84,7 +84,7 @@ export default function Page() {
             </HStack>
 
             <HStack alignSelf="flex-start" pt="30px" pb="15px">
-              <Heading size="md" >Congiguration</Heading>
+              <Heading size="md" >Configuration</Heading>
             </HStack>
 
             <HStack alignSelf="flex-start" pb="30px">

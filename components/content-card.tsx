@@ -10,6 +10,7 @@ export default function ContentCard() {
                         h="200px"
                         shadow="lg"
                         src="https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/macs-value-tradein-202410?wid=1208&hei=758&fmt=png-alpha&.v=SXBYTUpZRmQwTG1WZ3c3cmVvUzlGY1BwbjUxU1oraGwyZERTK2xLcVB5VThiaG5uTzEvZjFDa0pGRWlwQjFsR0hSQnh1aXkxWm5SMFc1cnRPM2tyNklzMnlrQTVQaUZhdDJmTThSQTlCWGs"
+                        alt="Content thumbnail"
                     />
                 </Box>
             </LinkOverlay>

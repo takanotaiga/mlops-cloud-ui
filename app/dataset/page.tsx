@@ -36,7 +36,7 @@ export default function Page() {
           <Box alignSelf="flex-start" ml="30px">
             <Spacer h="10px" />
             <InputGroup flex="1" startElement={<LuSearch />} >
-              <Input placeholder="Search contacts" size="sm" variant="flushed" />
+              <Input placeholder="Search datasets" size="sm" variant="flushed" />
             </InputGroup>
           </Box>
         </HStack>

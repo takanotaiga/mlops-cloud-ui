@@ -29,8 +29,8 @@ export default function Header() {
                 </LinkBox>
 
                 <LinkBox px="10px" h="25px">
-                    <LinkOverlay href="/trainning">
-                        <Text textStyle="sm">Trainning</Text>
+                    <LinkOverlay href="/training">
+                        <Text textStyle="sm">Training</Text>
                     </LinkOverlay>
                 </LinkBox>
 

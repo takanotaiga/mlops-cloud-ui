@@ -23,7 +23,7 @@ export default function Page() {
             <NextLink href="/dataset" passHref>
               <Button rounded="full" size="md">Get Started</Button>
             </NextLink>
-            <NextLink href="/trainning" passHref>
+            <NextLink href="/training" passHref>
               <Button variant="outline" rounded="full" size="md">View Training</Button>
             </NextLink>
           </HStack>
