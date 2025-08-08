@@ -9,6 +9,8 @@ import {
   Button,
   Input,
   Field,
+  Progress,
+  Table,
   Select,
   createListCollection,
   Portal
@@ -18,7 +20,7 @@ import { FileUpload, Icon } from "@chakra-ui/react"
 import { LuUpload } from "react-icons/lu"
 
 import { LuCloudUpload } from "react-icons/lu";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 type EncodeModeSelectProps = {
   value: string
@@ -78,6 +80,9 @@ export default function Page() {
   const [filesInvalid, setFilesInvalid] = useState<boolean>(false)
   const [encodeMode, setEncodeMode] = useState<string>("")
   const [encodeInvalid, setEncodeInvalid] = useState<boolean>(false)
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [view, setView] = useState<"form" | "progress" | "done">("form")
+  const [progress, setProgress] = useState<number[]>([])
 
   const handleFileChange = useCallback<React.ChangeEventHandler<HTMLInputElement>>(
     (e) => {
@@ -88,6 +93,7 @@ export default function Page() {
         setCounts({ images: 0, videos: 0 })
         setFilesInvalid(true)
         setError(null)
+        setSelectedFiles([])
         return
       }
       for (const file of files) {
@@ -98,12 +104,14 @@ export default function Page() {
           // reset selection
           e.target.value = ""
           setCounts({ images: 0, videos: 0 })
+          setSelectedFiles([])
           return
         }
         if (file.size > MAX_FILE_SIZE) {
           setError("1ファイルあたり最大50GBまでです")
           e.target.value = ""
           setCounts({ images: 0, videos: 0 })
+          setSelectedFiles([])
           return
         }
         if (isImage) images += 1
@@ -112,6 +120,7 @@ export default function Page() {
       setError(null)
       setCounts({ images, videos })
       setFilesInvalid(false)
+      setSelectedFiles(files)
     },
     []
   )
@@ -132,8 +141,94 @@ export default function Page() {
     }
     if (invalid) return
     setTitleInvalid(false)
-    // TODO: trigger actual upload flow
-  }, [title, counts, encodeMode])
+    // Simulate upload progress within the page (no URL change)
+    setProgress(new Array(selectedFiles.length).fill(0))
+    setView("progress")
+  }, [title, counts, encodeMode, selectedFiles.length])
+
+  // Simulate per-file upload progress to 100% in 5 seconds
+  useEffect(() => {
+    if (view !== "progress") return
+    const start = Date.now()
+    const duration = 5000 // 5s
+    const id = setInterval(() => {
+      const elapsed = Date.now() - start
+      const ratio = Math.min(1, elapsed / duration)
+      setProgress((prev) => prev.map(() => Math.round(ratio * 100)))
+      if (ratio >= 1) {
+        clearInterval(id)
+        // Move to done view after a brief tick
+        setView("done")
+      }
+    }, 100)
+    return () => clearInterval(id)
+  }, [view])
+  if (view === "progress") {
+    return (
+      <HStack justify="center">
+        <VStack w="70%">
+          <HStack w="95%" justify="space-between" pt="40px">
+            <Box alignSelf="flex-start" ml="30px">
+              <HStack alignSelf="flex-start">
+                <Heading size="2xl">Uploading</Heading>
+              </HStack>
+            </Box>
+          </HStack>
+
+          <Box w="95%" ml="30px" bg="bg.panel" p="16px" rounded="md" borderWidth="1px">
+            <Table.Root size="sm">
+              <Table.Header>
+                <Table.Row>
+                  <Table.ColumnHeader>File</Table.ColumnHeader>
+                  <Table.ColumnHeader>Progress</Table.ColumnHeader>
+                  <Table.ColumnHeader textAlign="end">Percent</Table.ColumnHeader>
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {selectedFiles.map((file, idx) => (
+                  <Table.Row key={file.name + idx}>
+                    <Table.Cell>{file.name}</Table.Cell>
+                    <Table.Cell>
+                      <Progress.Root maxW="100%">
+                        <Progress.Track>
+                          <Progress.Range style={{ width: `${progress[idx] ?? 0}%` }} />
+                        </Progress.Track>
+                      </Progress.Root>
+                    </Table.Cell>
+                    <Table.Cell textAlign="end">{(progress[idx] ?? 0)}%</Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table.Root>
+          </Box>
+        </VStack>
+      </HStack>
+    )
+  }
+
+  if (view === "done") {
+    return (
+      <HStack justify="center">
+        <VStack w="70%">
+          <HStack w="95%" justify="space-between" pt="40px">
+            <Box alignSelf="flex-start" ml="30px">
+              <HStack alignSelf="flex-start">
+                <Heading size="2xl">Upload Complete</Heading>
+              </HStack>
+            </Box>
+          </HStack>
+
+          <Box w="95%" ml="30px" p="16px">
+            <Text mb="8px">{selectedFiles.length} file(s) uploaded successfully.</Text>
+            <HStack>
+              <Button rounded="full" onClick={() => setView("form")}>Back</Button>
+            </HStack>
+          </Box>
+        </VStack>
+      </HStack>
+    )
+  }
+
   return (
 
     <HStack justify="center">
