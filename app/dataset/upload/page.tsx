@@ -22,7 +22,10 @@ import { FileUpload, Icon } from "@chakra-ui/react"
 import { LuUpload } from "react-icons/lu"
 
 import { LuCloudUpload, LuPartyPopper, LuSparkles, LuCheck } from "react-icons/lu";
-import { useState, useCallback, useEffect } from "react";
+import { S3Client } from "@aws-sdk/client-s3";
+import { Upload as S3MultipartUpload } from "@aws-sdk/lib-storage";
+import { MINIO_CONFIG } from "@/app/secrets/minio-config";
+import { useState, useCallback } from "react";
 
 type EncodeModeSelectProps = {
   value: string
@@ -85,6 +88,7 @@ export default function Page() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [view, setView] = useState<"form" | "progress" | "done">("form")
   const [progress, setProgress] = useState<number[]>([])
+  // uploading state omitted; we infer from view/progress
 
   const handleFileChange = useCallback<React.ChangeEventHandler<HTMLInputElement>>(
     (e) => {
@@ -143,28 +147,68 @@ export default function Page() {
     }
     if (invalid) return
     setTitleInvalid(false)
-    // Simulate upload progress within the page (no URL change)
+    // Start real upload to MinIO (URL unchanged)
     setProgress(new Array(selectedFiles.length).fill(0))
     setView("progress")
-  }, [title, counts, encodeMode, selectedFiles.length])
+    const client = new S3Client({
+      region: MINIO_CONFIG.region,
+      endpoint: MINIO_CONFIG.endpoint,
+      forcePathStyle: MINIO_CONFIG.forcePathStyle,
+      credentials: {
+        accessKeyId: MINIO_CONFIG.accessKeyId,
+        secretAccessKey: MINIO_CONFIG.secretAccessKey,
+      },
+    })
 
-  // Simulate per-file upload progress to 100% in 5 seconds
-  useEffect(() => {
-    if (view !== "progress") return
-    const start = Date.now()
-    const duration = 5000 // 5s
-    const id = setInterval(() => {
-      const elapsed = Date.now() - start
-      const ratio = Math.min(1, elapsed / duration)
-      setProgress((prev) => prev.map(() => Math.round(ratio * 100)))
-      if (ratio >= 1) {
-        clearInterval(id)
-        // Move to done view after a brief tick
+    // Upload all files concurrently
+    Promise.all(
+      selectedFiles.map((file, idx) => {
+        const Key = `${title}/${file.name}`
+
+        // Use managed upload; set partSize to 100MB so multipart is used only when >100MB
+        const uploader = new S3MultipartUpload({
+          client,
+          params: {
+            Bucket: MINIO_CONFIG.bucket,
+            Key,
+            Body: file,
+            ContentType: file.type || "application/octet-stream",
+          },
+          queueSize: 3,
+          partSize: 100 * 1024 * 1024,
+          leavePartsOnError: false,
+        })
+
+        uploader.on("httpUploadProgress", (evt: any) => {
+          const loaded = evt.loaded ?? 0
+          const total = evt.total ?? file.size
+          const pct = total ? Math.min(100, Math.round((loaded / total) * 100)) : 0
+          setProgress((prev) => {
+            const next = [...prev]
+            next[idx] = Math.max(next[idx] ?? 0, pct)
+            return next
+          })
+        })
+
+        return uploader.done().then(() => {
+          // Ensure we finish at 100%
+          setProgress((prev) => {
+            const next = [...prev]
+            next[idx] = 100
+            return next
+          })
+        })
+      })
+    )
+      .then(() => {
         setView("done")
-      }
-    }, 100)
-    return () => clearInterval(id)
-  }, [view])
+      })
+      .catch((err) => {
+        console.error("Upload failed", err)
+        setError("アップロードに失敗しました。設定やネットワークを確認してください。")
+        setView("form")
+      })
+  }, [title, counts, encodeMode, selectedFiles.length])
   if (view === "progress") {
     return (
       <HStack justify="center">
