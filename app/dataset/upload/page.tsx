@@ -10,6 +10,8 @@ import {
   Input,
   Field,
   Progress,
+  ProgressCircle,
+  Badge,
   Table,
   Select,
   createListCollection,
@@ -19,7 +21,7 @@ import {
 import { FileUpload, Icon } from "@chakra-ui/react"
 import { LuUpload } from "react-icons/lu"
 
-import { LuCloudUpload } from "react-icons/lu";
+import { LuCloudUpload, LuPartyPopper, LuSparkles, LuCheck } from "react-icons/lu";
 import { useState, useCallback, useEffect } from "react";
 
 type EncodeModeSelectProps = {
@@ -213,15 +215,63 @@ export default function Page() {
           <HStack w="95%" justify="space-between" pt="40px">
             <Box alignSelf="flex-start" ml="30px">
               <HStack alignSelf="flex-start">
+                <Icon color="green.500" boxSize={8}>
+                  <LuPartyPopper />
+                </Icon>
                 <Heading size="2xl">Upload Complete</Heading>
+                <Icon color="purple.500" boxSize={7}>
+                  <LuSparkles />
+                </Icon>
               </HStack>
             </Box>
           </HStack>
 
-          <Box w="95%" ml="30px" p="16px">
-            <Text mb="8px">{selectedFiles.length} file(s) uploaded successfully.</Text>
-            <HStack>
-              <Button rounded="full" onClick={() => setView("form")}>Back</Button>
+          <Box w="95%" ml="30px" p="16px" rounded="md" borderWidth="1px" bg="bg.panel">
+            <HStack justify="space-between" align="center" mb="16px">
+              <HStack>
+                <Badge colorPalette="green" variant="solid">Success</Badge>
+                <Text>全ファイルのアップロードが完了しました。素晴らしいスタートです！</Text>
+              </HStack>
+              <ProgressCircle.Root value={100} size="lg">
+                <ProgressCircle.Circle>
+                  <ProgressCircle.Track />
+                  <ProgressCircle.Range colorPalette="green" />
+                </ProgressCircle.Circle>
+              </ProgressCircle.Root>
+            </HStack>
+
+            <HStack gap="24px" mb="16px">
+              <Badge>Dataset: {title || "(no title)"}</Badge>
+              <Badge>Encode: {encodeMode || "(none)"}</Badge>
+              <Badge>Files: {selectedFiles.length}</Badge>
+            </HStack>
+
+            <Table.Root size="sm">
+              <Table.Header>
+                <Table.Row>
+                  <Table.ColumnHeader>File</Table.ColumnHeader>
+                  <Table.ColumnHeader>Status</Table.ColumnHeader>
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {selectedFiles.map((file, idx) => (
+                  <Table.Row key={file.name + idx}>
+                    <Table.Cell>{file.name}</Table.Cell>
+                    <Table.Cell>
+                      <HStack>
+                        <Icon color="green.500">
+                          <LuCheck />
+                        </Icon>
+                        <Text>Completed</Text>
+                      </HStack>
+                    </Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table.Root>
+
+            <HStack mt="16px">
+              <Button rounded="full" onClick={() => setView("form")}>Upload more</Button>
             </HStack>
           </Box>
         </VStack>
