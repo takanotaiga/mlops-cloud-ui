@@ -1,0 +1,2 @@
+export const FILE_UPLOAD_CONCURRENCY = 2
+

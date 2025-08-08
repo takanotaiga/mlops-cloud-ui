@@ -29,6 +29,7 @@ import { S3Client } from "@aws-sdk/client-s3";
 import { Upload as S3MultipartUpload } from "@aws-sdk/lib-storage";
 import { MINIO_CONFIG } from "@/app/secrets/minio-config";
 import { useState, useCallback, useRef, useEffect } from "react";
+import { FILE_UPLOAD_CONCURRENCY } from "@/app/dataset/upload/parameters";
 
 type EncodeModeSelectProps = {
   value: string
@@ -282,49 +283,76 @@ export default function Page() {
       },
     })
 
-    // Upload all files concurrently
-    Promise.all(
-      selectedFiles.map((file, idx) => {
-        const Key = `${title}/${file.name}`
+    const tasks = selectedFiles.map((file, idx) => () => {
+      const Key = `${title}/${file.name}`
+      const uploader = new S3MultipartUpload({
+        client,
+        params: {
+          Bucket: MINIO_CONFIG.bucket,
+          Key,
+          Body: file,
+          ContentType: file.type || "application/octet-stream",
+        },
+        queueSize: 3,
+        partSize: 100 * 1024 * 1024,
+        leavePartsOnError: false,
+      })
 
-        // Use managed upload; set partSize to 100MB so multipart is used only when >100MB
-        const uploader = new S3MultipartUpload({
-          client,
-          params: {
-            Bucket: MINIO_CONFIG.bucket,
-            Key,
-            Body: file,
-            ContentType: file.type || "application/octet-stream",
-          },
-          queueSize: 3,
-          partSize: 100 * 1024 * 1024,
-          leavePartsOnError: false,
-        })
-
-        uploader.on("httpUploadProgress", (evt: any) => {
-          const loaded = evt.loaded ?? 0
-          const total = evt.total ?? file.size
-          const pct = total ? Math.min(100, Math.round((loaded / total) * 100)) : 0
-          setProgress((prev) => {
-            const next = [...prev]
-            next[idx] = Math.max(next[idx] ?? 0, pct)
-            return next
-          })
-        })
-
-        return uploader.done().then(() => {
-          // Ensure we finish at 100%
-          setProgress((prev) => {
-            const next = [...prev]
-            next[idx] = 100
-            return next
-          })
+      uploader.on("httpUploadProgress", (evt: any) => {
+        const loaded = evt.loaded ?? 0
+        const total = evt.total ?? file.size
+        const pct = total ? Math.min(100, Math.round((loaded / total) * 100)) : 0
+        setProgress((prev) => {
+          const next = [...prev]
+          next[idx] = Math.max(next[idx] ?? 0, pct)
+          return next
         })
       })
-    )
-      .then(() => {
-        setView("done")
+
+      return uploader.done().then(() => {
+        setProgress((prev) => {
+          const next = [...prev]
+          next[idx] = 100
+          return next
+        })
       })
+    })
+
+    const runWithConcurrency = async <T,>(jobFns: Array<() => Promise<T>>, limit: number) => {
+      const results: T[] = []
+      let i = 0
+      let active = 0
+      let rejected = false
+      return new Promise<T[]>((resolve, reject) => {
+        const runNext = () => {
+          if (rejected) return
+          if (i >= jobFns.length && active === 0) {
+            resolve(results)
+            return
+          }
+          while (active < Math.max(1, limit) && i < jobFns.length) {
+            const idxJob = i++
+            active++
+            jobFns[idxJob]()
+              .then((res) => {
+                results[idxJob] = res as T
+              })
+              .catch((err) => {
+                rejected = true
+                reject(err)
+              })
+              .finally(() => {
+                active--
+                if (!rejected) runNext()
+              })
+          }
+        }
+        runNext()
+      })
+    }
+
+    runWithConcurrency(tasks, FILE_UPLOAD_CONCURRENCY)
+      .then(() => setView("done"))
       .catch((err) => {
         console.error("Upload failed", err)
         setError("アップロードに失敗しました。設定やネットワークを確認してください。")
