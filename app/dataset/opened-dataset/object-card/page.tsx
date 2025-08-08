@@ -6,7 +6,6 @@ import {
   VStack,
   SimpleGrid,
   Heading,
-  Button,
   CheckboxGroup,
   Checkbox,
   Fieldset,
