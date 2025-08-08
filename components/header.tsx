@@ -1,4 +1,4 @@
-import { Box, HStack, Heading, Text, Link } from "@chakra-ui/react"
+import { Box, HStack, Heading, Text, LinkBox, LinkOverlay } from "@chakra-ui/react"
 
 export default function Header() {
     return (
@@ -13,18 +13,29 @@ export default function Header() {
             borderBottomWidth="1.0px"
             px={4} py={3}>
             <HStack justify="space-between" w="85%" maxW="7xl" mx="auto">
-                <Link href="/" marginEnd="auto">
-                    <Heading size="md" marginEnd="auto">MLOps Cloud</Heading>
-                </Link>
-                <Link href="/dataset" px="10px">
-                    <Text textStyle="sm">Datasets</Text>
-                </Link>
-                <Link href="/trainning" px="10px">
-                    <Text textStyle="sm">Trainning</Text>
-                </Link>
-                <Link href="/inference" px="10px">
-                    <Text textStyle="sm">Inference</Text>
-                </Link>
+                <LinkBox marginEnd="auto" h="25px">
+                    <LinkOverlay href="/" >
+                        <Heading size="md" marginEnd="auto">MLOps Cloud</Heading>
+                    </LinkOverlay>
+                </LinkBox>
+
+                <LinkBox px="10px" h="25px">
+                    <LinkOverlay href="/dataset" >
+                        <Text textStyle="sm">Datasets</Text>
+                    </LinkOverlay>
+                </LinkBox>
+
+                <LinkBox px="10px" h="25px">
+                    <LinkOverlay href="/trainning">
+                        <Text textStyle="sm">Trainning</Text>
+                    </LinkOverlay>
+                </LinkBox>
+
+                <LinkBox px="10px" h="25px">
+                    <LinkOverlay href="/inference" >
+                        <Text textStyle="sm">Inference</Text>
+                    </LinkOverlay>
+                </LinkBox>
             </HStack>
         </Box>
     )
