@@ -17,7 +17,7 @@ export default function Header() {
                     <LinkOverlay href="/" >
                         <HStack>
                             <Heading size="md" marginEnd="auto">MLOps Cloud</Heading>
-                            <Badge size="md" rounded="full" colorPalette="purple" variant="subtle">Beta</Badge>
+                            <Badge size="md" rounded="full" colorPalette="purple" variant="subtle">Beta 0.1</Badge>
                         </HStack>
                     </LinkOverlay>
                 </LinkBox>
