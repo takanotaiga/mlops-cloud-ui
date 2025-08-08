@@ -15,7 +15,10 @@ import {
   Table,
   Select,
   createListCollection,
-  Portal
+  Portal,
+  Image,
+  SimpleGrid,
+  CloseButton,
 } from "@chakra-ui/react"
 
 import { FileUpload, Icon } from "@chakra-ui/react"
@@ -25,7 +28,7 @@ import { LuCloudUpload, LuPartyPopper, LuSparkles, LuCheck } from "react-icons/l
 import { S3Client } from "@aws-sdk/client-s3";
 import { Upload as S3MultipartUpload } from "@aws-sdk/lib-storage";
 import { MINIO_CONFIG } from "@/app/secrets/minio-config";
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 
 type EncodeModeSelectProps = {
   value: string
@@ -86,6 +89,8 @@ export default function Page() {
   const [encodeMode, setEncodeMode] = useState<string>("")
   const [encodeInvalid, setEncodeInvalid] = useState<boolean>(false)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [previewUrls, setPreviewUrls] = useState<string[]>([])
+  const [videoThumbs, setVideoThumbs] = useState<(string | null)[]>([])
   const [view, setView] = useState<"form" | "progress" | "done">("form")
   const [progress, setProgress] = useState<number[]>([])
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -97,9 +102,97 @@ export default function Page() {
     setError(null)
     setProgress([])
     if (fileInputRef.current) {
-      try { fileInputRef.current.value = "" } catch {}
+      try { fileInputRef.current.value = "" } catch { }
     }
   }, [])
+
+  // Generate/revoke object URLs for previews
+  useEffect(() => {
+    const urls = selectedFiles.map((f) => URL.createObjectURL(f))
+    setPreviewUrls(urls)
+    return () => {
+      urls.forEach((u) => URL.revokeObjectURL(u))
+    }
+  }, [selectedFiles])
+
+  // Create image thumbnails for video files so we can show a static preview
+  useEffect(() => {
+    let cancelled = false
+    const makeThumb = async (_file: File, url: string): Promise<string | null> => {
+      return new Promise((resolve) => {
+        try {
+          const video = document.createElement('video')
+          video.src = url
+          video.muted = true
+          video.playsInline = true
+          video.preload = 'metadata'
+          const cleanup = () => {
+            video.src = ''
+            video.remove()
+          }
+          const onLoaded = () => {
+            // Try to grab a frame shortly after start
+            const targetTime = Math.min(0.1, (video.duration || 1) - 0.1)
+            const capture = () => {
+              try {
+                const w = video.videoWidth || 320
+                const h = video.videoHeight || 180
+                const canvas = document.createElement('canvas')
+                // normalize to square-ish but keep aspect by fitting into square
+                const size = 600
+                // compute draw size to fit
+                const scale = Math.min(size / w, size / h)
+                const dw = Math.round(w * scale)
+                const dh = Math.round(h * scale)
+                canvas.width = dw
+                canvas.height = dh
+                const ctx = canvas.getContext('2d')
+                if (!ctx) throw new Error('no ctx')
+                ctx.drawImage(video, 0, 0, dw, dh)
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
+                cleanup()
+                resolve(dataUrl)
+              } catch (e) {
+                cleanup()
+                resolve(null)
+              }
+            }
+            const onSeeked = () => capture()
+            video.currentTime = targetTime > 0 ? targetTime : 0
+            video.addEventListener('seeked', onSeeked, { once: true })
+          }
+          video.addEventListener('loadeddata', onLoaded, { once: true })
+          video.addEventListener('error', () => {
+            cleanup()
+            resolve(null)
+          }, { once: true })
+        } catch {
+          resolve(null)
+        }
+      })
+    }
+
+    const run = async () => {
+      const results: (string | null)[] = []
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const f = selectedFiles[i]
+        const url = previewUrls[i]
+        if (f && url && f.type.startsWith('video/')) {
+          const thumb = await makeThumb(f, url)
+          results[i] = thumb
+        } else {
+          results[i] = null
+        }
+        if (cancelled) return
+      }
+      if (!cancelled) setVideoThumbs(results)
+    }
+
+    if (selectedFiles.length > 0) run()
+    else setVideoThumbs([])
+
+    return () => { cancelled = true }
+  }, [selectedFiles, previewUrls])
   // uploading state omitted; we infer from view/progress
 
   const handleFileChange = useCallback<React.ChangeEventHandler<HTMLInputElement>>(
@@ -142,6 +235,23 @@ export default function Page() {
     },
     []
   )
+
+  const removeFileAt = useCallback((index: number) => {
+    setSelectedFiles((prev) => {
+      const next = prev.filter((_, i) => i !== index)
+      let images = 0
+      let videos = 0
+      for (const file of next) {
+        if (file.type.startsWith("image/")) images += 1
+        else if (file.type.startsWith("video/")) videos += 1
+      }
+      setCounts({ images, videos })
+      if (next.length === 0) {
+        setFilesInvalid(false)
+      }
+      return next
+    })
+  }, [])
 
   const handleUploadClick = useCallback(() => {
     let invalid = false
@@ -410,15 +520,25 @@ export default function Page() {
                   onChange={handleFileChange}
                   ref={(el) => { fileInputRef.current = el as unknown as HTMLInputElement | null }}
                 />
-                <FileUpload.Dropzone borderColor={filesInvalid ? "red.500" : undefined} borderWidth={filesInvalid ? "2px" : undefined}>
-                  <Icon size="md" color="fg.muted">
-                    <LuUpload />
-                  </Icon>
-                  <FileUpload.DropzoneContent>
-                    <Box>Drag and drop files here</Box>
-                    <Box color="fg.muted">Images/Videos only, up to 50GB per file</Box>
-                  </FileUpload.DropzoneContent>
-                </FileUpload.Dropzone>
+                <VStack alignItems="stretch" gap="3">
+                  <Button onClick={() => fileInputRef.current?.click()} variant="surface" rounded="md">
+                    <HStack>
+                      <Icon>
+                        <LuUpload />
+                      </Icon>
+                      <Text>ファイルを選択</Text>
+                    </HStack>
+                  </Button>
+                  <FileUpload.Dropzone borderColor={filesInvalid ? "red.500" : undefined} borderWidth={filesInvalid ? "2px" : undefined}>
+                    <Icon size="md" color="fg.muted">
+                      <LuUpload />
+                    </Icon>
+                    <FileUpload.DropzoneContent>
+                      <Box>ここにドラッグ＆ドロップ</Box>
+                      <Box color="fg.muted">画像/動画のみ・1ファイル最大50GB</Box>
+                    </FileUpload.DropzoneContent>
+                  </FileUpload.Dropzone>
+                </VStack>
               </FileUpload.Root>
               {filesInvalid && (
                 <Field.ErrorText>Please select at least one file.</Field.ErrorText>
@@ -427,6 +547,41 @@ export default function Page() {
             {error && (
               <Box color="red.500" mt="2" ml="2">
                 {error}
+              </Box>
+            )}
+            {selectedFiles.length > 0 && (
+              <Box mt="4">
+                <Text mb="2" color="fg.muted">選択済み: {selectedFiles.length} ファイル</Text>
+                <SimpleGrid columns={{ base: 2, md: 4 }} gap="3">
+                  {selectedFiles.map((file, i) => {
+                    const isImage = file.type.startsWith("image/")
+                    const isVideo = file.type.startsWith("video/")
+                    const url = previewUrls[i]
+                    return (
+                      <Box key={file.name + i} borderWidth="1px" rounded="md" overflow="hidden" bg="bg.panel" position="relative">
+                        <Box position="absolute" top="1" right="1" zIndex={1}>
+                          <CloseButton size="sm" onClick={() => removeFileAt(i)} aria-label={`Remove ${file.name}`} />
+                        </Box>
+                        <Box style={{ aspectRatio: 1 as any }} bg="bg.subtle" overflow="hidden">
+                          {isImage && url && (
+                            <Image src={url} alt={file.name} objectFit="cover" w="100%" h="100%" />
+                          )}
+                          {isVideo && (
+                            videoThumbs[i] ? (
+                              <Image src={videoThumbs[i] as string} alt={file.name} objectFit="cover" w="100%" h="100%" />
+                            ) : (
+                              <Box w="100%" h="100%" display="grid" placeItems="center" color="fg.muted">Generating preview…</Box>
+                            )
+                          )}
+                        </Box>
+                        <Box p="2">
+                          <Text fontSize="sm" style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{file.name}</Text>
+                          <Text fontSize="xs" color="fg.muted">{(file.size / (1024 * 1024)).toFixed(1)} MB</Text>
+                        </Box>
+                      </Box>
+                    )
+                  })}
+                </SimpleGrid>
               </Box>
             )}
           </Box>
