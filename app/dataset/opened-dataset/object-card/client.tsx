@@ -7,6 +7,7 @@ import {
   Link,
   Text,
   VStack,
+  Button,
   Skeleton,
   SkeletonText,
 } from "@chakra-ui/react"
@@ -27,7 +28,6 @@ type FileRow = {
   mime?: string
   size?: number
   dataset?: string
-  uploadedAt?: string
 }
 
 export default function ClientObjectCardPage() {
@@ -123,6 +123,7 @@ export default function ClientObjectCardPage() {
           {" / "}
           {objectName || file?.name || "Object"}
         </Heading>
+        <Button variant="outline" colorPalette="red" size="sm" rounded="full">Remove</Button>
       </HStack>
 
       <Box display="grid" gridTemplateColumns={{ base: "1fr", md: "30% 1fr" }} gap={8} mt={8}>
@@ -149,9 +150,9 @@ export default function ClientObjectCardPage() {
               <SkeletonText noOfLines={6} />
             ) : (
               <VStack align="stretch" gap={2} fontSize="sm">
-                 <HStack justify="space-between"><Text color="gray.500">Dataset</Text><Text>{file?.dataset || datasetName || "-"}</Text></HStack>
-                 <HStack justify="space-between"><Text color="gray.500">Bucket</Text><Text>{file?.bucket || fallbackBucket || "-"}</Text></HStack>
-                 <HStack justify="space-between"><Text color="gray.500">Key</Text><Text style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{file?.key || fallbackKey || "-"}</Text></HStack>
+                <HStack justify="space-between"><Text color="gray.500">Dataset</Text><Text>{file?.dataset || datasetName || "-"}</Text></HStack>
+                <HStack justify="space-between"><Text color="gray.500">Bucket</Text><Text>{file?.bucket || fallbackBucket || "-"}</Text></HStack>
+                <HStack justify="space-between"><Text color="gray.500">Key</Text><Text style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{file?.key || fallbackKey || "-"}</Text></HStack>
                 <HStack justify="space-between"><Text color="gray.500">Size</Text><Text>{formatBytes(file?.size ?? previewSize)}</Text></HStack>
                 <HStack justify="space-between"><Text color="gray.500">ID</Text><Text style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{file?.id || fileId}</Text></HStack>
               </VStack>
@@ -170,7 +171,6 @@ export default function ClientObjectCardPage() {
                   <video src={previewUrl} controls style={{ width: "100%", maxHeight: "70vh", display: "block" }} />
                 </Box>
               ) : (
-                // Fallback to image
                 <Box asChild>
                   <img src={previewUrl} alt={file?.name || objectName || "object"} style={{ width: "100%", height: "auto", display: "block" }} />
                 </Box>
@@ -206,3 +206,4 @@ function formatBytes(size?: number): string {
   while (s >= 1024 && i < units.length - 1) { s /= 1024; i++ }
   return `${s.toFixed(1)} ${units[i]}`
 }
+
