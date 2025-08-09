@@ -61,7 +61,7 @@ export async function getObjectUrlPreferPresign(
   bucket: string,
   key: string,
   expiresInSeconds: number = 60 * 5,
-): Promise<{ url: string; isBlob: boolean }> {
+): Promise<{ url: string; isBlob: boolean; sizeBytes?: number }> {
   try {
     const importer = new Function("m", "return import(m)") as (m: string) => Promise<any>
     const mod: any = await importer("@aws-sdk/s3-request-presigner")
@@ -73,11 +73,21 @@ export async function getObjectUrlPreferPresign(
       return { url, isBlob: false }
     }
     throw new Error("presigner missing")
-  } catch {
-    const s3 = createS3Client()
-    const out = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }))
-    const blob = await new Response(out.Body as any).blob()
-    const url = URL.createObjectURL(blob)
-    return { url, isBlob: true }
+  } catch (e) {
+    try {
+      const s3 = createS3Client()
+      const out = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }))
+      const blob = await new Response(out.Body as any).blob()
+      const url = URL.createObjectURL(blob)
+      return { url, isBlob: true, sizeBytes: blob.size }
+    } catch {
+      // Last resort: construct a direct path-style URL (may fail if bucket is private)
+      const base = MINIO_CONFIG.endpoint.replace(/\/$/, "")
+      const objectPath = [bucket, key]
+        .map((p) => p.split("/").filter(Boolean).map((seg) => encodeURIComponent(seg)).join("/"))
+        .join("/")
+      const url = `${base}/${objectPath}`
+      return { url, isBlob: false }
   }
+}
 }

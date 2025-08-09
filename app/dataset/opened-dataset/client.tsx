@@ -234,7 +234,7 @@ export default function ClientOpenedDatasetPage() {
             visibleFiles.map((f) => {
               const isImage = (f.mime || "").startsWith("image/")
               const url = isImage ? imgUrls[f.key] : undefined
-              const href = `/dataset/opened-dataset/object-card?d=${encodeBase64Utf8(datasetName)}&id=${encodeBase64Utf8(f.id)}&n=${encodeBase64Utf8(f.name || f.key)}`
+              const href = `/dataset/opened-dataset/object-card?d=${encodeBase64Utf8(datasetName)}&id=${encodeBase64Utf8(f.id)}&n=${encodeBase64Utf8(f.name || f.key)}&b=${encodeBase64Utf8(f.bucket)}&k=${encodeBase64Utf8(f.key)}`
               return (
                 <NextLink key={f.id} href={href}>
                   <Box bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">

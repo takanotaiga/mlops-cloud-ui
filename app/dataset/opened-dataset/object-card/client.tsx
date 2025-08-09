@@ -1,22 +1,97 @@
 "use client"
 
-import { Box, Heading, HStack, Link, Text } from "@chakra-ui/react"
+import {
+  Box,
+  Heading,
+  HStack,
+  Link,
+  Text,
+  VStack,
+  Skeleton,
+  SkeletonText,
+} from "@chakra-ui/react"
 import NextLink from "next/link"
 import { useSearchParams } from "next/navigation"
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { decodeBase64Utf8 } from "@/components/utils/base64"
+import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
+import { useQuery } from "@tanstack/react-query"
+import { extractRows } from "@/components/surreal/normalize"
+import { getObjectUrlPreferPresign } from "@/components/utils/minio"
+
+type FileRow = {
+  id: string
+  bucket: string
+  key: string
+  name: string
+  mime?: string
+  size?: number
+  dataset?: string
+  uploadedAt?: string
+}
 
 export default function ClientObjectCardPage() {
   const params = useSearchParams()
-  const { datasetName, objectName } = useMemo(() => {
+  const { datasetName, objectName, fileId, fallbackBucket, fallbackKey } = useMemo(() => {
     const d = params.get("d") || ""
     const n = params.get("n") || ""
+    const i = params.get("id") || ""
+    const b = params.get("b") || ""
+    const k = params.get("k") || ""
     let datasetName = ""
     let objectName = ""
+    let fileId = ""
+    let fallbackBucket = ""
+    let fallbackKey = ""
     try { datasetName = d ? decodeBase64Utf8(d) : "" } catch { datasetName = "" }
     try { objectName = n ? decodeBase64Utf8(n) : "" } catch { objectName = "" }
-    return { datasetName, objectName }
+    try { fileId = i ? decodeBase64Utf8(i) : "" } catch { fileId = "" }
+    try { fallbackBucket = b ? decodeBase64Utf8(b) : "" } catch { fallbackBucket = "" }
+    try { fallbackKey = k ? decodeBase64Utf8(k) : "" } catch { fallbackKey = "" }
+    return { datasetName, objectName, fileId, fallbackBucket, fallbackKey }
   }, [params])
+
+  const surreal = useSurrealClient()
+  const { isSuccess } = useSurreal()
+
+  const { data: file, isPending } = useQuery({
+    queryKey: ["object-card", fileId],
+    enabled: isSuccess && !!fileId,
+    queryFn: async (): Promise<FileRow | null> => {
+      if (!fileId) return null
+      const res = await surreal.query("SELECT * FROM file WHERE id == $id LIMIT 1", { id: fileId })
+      const rows = extractRows<FileRow>(res)
+      return rows[0] ?? null
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 5_000,
+  })
+
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewSize, setPreviewSize] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    let cancelled = false
+    let createdBlob: string | null = null
+    const run = async () => {
+      const bucket = file?.bucket || fallbackBucket
+      const key = file?.key || fallbackKey
+      if (!bucket || !key) { setPreviewUrl(null); return }
+      try {
+        const { url, isBlob, sizeBytes } = await getObjectUrlPreferPresign(bucket, key)
+        if (cancelled) return
+        setPreviewUrl(url)
+        setPreviewSize(sizeBytes)
+        if (isBlob) createdBlob = url
+      } catch {
+        setPreviewUrl(null)
+      }
+    }
+    run()
+    return () => {
+      cancelled = true
+      if (createdBlob) { try { URL.revokeObjectURL(createdBlob) } catch { } }
+    }
+  }, [file?.bucket, file?.key, fallbackBucket, fallbackKey])
 
   return (
     <Box px="10%" py="20px">
@@ -46,14 +121,88 @@ export default function ClientObjectCardPage() {
             </NextLink>
           </Link>
           {" / "}
-          {objectName || "Object"}
+          {objectName || file?.name || "Object"}
         </Heading>
       </HStack>
 
-      <Box mt={8}>
-        <Text color="gray.600">ここにオブジェクトの詳細を表示します。</Text>
+      <Box display="grid" gridTemplateColumns={{ base: "1fr", md: "30% 1fr" }} gap={8} mt={8}>
+        {/* Left: Info */}
+        <VStack align="stretch" gap={4}>
+          <Box>
+            {isPending ? (
+              <>
+                <SkeletonText noOfLines={1} />
+                <SkeletonText noOfLines={2} mt={3} />
+              </>
+            ) : (
+              <>
+                <Heading size="md">{file?.name || objectName || "Object"}</Heading>
+                <Text color="gray.600" mt={2}>{describeType(file?.mime, file?.name || fallbackKey)}</Text>
+              </>
+            )}
+          </Box>
+
+          <Box borderTopWidth="1px" />
+
+          <Box>
+            {isPending ? (
+              <SkeletonText noOfLines={6} />
+            ) : (
+              <VStack align="stretch" gap={2} fontSize="sm">
+                 <HStack justify="space-between"><Text color="gray.500">Dataset</Text><Text>{file?.dataset || datasetName || "-"}</Text></HStack>
+                 <HStack justify="space-between"><Text color="gray.500">Bucket</Text><Text>{file?.bucket || fallbackBucket || "-"}</Text></HStack>
+                 <HStack justify="space-between"><Text color="gray.500">Key</Text><Text style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{file?.key || fallbackKey || "-"}</Text></HStack>
+                <HStack justify="space-between"><Text color="gray.500">Size</Text><Text>{formatBytes(file?.size ?? previewSize)}</Text></HStack>
+                <HStack justify="space-between"><Text color="gray.500">ID</Text><Text style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{file?.id || fileId}</Text></HStack>
+              </VStack>
+            )}
+          </Box>
+        </VStack>
+
+        {/* Right: Preview */}
+        <Box>
+          <Box bg="bg.subtle" rounded="md" overflow="hidden" borderWidth="1px" minH="220px">
+            {isPending ? (
+              <Skeleton height="360px" />
+            ) : previewUrl ? (
+              (file?.mime || "").startsWith("video/") ? (
+                <Box asChild>
+                  <video src={previewUrl} controls style={{ width: "100%", maxHeight: "70vh", display: "block" }} />
+                </Box>
+              ) : (
+                // Fallback to image
+                <Box asChild>
+                  <img src={previewUrl} alt={file?.name || objectName || "object"} style={{ width: "100%", height: "auto", display: "block" }} />
+                </Box>
+              )
+            ) : (
+              <Box p={6}>
+                <Text color="gray.500">プレビューを表示できません。</Text>
+              </Box>
+            )}
+          </Box>
+        </Box>
       </Box>
     </Box>
   )
 }
 
+function describeType(mime?: string, nameOrKey?: string): string {
+  const m = (mime || "").toLowerCase()
+  if (m) return m
+  const n = (nameOrKey || "").toLowerCase()
+  if (n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".gif") || n.endsWith(".avif")) return "image/*"
+  if (n.endsWith(".mp4") || n.endsWith(".mov") || n.endsWith(".mkv") || n.endsWith(".avi") || n.endsWith(".webm")) return "video/*"
+  if (n.endsWith(".pcd") || n.endsWith(".ply") || n.endsWith(".las") || n.endsWith(".laz") || n.endsWith(".bin")) return "pointcloud/*"
+  if (n.endsWith(".bag") || n.endsWith(".mcap")) return "rosbag/*"
+  return "Unknown"
+}
+
+function formatBytes(size?: number): string {
+  if (typeof size !== "number" || !isFinite(size) || size < 0) return "-"
+  const units = ["B", "KB", "MB", "GB", "TB"] as const
+  let s = size
+  let i = 0
+  while (s >= 1024 && i < units.length - 1) { s /= 1024; i++ }
+  return `${s.toFixed(1)} ${units[i]}`
+}
