@@ -17,7 +17,7 @@ import {
 import NextLink from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
-import { decodeBase64Utf8 } from "@/components/utils/base64"
+import { decodeBase64Utf8, encodeBase64Utf8 } from "@/components/utils/base64"
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { extractRows } from "@/components/surreal/normalize"
@@ -72,6 +72,53 @@ export default function ClientObjectCardPage() {
     refetchOnWindowFocus: false,
     staleTime: 5_000,
   })
+
+  // Fetch ordered list for navigation (Prev/Next)
+  type NavRow = { id: string; name?: string; key: string; bucket: string }
+  const { data: navList = [] } = useQuery({
+    queryKey: ["dataset-files-nav", datasetName],
+    enabled: isSuccess && !!datasetName,
+    queryFn: async (): Promise<NavRow[]> => {
+      const res = await surreal.query(
+        "SELECT id, name, key, bucket FROM file WHERE dataset == $dataset ORDER BY name ASC",
+        { dataset: datasetName }
+      )
+      const rows = extractRows<NavRow>(res)
+      return rows
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 5_000,
+  })
+
+  const { prevItem, nextItem } = useMemo(() => {
+    if (!navList || navList.length === 0) return { prevItem: undefined, nextItem: undefined }
+    const fid = file?.id || fileId
+    let idx = -1
+    if (fid) {
+      idx = navList.findIndex((r) => r.id === fid)
+    }
+    if (idx === -1) {
+      const k = file?.key || fallbackKey
+      if (k) idx = navList.findIndex((r) => r.key === k)
+    }
+    if (idx === -1) {
+      const n = file?.name || objectName
+      if (n) idx = navList.findIndex((r) => (r.name || r.key) === n)
+    }
+    const prevItem = idx > 0 ? navList[idx - 1] : undefined
+    const nextItem = idx >= 0 && idx < navList.length - 1 ? navList[idx + 1] : undefined
+    return { prevItem, nextItem }
+  }, [navList, file?.id, file?.key, file?.name, fileId, fallbackKey, objectName])
+
+  function makeHref(item: NavRow | undefined): string | null {
+    if (!item) return null
+    const dEnc = encodeBase64Utf8(datasetName)
+    const idEnc = encodeBase64Utf8(item.id)
+    const nEnc = encodeBase64Utf8(item.name || item.key)
+    const bEnc = encodeBase64Utf8(item.bucket)
+    const kEnc = encodeBase64Utf8(item.key)
+    return `/dataset/opened-dataset/object-card?d=${dEnc}&id=${idEnc}&n=${nEnc}&b=${bEnc}&k=${kEnc}`
+  }
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewSize, setPreviewSize] = useState<number | undefined>(undefined)
@@ -148,6 +195,25 @@ export default function ClientObjectCardPage() {
     }
   }, [file?.bucket, file?.key, fallbackBucket, fallbackKey])
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      const tag = (target?.tagName || '').toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || target?.isContentEditable) return
+      if (e.key === 'ArrowLeft' && prevItem) {
+        e.preventDefault()
+        const href = makeHref(prevItem)
+        if (href) router.push(href)
+      } else if (e.key === 'ArrowRight' && nextItem) {
+        e.preventDefault()
+        const href = makeHref(nextItem)
+        if (href) router.push(href)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [prevItem, nextItem, router])
+
   return (
     <Box px="10%" py="20px">
       <HStack align="center" justify="space-between">
@@ -178,38 +244,61 @@ export default function ClientObjectCardPage() {
           {" / "}
           {objectName || file?.name || "Object"}
         </Heading>
-        <Dialog.Root>
-          <Dialog.Trigger asChild>
-            <Button variant="outline" colorPalette="red" size="sm" rounded="full" disabled={removing || (!file && !fallbackBucket)}>
-              Remove
-            </Button>
-          </Dialog.Trigger>
-          <Portal>
-            <Dialog.Backdrop />
-            <Dialog.Positioner>
-              <Dialog.Content>
-                <Dialog.Header>
-                  <Dialog.Title>Delete Object</Dialog.Title>
-                </Dialog.Header>
-                <Dialog.Body>
-                  <Text>このオブジェクトを削除します。よろしいですか？</Text>
-                  <Text mt={2} color="gray.600">メタデータ（DB）削除後、MinIOの実体も削除します。</Text>
-                </Dialog.Body>
-                <Dialog.Footer>
-                  <Dialog.ActionTrigger asChild>
-                    <Button variant="outline">Cancel</Button>
-                  </Dialog.ActionTrigger>
-                  <Button onClick={handleRemove} disabled={removing} colorPalette="red">
-                    {removing ? "Removing..." : "Delete"}
-                  </Button>
-                </Dialog.Footer>
-                <Dialog.CloseTrigger asChild>
-                  <CloseButton size="sm" />
-                </Dialog.CloseTrigger>
-              </Dialog.Content>
-            </Dialog.Positioner>
-          </Portal>
-        </Dialog.Root>
+        <HStack gap={2}>
+          <Button
+            size="sm"
+            variant="subtle"
+            rounded="full"
+            onClick={() => { const href = makeHref(prevItem); if (href) router.push(href) }}
+            disabled={!prevItem}
+          >
+            Prev
+          </Button>
+
+          <Button
+            size="sm"
+            variant="subtle"
+            rounded="full"
+            onClick={() => { const href = makeHref(nextItem); if (href) router.push(href) }}
+            disabled={!nextItem}
+          >
+            Next
+          </Button>
+
+          <Box w="10px" />
+          <Dialog.Root>
+            <Dialog.Trigger asChild>
+              <Button variant="outline" colorPalette="red" size="sm" rounded="full" disabled={removing || (!file && !fallbackBucket)}>
+                Remove
+              </Button>
+            </Dialog.Trigger>
+            <Portal>
+              <Dialog.Backdrop />
+              <Dialog.Positioner>
+                <Dialog.Content>
+                  <Dialog.Header>
+                    <Dialog.Title>Delete Object</Dialog.Title>
+                  </Dialog.Header>
+                  <Dialog.Body>
+                    <Text>このオブジェクトを削除します。よろしいですか？</Text>
+                    <Text mt={2} color="gray.600">メタデータ（DB）削除後、MinIOの実体も削除します。</Text>
+                  </Dialog.Body>
+                  <Dialog.Footer>
+                    <Dialog.ActionTrigger asChild>
+                      <Button variant="outline">Cancel</Button>
+                    </Dialog.ActionTrigger>
+                    <Button onClick={handleRemove} disabled={removing} colorPalette="red">
+                      {removing ? "Removing..." : "Delete"}
+                    </Button>
+                  </Dialog.Footer>
+                  <Dialog.CloseTrigger asChild>
+                    <CloseButton size="sm" />
+                  </Dialog.CloseTrigger>
+                </Dialog.Content>
+              </Dialog.Positioner>
+            </Portal>
+          </Dialog.Root>
+        </HStack>
       </HStack>
 
       <Box display="grid" gridTemplateColumns={{ base: "1fr", md: "30% 1fr" }} gap={8} mt={8}>
@@ -272,6 +361,12 @@ export default function ClientObjectCardPage() {
     </Box>
   )
 }
+
+// Keyboard navigation with ArrowLeft / ArrowRight
+// Install global handler to move between objects
+// placed after component to keep effect isolated
+// Note: this block relies on closures above, so it must remain within the module scope
+// but outside the component return markup.
 
 function describeType(mime?: string, nameOrKey?: string): string {
   const m = (mime || "").toLowerCase()
