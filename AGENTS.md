@@ -73,3 +73,31 @@
 - MinIO: Start a local MinIO server, create a bucket (e.g., `horus-bucket`), and set CORS to allow your dev origin. Update `endpoint`, `accessKeyId`, `secretAccessKey`, and `bucket` in `app/secrets/minio-config.tsx` or via env.
 - SurrealDB: Start SurrealDB with WebSocket enabled. Set `NEXT_PUBLIC_SURREAL_URL` to `ws://localhost:8000/rpc`, and configure `NEXT_PUBLIC_SURREAL_NS`, `NEXT_PUBLIC_SURREAL_DB`, `NEXT_PUBLIC_SURREAL_USER`, `NEXT_PUBLIC_SURREAL_PASS`.
 - Dev Flow: `yarn dev` starts the UI. The header’s connection badge reflects SurrealDB and MinIO reachability.
+
+## Source Map
+
+**Routing & Layout**
+- `app/layout.tsx`: Root layout; renders global `Provider` and `Header`.
+- `app/provider.tsx`: Wraps Chakra, color mode, React Query, and `SurrealProvider` with config.
+- `app/page.tsx`: Landing page with links to Datasets and Training.
+
+**Dataset Pages**
+- `app/dataset/page.tsx`: Dataset list. Uses React Query to run `SELECT dataset FROM file GROUP BY dataset;`, filters by a debounced search, and links each card to the detail page with a base64-encoded name.
+- `app/dataset/opened-dataset/page.tsx`: Dataset detail. Reads `?d=` from the query, decodes the dataset name, renders it in the heading, and provides a “Dataset” breadcrumb link back to `/dataset`.
+- `app/dataset/upload/page.tsx`: Upload UI. Client-side multipart upload to MinIO via AWS SDK v3, then registers metadata to SurrealDB. Shows progress and completion actions (Upload more, Explore datasets).
+- `app/dataset/upload/parameters.ts`: Tunables such as `FILE_UPLOAD_CONCURRENCY`.
+
+**UI Components**
+- `components/header.tsx`: App header with navigation and connection status.
+- `components/status/connection-status.tsx`: Checks SurrealDB connectivity and MinIO bucket health; displays a compact status.
+- `components/image-card.tsx`: Memoized dataset card showing a static thumbnail and a dynamic title; accepts `href` for navigation.
+- `components/content-card.tsx`: Simple content thumbnail card used in the dataset detail grid.
+
+**Surreal & Utilities**
+- `components/surreal/SurrealProvider.tsx`: Context provider creating a `surrealdb` client; manages connect, signin, and `use ns/db`.
+- `components/surreal/normalize.ts`: Helpers to normalize SurrealDB responses (e.g., extract dataset names).
+- `components/utils/base64.ts`: UTF-8 safe base64 encode/decode utilities used to pass dataset names via query.
+
+**Secrets & Config**
+- `app/secrets/minio-config.tsx`: `MINIO_CONFIG` for S3 client (endpoint, region, keys, bucket, path-style).
+- `app/secrets/surreal-config.ts`: `SURREAL_CONFIG` for SurrealDB client (URL, ns, db, user, pass).
