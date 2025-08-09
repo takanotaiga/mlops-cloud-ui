@@ -14,6 +14,7 @@ import {
   Portal,
   CloseButton,
   Input,
+  Textarea,
 } from "@chakra-ui/react"
 import NextLink from "next/link"
 import { useSearchParams } from "next/navigation"
@@ -212,6 +213,9 @@ export default function ClientObjectCardPage() {
   const [removing, setRemoving] = useState(false)
   const [activeLabel, setActiveLabel] = useState<string>("")
   const [newLabelName, setNewLabelName] = useState<string>("")
+  const [textLabel, setTextLabel] = useState<string>("")
+  const [textLabelId, setTextLabelId] = useState<string | null>(null)
+  const [textSaving, setTextSaving] = useState<boolean>(false)
 
   // Helpers to mutate labels
   async function addLabel(name: string) {
@@ -258,6 +262,60 @@ export default function ClientObjectCardPage() {
     if (!id) return
     await surreal.query("DELETE annotation WHERE id = <record> $id", { id })
     await queryClient.invalidateQueries({ queryKey: ["file-annotations", activeFileId, annotationCategory] })
+  }
+
+  // Text Label: load existing per-file text label
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      if (!activeFileId || !isSuccess) return
+      try {
+        const res = await surreal.query(
+          "SELECT * FROM annotation WHERE file == <record> $fid AND category = 'text_label' LIMIT 1",
+          { fid: activeFileId },
+        )
+        if (cancelled) return
+        const rows = extractRows<any>(res)
+        const row = rows?.[0]
+        if (row) {
+          setTextLabelId(thingToString(row.id))
+          setTextLabel(String(row.text ?? ""))
+        } else {
+          setTextLabelId(null)
+          setTextLabel("")
+        }
+      } catch { /* ignore */ }
+    }
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFileId, isSuccess])
+
+  // Save text label helper
+  async function saveTextLabel(next: string) {
+    if (!activeFileId || !datasetName) return
+    const content = next
+    const trimmed = content.trim()
+    setTextSaving(true)
+    try {
+      if (!trimmed) {
+        if (textLabelId) {
+          await surreal.query("DELETE annotation WHERE id = <record> $id", { id: textLabelId })
+          setTextLabelId(null)
+        }
+      } else if (textLabelId) {
+        await surreal.query("UPDATE annotation SET text = $text WHERE id = <record> $id", { id: textLabelId, text: content })
+      } else {
+        const res = await surreal.query(
+          "CREATE annotation CONTENT { dataset: $dataset, file: <record> $file, category: 'text_label', text: $text }",
+          { dataset: datasetName, file: activeFileId, text: content },
+        )
+        const rows = extractRows<any>(res)
+        const created = rows?.[0]
+        if (created?.id) setTextLabelId(thingToString(created.id))
+      }
+    } finally {
+      setTextSaving(false)
+    }
   }
 
   // Helper to add timeout to a promise
@@ -521,6 +579,19 @@ export default function ClientObjectCardPage() {
             {activeLabel && (
               <Text mt={2} fontSize="sm" color="gray.600">現在のアノテーション用ラベル: {activeLabel}</Text>
             )}
+
+            {/* Text Label */}
+            <Heading size="sm" mt={4} mb={2}>Text Label</Heading>
+            <Textarea
+              placeholder="Comment..."
+              value={textLabel}
+              onChange={(e) => setTextLabel(e.target.value)}
+              onBlur={() => { void saveTextLabel(textLabel) }}
+              size="sm"
+            />
+            <Text fontSize="xs" color={textSaving ? "gray.700" : "gray.500"} mt={1}>
+              {textSaving ? "Saving..." : "自動保存されます"}
+            </Text>
           </Box>
         </VStack>
 
