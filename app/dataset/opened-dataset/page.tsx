@@ -13,16 +13,42 @@ import {
   Text,
   HStack,
   For,
-} from "@chakra-ui/react"
+  } from "@chakra-ui/react"
 import ContentCard from "@/components/content-card"
+import { useSearchParams } from "next/navigation"
+import { useMemo } from "react"
+import { decodeBase64Utf8 } from "@/components/utils/base64"
+import NextLink from "next/link"
+import { Link } from "@chakra-ui/react"
 
 export default function Page() {
+  const params = useSearchParams()
+  const datasetName = useMemo(() => {
+    const d = params.get("d")
+    if (!d) return ""
+    try {
+      return decodeBase64Utf8(d)
+    } catch {
+      return ""
+    }
+  }, [params])
+
   return (
     <Box px="10%" py="20px">
-
       <HStack align="center" justify="space-between">
         <Heading size="2xl" >
-          Dataset / Person
+          <Link
+            asChild
+            color="black"
+            textDecoration="none"
+            _hover={{ textDecoration: "none", color: "black" }}
+            _focusVisible={{ outline: "none", boxShadow: "none" }}
+            _active={{ outline: "none", boxShadow: "none" }}
+          >
+            <NextLink href="/dataset">Dataset</NextLink>
+          </Link>
+          {" / "}
+          {datasetName || "(unknown)"}
         </Heading>
 
         <Box mt={8} textAlign="right">
@@ -34,7 +60,6 @@ export default function Page() {
           </Button>
         </Box>
       </HStack>
-
 
       <Flex align="flex-start">
         <VStack align="start" w="25%" gap="10px">

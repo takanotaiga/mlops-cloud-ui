@@ -29,6 +29,7 @@ import { S3Client } from "@aws-sdk/client-s3";
 import { Upload as S3MultipartUpload } from "@aws-sdk/lib-storage";
 import { MINIO_CONFIG } from "@/app/secrets/minio-config";
 import { useState, useCallback, useRef, useEffect } from "react";
+import NextLink from "next/link"
 import { useSurrealClient } from "@/components/surreal/SurrealProvider";
 import { FILE_UPLOAD_CONCURRENCY } from "@/app/dataset/upload/parameters";
 
@@ -495,8 +496,11 @@ export default function Page() {
               </Table.Body>
             </Table.Root>
 
-            <HStack mt="16px">
+            <HStack mt="16px" gap="12px">
               <Button rounded="full" onClick={() => { resetFileSelection(); setView("form") }}>Upload more</Button>
+              <NextLink href="/dataset" passHref>
+                <Button rounded="full" variant="outline">Explore datasets</Button>
+              </NextLink>
             </HStack>
           </Box>
         </VStack>

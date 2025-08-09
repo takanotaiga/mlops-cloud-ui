@@ -21,6 +21,7 @@ import { useDeferredValue, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
 import { extractDatasetNames } from "@/components/surreal/normalize"
+import { encodeBase64Utf8 } from "@/components/utils/base64"
 
 export default function Page() {
   const surreal = useSurrealClient()
@@ -90,7 +91,13 @@ export default function Page() {
           </HStack>
         )}
         <SimpleGrid columns={[2, 3, 4]} gap="30px" mx="auto">
-          {!isPending && filtered.map((name) => <ImageCard key={name} title={name} />)}
+          {!isPending && filtered.map((name) => (
+            <ImageCard
+              key={name}
+              title={name}
+              href={`/dataset/opened-dataset?d=${encodeBase64Utf8(name)}`}
+            />
+          ))}
         </SimpleGrid>
         {!isPending && filtered.length === 0 && (
           <Box w="95%" ml="30px" color="gray.500" py="10px">No datasets found</Box>

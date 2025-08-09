@@ -3,12 +3,13 @@ import { Box, Heading, Text, Image, VStack, LinkOverlay, LinkBox } from "@chakra
 
 type ImageCardProps = {
   title?: string
+  href?: string
 }
 
-function ImageCardBase({ title }: ImageCardProps) {
+function ImageCardBase({ title, href = "/dataset/opened-dataset" }: ImageCardProps) {
   return (
     <LinkBox px="10px" >
-      <LinkOverlay href="/dataset/opened-dataset" px="10px">
+      <LinkOverlay href={href} px="10px">
         <Box bg="white" width="200px" pb="40px">
           <VStack>
             <Image
