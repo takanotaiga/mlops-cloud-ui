@@ -162,9 +162,25 @@ export default function ClientOpenedDatasetPage() {
     })
   }, [visibleFiles])
 
+  // Pagination (20 items per page)
+  const PAGE_SIZE = 20
+  const [page, setPage] = useState(0)
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(sortedVisibleFiles.length / PAGE_SIZE)), [sortedVisibleFiles.length])
+  const clampedPage = Math.min(page, totalPages - 1)
+  const pageFiles = useMemo(() => {
+    const start = clampedPage * PAGE_SIZE
+    const end = start + PAGE_SIZE
+    return sortedVisibleFiles.slice(start, end)
+  }, [sortedVisibleFiles, clampedPage])
+
+  // Reset to first page when dataset or filters change
+  useEffect(() => {
+    setPage(0)
+  }, [datasetName, selectedMedia])
+
   useEffect(() => {
     // If there are no files, clear once if needed and exit without updating state repeatedly.
-    if (!files || files.length === 0) {
+    if (!pageFiles || pageFiles.length === 0) {
       setImgUrls((prev) => {
         if (Object.keys(prev).length === 0) return prev
         Object.values(prev).forEach((u) => { if (u.startsWith("blob:")) URL.revokeObjectURL(u) })
@@ -177,7 +193,7 @@ export default function ClientOpenedDatasetPage() {
     const createdBlobs: string[] = []
     const run = async () => {
       const next: Record<string, string> = {}
-      for (const f of files) {
+      for (const f of pageFiles) {
         const isImage = (f.mime || "").startsWith("image/")
         const isVideoWithThumb = (f.mime || "").startsWith("video/") && !!f.thumbKey
         if (isImage || isVideoWithThumb) {
@@ -207,7 +223,7 @@ export default function ClientOpenedDatasetPage() {
       cancelled = true
       createdBlobs.forEach((u) => { try { URL.revokeObjectURL(u) } catch { } })
     }
-  }, [files])
+  }, [pageFiles])
 
   return (
     <Box px="10%" py="20px">
@@ -333,7 +349,7 @@ export default function ClientOpenedDatasetPage() {
                 </Box>
               ))
             ) : (
-            sortedVisibleFiles.map((f) => {
+            pageFiles.map((f) => {
               const isImage = (f.mime || "").startsWith("image/")
               const isVideoWithThumb = (f.mime || "").startsWith("video/") && !!f.thumbKey
               const url = (isImage || isVideoWithThumb) ? imgUrls[f.key] : undefined
@@ -363,6 +379,35 @@ export default function ClientOpenedDatasetPage() {
             })
             )}
           </SimpleGrid>
+
+          {/* Pagination controls */}
+          {!isPending && sortedVisibleFiles.length > 0 && (
+            <HStack mt={4} justify="center" gap="4">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={clampedPage <= 0}
+              >
+                Prev Page
+              </Button>
+              <Text fontSize="sm">
+                {clampedPage * PAGE_SIZE + 1}
+                {" - "}
+                {Math.min(sortedVisibleFiles.length, (clampedPage + 1) * PAGE_SIZE)}
+                {" / "}
+                {sortedVisibleFiles.length}
+              </Text>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={clampedPage >= totalPages - 1}
+              >
+                Next Page
+              </Button>
+            </HStack>
+          )}
         </Box>
       </Flex>
     </Box>
