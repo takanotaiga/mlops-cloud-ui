@@ -15,6 +15,8 @@ import {
   For,
   Link,
   Image,
+  Skeleton,
+  SkeletonText,
 } from "@chakra-ui/react"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
@@ -219,7 +221,17 @@ export default function ClientOpenedDatasetPage() {
             </HStack>
           )}
           <SimpleGrid columns={[2, 3, 4]} gap="10px">
-            {!isPending && visibleFiles.map((f) => {
+            {isPending ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <Box key={i} bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">
+                  <Skeleton height="200px" />
+                  <Box px="8px" pt="6px">
+                    <SkeletonText noOfLines={1} />
+                  </Box>
+                </Box>
+              ))
+            ) : (
+            visibleFiles.map((f) => {
               const isImage = (f.mime || "").startsWith("image/")
               const url = isImage ? imgUrls[f.key] : undefined
               return (
@@ -242,11 +254,11 @@ export default function ClientOpenedDatasetPage() {
                   </Box>
                 </Box>
               )
-            })}
+            })
+            )}
           </SimpleGrid>
         </Box>
       </Flex>
     </Box>
   )
 }
-

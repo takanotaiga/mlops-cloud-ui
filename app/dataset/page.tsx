@@ -10,6 +10,8 @@ import {
   Input,
   InputGroup,
   Spacer,
+  Skeleton,
+  SkeletonText,
 } from "@chakra-ui/react"
 
 import ImageCard from "@/components/image-card"
@@ -91,13 +93,25 @@ export default function Page() {
           </HStack>
         )}
         <SimpleGrid columns={[2, 3, 4]} gap="30px" mx="auto">
-          {!isPending && filtered.map((name) => (
-            <ImageCard
-              key={name}
-              title={name}
-              href={`/dataset/opened-dataset?d=${encodeBase64Utf8(name)}`}
-            />
-          ))}
+          {isPending
+            ? Array.from({ length: 4 }).map((_, i) => (
+                <Box key={i} px="10px">
+                  <Box bg="white" width="200px" pb="40px">
+                    <VStack>
+                      <Skeleton rounded="md" h="200px" w="200px" />
+                      <SkeletonText noOfLines={1} w="95%" mt="4" />
+                      <SkeletonText noOfLines={1} w="80%" />
+                    </VStack>
+                  </Box>
+                </Box>
+              ))
+            : filtered.map((name) => (
+                <ImageCard
+                  key={name}
+                  title={name}
+                  href={`/dataset/opened-dataset?d=${encodeBase64Utf8(name)}`}
+                />
+              ))}
         </SimpleGrid>
         {!isPending && filtered.length === 0 && (
           <Box w="95%" ml="30px" color="gray.500" py="10px">No datasets found</Box>
