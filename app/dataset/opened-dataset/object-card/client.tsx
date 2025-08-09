@@ -511,16 +511,15 @@ export default function ClientObjectCardPage() {
                 canAnnotate={(file?.mime || "").startsWith("image/") || (file?.name || fallbackKey || "").match(/\.(jpg|jpeg|png|webp|gif|avif)$/i) != null}
                 boxes={annotations}
                 onAddBox={async (b) => {
-                  if (!activeLabel) {
-                    // Require a label selection before saving
-                    alert("先にラベルを選択または追加してください。")
-                    return
-                  }
+                  if (!activeLabel) return
                   await addBoxAnnotation(b)
                 }}
                 onRemoveBox={(id) => deleteAnnotation(id)}
                 labelFor={(l?: string) => l || "(no label)"}
                 getBoxColor={(l?: string) => (l ? stringToColor(l) : "#3182ce")}
+                requireLabel
+                hasActiveLabel={!!activeLabel}
+                missingLabelText="ラベルを選択してください"
               />
             ) : (
               <Box p={6}>
@@ -580,8 +579,11 @@ function ImageAnnotator(props: {
   onRemoveBox: (id: string) => void | Promise<void>
   labelFor?: (label?: string) => string
   getBoxColor?: (label?: string) => string
+  requireLabel?: boolean
+  hasActiveLabel?: boolean
+  missingLabelText?: string
 }) {
-  const { src, canAnnotate, boxes, onAddBox, onRemoveBox, labelFor, getBoxColor } = props
+  const { src, canAnnotate, boxes, onAddBox, onRemoveBox, labelFor, getBoxColor, requireLabel, hasActiveLabel, missingLabelText } = props
   const [start, setStart] = useState<{ x: number; y: number } | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   // track size if needed in future (e.g., natural dims)
@@ -641,7 +643,7 @@ function ImageAnnotator(props: {
             bottom={0}
             left={`${cursor.x * 100}%`}
             width="1px"
-            bg="#3182ce"
+            bg={(requireLabel && !hasActiveLabel) ? "#E53E3E" : "#3182ce"}
             opacity={0.7}
             pointerEvents="none"
             transform="translateX(-0.5px)"
@@ -652,11 +654,28 @@ function ImageAnnotator(props: {
             right={0}
             top={`${cursor.y * 100}%`}
             height="1px"
-            bg="#3182ce"
+            bg={(requireLabel && !hasActiveLabel) ? "#E53E3E" : "#3182ce"}
             opacity={0.7}
             pointerEvents="none"
             transform="translateY(-0.5px)"
           />
+          {(requireLabel && !hasActiveLabel) && (
+            <Box
+              position="absolute"
+              left={`calc(${cursor.x * 100}% + 8px)`}
+              top={`calc(${cursor.y * 100}% + 8px)`}
+              bg="#E53E3E"
+              color="white"
+              fontSize="xs"
+              px={2}
+              py={1}
+              rounded="sm"
+              pointerEvents="none"
+              shadow="md"
+            >
+              {missingLabelText || "ラベル未選択"}
+            </Box>
+          )}
         </>
       )}
       {/* Existing boxes */}
