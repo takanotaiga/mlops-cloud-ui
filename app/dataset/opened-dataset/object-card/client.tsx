@@ -15,6 +15,8 @@ import {
   CloseButton,
   Input,
   Textarea,
+  Accordion,
+  Span,
 } from "@chakra-ui/react"
 import NextLink from "next/link"
 import { useSearchParams } from "next/navigation"
@@ -216,6 +218,10 @@ export default function ClientObjectCardPage() {
   const [textLabel, setTextLabel] = useState<string>("")
   const [textLabelId, setTextLabelId] = useState<string | null>(null)
   const [textSaving, setTextSaving] = useState<boolean>(false)
+  const [autoPrompt, setAutoPrompt] = useState<string>("")
+  const [autoMode, setAutoMode] = useState<"bbox" | "text">("bbox")
+  const [autoMsg, setAutoMsg] = useState<string>("")
+  const [autoRunning, setAutoRunning] = useState<boolean>(false)
 
   // Helpers to mutate labels
   async function addLabel(name: string) {
@@ -524,75 +530,154 @@ export default function ClientObjectCardPage() {
 
           <Box borderTopWidth="1px" />
 
-          <Box>
-            {isPending ? (
-              <SkeletonText noOfLines={6} />
-            ) : (
-              <VStack align="stretch" gap={2} fontSize="sm">
-                <HStack justify="space-between"><Text color="gray.500">Dataset</Text><Text>{file?.dataset || datasetName || "-"}</Text></HStack>
-                <HStack justify="space-between"><Text color="gray.500">Bucket</Text><Text>{file?.bucket || fallbackBucket || "-"}</Text></HStack>
-                <HStack justify="space-between"><Text color="gray.500">Key</Text><Text style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{file?.key || fallbackKey || "-"}</Text></HStack>
-                <HStack justify="space-between"><Text color="gray.500">Size</Text><Text>{formatBytes(file?.size ?? previewSize)}</Text></HStack>
-                <HStack justify="space-between"><Text color="gray.500">ID</Text><Text style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{file?.id || fileId}</Text></HStack>
-              </VStack>
-            )}
-          </Box>
+          <Accordion.Root multiple defaultValue={["bbox", "text"]}>
+            {/* Info */}
+            <Accordion.Item value="info">
+              <Accordion.ItemTrigger>
+                <Span flex="1">Info</Span>
+                <Accordion.ItemIndicator />
+              </Accordion.ItemTrigger>
+              <Accordion.ItemContent>
+                <Accordion.ItemBody>
+                  {isPending ? (
+                    <SkeletonText noOfLines={6} />
+                  ) : (
+                    <VStack align="stretch" gap={2} fontSize="sm" py={2}>
+                      <HStack justify="space-between"><Text color="gray.500">Dataset</Text><Text>{file?.dataset || datasetName || "-"}</Text></HStack>
+                      <HStack justify="space-between"><Text color="gray.500">Bucket</Text><Text>{file?.bucket || fallbackBucket || "-"}</Text></HStack>
+                      <HStack justify="space-between"><Text color="gray.500">Key</Text><Text style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{file?.key || fallbackKey || "-"}</Text></HStack>
+                      <HStack justify="space-between"><Text color="gray.500">Size</Text><Text>{formatBytes(file?.size ?? previewSize)}</Text></HStack>
+                      <HStack justify="space-between"><Text color="gray.500">ID</Text><Text style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{file?.id || fileId}</Text></HStack>
+                    </VStack>
+                  )}
+                </Accordion.ItemBody>
+              </Accordion.ItemContent>
+            </Accordion.Item>
 
-          {/* Labels (dataset-shared) */}
-          <Box borderTopWidth="1px" pt={3}>
-            <Heading size="sm" mb={2}>BBox Labels</Heading>
-            <HStack gap={2} wrap="wrap">
-              {labelsPending ? (
-                <SkeletonText noOfLines={2} />
-              ) : labels.length === 0 ? (
-                <Text color="gray.500">ラベルがありません。追加してください。</Text>
-              ) : (
-                labels.map((l) => (
-                  <HStack
-                    key={l.id}
-                    gap={1}
-                    px={2}
-                    py={1}
-                    borderWidth="1px"
-                    rounded="md"
-                    cursor="pointer"
-                    onClick={() => setActiveLabel(l.name)}
-                    bg={activeLabel === l.name ? "gray.100" : undefined}
-                  >
-                    <Text>{l.name}</Text>
-                    <Button size="xs" variant="ghost" colorPalette="red" onClick={(e) => { e.stopPropagation(); removeLabel(l.name) }}>x</Button>
-                  </HStack>
-                ))
-              )}
-            </HStack>
-            <HStack mt={2} gap={2}>
-              <Input
-                value={newLabelName}
-                onChange={(e) => setNewLabelName(e.target.value)}
-                placeholder="新しいラベル名"
-                size="sm"
-                flex={1}
-                onKeyDown={(e) => { if (e.key === 'Enter') { addLabel(newLabelName); setNewLabelName("") } }}
-              />
-              <Button size="sm" onClick={() => { addLabel(newLabelName); setNewLabelName("") }}>Add</Button>
-            </HStack>
-            {activeLabel && (
-              <Text mt={2} fontSize="sm" color="gray.600">現在のアノテーション用ラベル: {activeLabel}</Text>
-            )}
+            {/* Auto Annotation */}
+            <Accordion.Item value="auto">
+              <Accordion.ItemTrigger>
+                <Span flex="1">Auto Annotation</Span>
+                <Accordion.ItemIndicator />
+              </Accordion.ItemTrigger>
+              <Accordion.ItemContent>
+                <Accordion.ItemBody>
+                  <VStack align="stretch" gap={2} py={2}>
+                    <Textarea
+                      placeholder="Prompt..."
+                      value={autoPrompt}
+                      onChange={(e) => setAutoPrompt(e.target.value)}
+                      size="sm"
+                    />
+                    <HStack>
+                      <Button size="xs" rounded="full" variant={autoMode === "bbox" ? "solid" : "outline"} onClick={() => setAutoMode("bbox")}>Bounding Box</Button>
+                      <Button size="xs" rounded="full" variant={autoMode === "text" ? "solid" : "outline"} onClick={() => setAutoMode("text")}>Image to Text</Button>
+                    </HStack>
+                    <HStack>
+                      <Button
+                        size="sm"
+                        rounded="full"
+                        colorPalette="green"
+                        onClick={async () => {
+                          setAutoMsg("")
+                          setAutoRunning(true)
+                          try {
+                            if (autoMode === "text") {
+                              setAutoMsg("テキスト自動生成は未実装です")
+                            } else {
+                              setAutoMsg("BBox自動生成は未実装です")
+                            }
+                          } finally {
+                            setAutoRunning(false)
+                          }
+                        }}
+                        disabled={autoRunning || !autoPrompt.trim()}
+                      >
+                        {autoRunning ? "Running..." : "Generate🪄"}
+                      </Button>
+                      {autoMsg && <Text fontSize="xs" color="gray.600">{autoMsg}</Text>}
+                    </HStack>
+                  </VStack>
+                </Accordion.ItemBody>
+              </Accordion.ItemContent>
+            </Accordion.Item>
+
+            {/* BBox Labels */}
+            <Accordion.Item value="bbox">
+              <Accordion.ItemTrigger>
+                <Span flex="1">BBox Labels</Span>
+                <Accordion.ItemIndicator />
+              </Accordion.ItemTrigger>
+              <Accordion.ItemContent>
+                <Accordion.ItemBody>
+                  <VStack align="stretch" gap={2} py={2}>
+                    <HStack gap={2} wrap="wrap">
+                      {labelsPending ? (
+                        <SkeletonText noOfLines={2} />
+                      ) : labels.length === 0 ? (
+                        <Text color="gray.500">ラベルがありません。追加してください。</Text>
+                      ) : (
+                        labels.map((l) => (
+                          <HStack
+                            key={l.id}
+                            gap={1}
+                            px={2}
+                            py={1}
+                            borderWidth="1px"
+                            rounded="md"
+                            cursor="pointer"
+                            onClick={() => setActiveLabel(l.name)}
+                            bg={activeLabel === l.name ? "gray.100" : undefined}
+                          >
+                            <Text>{l.name}</Text>
+                            <Button size="xs" variant="ghost" colorPalette="red" onClick={(e) => { e.stopPropagation(); removeLabel(l.name) }}>x</Button>
+                          </HStack>
+                        ))
+                      )}
+                    </HStack>
+                    <HStack mt={2} gap={2}>
+                      <Input
+                        value={newLabelName}
+                        onChange={(e) => setNewLabelName(e.target.value)}
+                        placeholder="新しいラベル名"
+                        size="sm"
+                        flex={1}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { addLabel(newLabelName); setNewLabelName("") } }}
+                      />
+                      <Button size="sm" onClick={() => { addLabel(newLabelName); setNewLabelName("") }}>Add</Button>
+                    </HStack>
+                    {activeLabel && (
+                      <Text mt={2} fontSize="sm" color="gray.600">現在のアノテーション用ラベル: {activeLabel}</Text>
+                    )}
+                  </VStack>
+                </Accordion.ItemBody>
+              </Accordion.ItemContent>
+            </Accordion.Item>
 
             {/* Text Label */}
-            <Heading size="sm" mt={4} mb={2}>Text Label</Heading>
-            <Textarea
-              placeholder="Comment..."
-              value={textLabel}
-              onChange={(e) => setTextLabel(e.target.value)}
-              onBlur={() => { void saveTextLabel(textLabel) }}
-              size="sm"
-            />
-            <Text fontSize="xs" color={textSaving ? "gray.700" : "gray.500"} mt={1}>
-              {textSaving ? "Saving..." : "自動保存されます"}
-            </Text>
-          </Box>
+            <Accordion.Item value="text">
+              <Accordion.ItemTrigger>
+                <Span flex="1">Text Label</Span>
+                <Accordion.ItemIndicator />
+              </Accordion.ItemTrigger>
+              <Accordion.ItemContent>
+                <Accordion.ItemBody>
+                  <VStack align="stretch" gap={2} py={2}>
+                    <Textarea
+                      placeholder="Comment..."
+                      value={textLabel}
+                      onChange={(e) => setTextLabel(e.target.value)}
+                      onBlur={() => { void saveTextLabel(textLabel) }}
+                      size="sm"
+                    />
+                    <Text fontSize="xs" color={textSaving ? "gray.700" : "gray.500"}>
+                      {textSaving ? "Saving..." : "自動保存されます"}
+                    </Text>
+                  </VStack>
+                </Accordion.ItemBody>
+              </Accordion.ItemContent>
+            </Accordion.Item>
+          </Accordion.Root>
         </VStack>
 
         {/* Right: Preview */}
