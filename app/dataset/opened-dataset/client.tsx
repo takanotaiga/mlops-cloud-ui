@@ -17,18 +17,24 @@ import {
   Image,
   Skeleton,
   SkeletonText,
+  Dialog,
+  Portal,
+  CloseButton,
 } from "@chakra-ui/react"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { decodeBase64Utf8, encodeBase64Utf8 } from "@/components/utils/base64"
 import NextLink from "next/link"
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { extractRows } from "@/components/surreal/normalize"
-import { getObjectUrlPreferPresign } from "@/components/utils/minio"
+import { getObjectUrlPreferPresign, deleteObjectFromS3 } from "@/components/utils/minio"
+import { useRouter } from "next/navigation"
 
 export default function ClientOpenedDatasetPage() {
+  const router = useRouter()
   const params = useSearchParams()
+  const queryClient = useQueryClient()
   const datasetName = useMemo(() => {
     const d = params.get("d")
     if (!d) return ""
@@ -68,6 +74,37 @@ export default function ClientOpenedDatasetPage() {
   })
 
   const [imgUrls, setImgUrls] = useState<Record<string, string>>({})
+  const [removing, setRemoving] = useState(false)
+
+  function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("Timeout")), ms)
+      p.then((v) => { clearTimeout(t); resolve(v) }).catch((e) => { clearTimeout(t); reject(e) })
+    })
+  }
+
+  async function handleRemoveDataset() {
+    if (!datasetName || removing) return
+    setRemoving(true)
+    try {
+      await withTimeout((async () => {
+        // 1) Delete all metadata rows for this dataset
+        await surreal.query("DELETE file WHERE dataset = $dataset", { dataset: datasetName })
+        // 2) Delete all objects from S3 (best-effort)
+        for (const f of files) {
+          try { await deleteObjectFromS3(f.bucket, f.key) } catch { /* ignore */ }
+        }
+      })(), 3000)
+    } catch {
+      // timeout or error: continue navigation without blocking the user
+    } finally {
+      // Invalidate caches and navigate back to dataset list with refresh token
+      queryClient.invalidateQueries({ queryKey: ["datasets"] })
+      const r = Date.now().toString()
+      router.push(`/dataset?r=${encodeURIComponent(r)}`)
+      setRemoving(false)
+    }
+  }
 
   // Media type filtering
   const MEDIA_OPTIONS = useMemo(() => ["Video", "Image", "PointCloud", "ROSBag"] as const, [])
@@ -159,9 +196,38 @@ export default function ClientOpenedDatasetPage() {
           <Button mr={4} size="sm" variant="outline" rounded="full">
             Export Dataset
           </Button>
-          <Button variant="outline" colorPalette="red" size="sm" rounded="full" >
-            Remove
-          </Button>
+          <Dialog.Root>
+            <Dialog.Trigger asChild>
+              <Button variant="outline" colorPalette="red" size="sm" rounded="full" disabled={removing}>
+                Remove
+              </Button>
+            </Dialog.Trigger>
+            <Portal>
+              <Dialog.Backdrop />
+              <Dialog.Positioner>
+                <Dialog.Content>
+                  <Dialog.Header>
+                    <Dialog.Title>Delete Dataset</Dialog.Title>
+                  </Dialog.Header>
+                  <Dialog.Body>
+                    <Text>データセット「{datasetName}」を丸ごと削除します。よろしいですか？</Text>
+                    <Text mt={2} color="gray.600">メタデータ（DB）削除後、MinIOのオブジェクトも削除します。</Text>
+                  </Dialog.Body>
+                  <Dialog.Footer>
+                    <Dialog.ActionTrigger asChild>
+                      <Button variant="outline">Cancel</Button>
+                    </Dialog.ActionTrigger>
+                    <Button onClick={handleRemoveDataset} disabled={removing} colorPalette="red">
+                      {removing ? "Removing..." : "Delete"}
+                    </Button>
+                  </Dialog.Footer>
+                  <Dialog.CloseTrigger asChild>
+                    <CloseButton size="sm" />
+                  </Dialog.CloseTrigger>
+                </Dialog.Content>
+              </Dialog.Positioner>
+            </Portal>
+          </Dialog.Root>
         </Box>
       </HStack>
 
