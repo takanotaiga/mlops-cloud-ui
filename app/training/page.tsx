@@ -17,7 +17,16 @@ import {
   TabsTrigger,
   TabsContent,
   AspectRatio,
+  CheckboxGroup,
+  Checkbox,
+  Skeleton,
+  InputGroup,
 } from "@chakra-ui/react"
+import { useDeferredValue, useMemo, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
+import { extractDatasetNames } from "@/components/surreal/normalize"
+import { LuSearch } from "react-icons/lu"
 
 const modelOptions = createListCollection({
   items: [
@@ -25,14 +34,6 @@ const modelOptions = createListCollection({
     { label: "YOLOv9", value: "yolov9" },
     { label: "ResNet50", value: "resnet50" },
     { label: "ViT-Base", value: "vit-base" },
-  ],
-})
-
-const datasetOptions = createListCollection({
-  items: [
-    { label: "Persons", value: "persons" },
-    { label: "Vehicles", value: "vehicles" },
-    { label: "COCO-subset", value: "coco" },
   ],
 })
 
@@ -73,6 +74,31 @@ function LineSvg({ data, yKey, color = "#2b6cb0" }: { data: Point[]; yKey: strin
 }
 
 export default function Page() {
+  // SurrealDB datasets
+  const surreal = useSurrealClient()
+  const { isSuccess } = useSurreal()
+
+  const { data: datasets = [], isPending, isError, error, refetch } = useQuery({
+    queryKey: ["datasets-for-training"],
+    enabled: isSuccess,
+    queryFn: async () => {
+      const res = await surreal.query("SELECT dataset FROM file GROUP BY dataset;")
+      return extractDatasetNames(res)
+    },
+    staleTime: 10_000,
+    refetchOnWindowFocus: false,
+  })
+
+  const [selectedDatasets, setSelectedDatasets] = useState<string[]>([])
+  const [query, setQuery] = useState("")
+  const deferredQuery = useDeferredValue(query)
+  const filteredDatasets = useMemo(() => {
+    const q = deferredQuery.trim().toLowerCase()
+    if (!q) return datasets
+    return datasets.filter((n) => n.toLowerCase().includes(q))
+  }, [datasets, deferredQuery])
+  const canStart = useMemo(() => selectedDatasets.length > 0, [selectedDatasets])
+
   return (
     <HStack justify="center">
       <VStack w="70%" align="stretch" gap="24px" py="24px">
@@ -81,13 +107,87 @@ export default function Page() {
           <Heading size="2xl">Training</Heading>
           <HStack gap="2">
             <Button size="sm" variant="outline" rounded="full">Stop</Button>
-            <Button size="sm" rounded="full" colorPalette="green">Start</Button>
+            <Button size="sm" rounded="full" colorPalette="green" disabled={!canStart}>Start</Button>
           </HStack>
         </HStack>
 
         <HStack align="flex-start" gap="24px">
-          {/* Left: configuration */}
-          <VStack w={{ base: "100%", md: "36%" }} align="stretch" gap="16px">
+          {/* Left: dataset selection */}
+          <VStack w={{ base: "100%", md: "28%" }} align="stretch" gap="16px">
+            <Box p="16px" rounded="md" borderWidth="1px" bg="bg.panel">
+              <Text fontWeight="bold" mb="12px">Datasets</Text>
+              <InputGroup
+                flex="1"
+                startElement={<LuSearch />}
+                endElement={
+                  query ? (
+                    <Button size="xs" variant="ghost" onClick={() => setQuery("")}>Clear</Button>
+                  ) : undefined
+                }
+              >
+                <Input
+                  placeholder="Search datasets"
+                  size="sm"
+                  variant="flushed"
+                  aria-label="Search datasets by name"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </InputGroup>
+              <HStack mt="10px" justify="space-between">
+                <Text textStyle="xs" color="gray.500">{selectedDatasets.length} selected</Text>
+                <HStack gap="1">
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => setSelectedDatasets(filteredDatasets)}
+                    disabled={filteredDatasets.length === 0}
+                  >
+                    Select filtered
+                  </Button>
+                  <Button size="xs" variant="ghost" onClick={() => setSelectedDatasets([])}>Clear</Button>
+                </HStack>
+              </HStack>
+              <Box mt="8px">
+                {isPending ? (
+                  <VStack align="stretch" gap="2">
+                    <Skeleton h="20px" />
+                    <Skeleton h="20px" />
+                    <Skeleton h="20px" />
+                  </VStack>
+                ) : isError ? (
+                  <HStack justify="space-between" align="center">
+                    <Text color="red.500" textStyle="sm">Failed to load datasets: {String((error as any)?.message ?? error)}</Text>
+                    <Button size="xs" variant="outline" onClick={() => refetch()}>Retry</Button>
+                  </HStack>
+                ) : (
+                  <CheckboxGroup
+                    value={selectedDatasets}
+                    onValueChange={(e: any) => {
+                      const next = (e?.value ?? e) as string[]
+                      setSelectedDatasets(next)
+                    }}
+                  >
+                    <VStack align="stretch" gap="1" maxH="340px" overflowY="auto" pr="2">
+                      {filteredDatasets.map((name) => (
+                        <Checkbox.Root key={name} value={name}>
+                          <Checkbox.HiddenInput />
+                          <Checkbox.Control />
+                          <Checkbox.Label>{name}</Checkbox.Label>
+                        </Checkbox.Root>
+                      ))}
+                      {filteredDatasets.length === 0 && (
+                        <Text textStyle="sm" color="gray.500">No datasets</Text>
+                      )}
+                    </VStack>
+                  </CheckboxGroup>
+                )}
+              </Box>
+            </Box>
+          </VStack>
+
+          {/* Middle: configuration */}
+          <VStack w={{ base: "100%", md: "28%" }} align="stretch" gap="16px">
             <Box p="16px" rounded="md" borderWidth="1px" bg="bg.panel">
               <Text fontWeight="bold" mb="12px">Configuration</Text>
 
@@ -120,32 +220,20 @@ export default function Page() {
                   </Select.Root>
                 </Box>
 
-                {/* Dataset */}
+                {/* Datasets (display-only of selected) */}
                 <Box>
-                  <Text textStyle="sm" color="gray.600" mb="6px">Dataset</Text>
-                  <Select.Root collection={datasetOptions} size="sm" width="100%">
-                    <Select.HiddenSelect />
-                    <Select.Control>
-                      <Select.Trigger>
-                        <Select.ValueText placeholder="Select dataset" />
-                      </Select.Trigger>
-                      <Select.IndicatorGroup>
-                        <Select.Indicator />
-                      </Select.IndicatorGroup>
-                    </Select.Control>
-                    <Portal>
-                      <Select.Positioner>
-                        <Select.Content>
-                          {datasetOptions.items.map((item) => (
-                            <Select.Item item={item} key={item.value}>
-                              {item.label}
-                              <Select.ItemIndicator />
-                            </Select.Item>
-                          ))}
-                        </Select.Content>
-                      </Select.Positioner>
-                    </Portal>
-                  </Select.Root>
+                  <HStack justify="space-between" align="center" mb="6px">
+                    <Text textStyle="sm" color="gray.600">Datasets</Text>
+                    <Text textStyle="xs" color="gray.500">{selectedDatasets.length} selected</Text>
+                  </HStack>
+                  <VStack align="stretch" gap="1" maxH="140px" overflowY="auto" pr="2">
+                    {selectedDatasets.map((name) => (
+                      <Text key={name} textStyle="sm">• {name}</Text>
+                    ))}
+                    {selectedDatasets.length === 0 && (
+                      <Text textStyle="sm" color="gray.500">No datasets selected</Text>
+                    )}
+                  </VStack>
                 </Box>
 
                 {/* Hyperparameters */}
@@ -234,4 +322,3 @@ export default function Page() {
     </HStack>
   )
 }
-
