@@ -583,6 +583,7 @@ function ImageAnnotator(props: {
 }) {
   const { src, canAnnotate, boxes, onAddBox, onRemoveBox, labelFor, getBoxColor } = props
   const [start, setStart] = useState<{ x: number; y: number } | null>(null)
+  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   // track size if needed in future (e.g., natural dims)
 
   function normPoint(e: any) {
@@ -597,12 +598,14 @@ function ImageAnnotator(props: {
     const p = normPoint(e)
     if (!start) {
       setStart(p)
+      setCursor(p)
     } else {
       const x1 = Math.min(start.x, p.x)
       const y1 = Math.min(start.y, p.y)
       const x2 = Math.max(start.x, p.x)
       const y2 = Math.max(start.y, p.y)
       setStart(null)
+      setCursor(null)
       onAddBox({ x1, y1, x2, y2 })
     }
   }
@@ -616,13 +619,46 @@ function ImageAnnotator(props: {
   }
 
   return (
-    <Box position="relative" onClick={onClick} cursor={canAnnotate ? (start ? "crosshair" : "crosshair") : "default"}>
+    <Box
+      position="relative"
+      onClick={onClick}
+      onMouseMove={(e) => { if (canAnnotate) setCursor(normPoint(e)) }}
+      onMouseLeave={() => { setCursor(null) }}
+      cursor={canAnnotate ? "crosshair" : "default"}
+    >
       <img
         src={src}
         alt="preview"
         style={{ width: "100%", height: "auto", display: "block" }}
         onLoad={() => { /* no-op */ }}
       />
+      {/* Crosshair lines: always show while hovering over image */}
+      {canAnnotate && cursor && (
+        <>
+          <Box
+            position="absolute"
+            top={0}
+            bottom={0}
+            left={`${cursor.x * 100}%`}
+            width="1px"
+            bg="#3182ce"
+            opacity={0.7}
+            pointerEvents="none"
+            transform="translateX(-0.5px)"
+          />
+          <Box
+            position="absolute"
+            left={0}
+            right={0}
+            top={`${cursor.y * 100}%`}
+            height="1px"
+            bg="#3182ce"
+            opacity={0.7}
+            pointerEvents="none"
+            transform="translateY(-0.5px)"
+          />
+        </>
+      )}
       {/* Existing boxes */}
       {boxes?.map((b) => {
         const color = getBoxColor?.(b.label) || "#3182ce"
