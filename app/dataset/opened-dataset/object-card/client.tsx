@@ -32,6 +32,22 @@ type FileRow = {
   mime?: string
   size?: number
   dataset?: string
+  thumbKey?: string
+}
+
+// Normalize SurrealDB Thing (record id) to string for safe rendering
+type ThingLike = { tb: string; id: unknown }
+function thingToString(v: unknown): string {
+  if (v == null) return ""
+  if (typeof v === "string") return v
+  if (typeof v === "object" && v !== null && "tb" in (v as any) && "id" in (v as any)) {
+    const t = v as ThingLike
+    const id = typeof t.id === "object" && t.id !== null
+      ? ((t.id as any).toString?.() ?? JSON.stringify(t.id))
+      : String(t.id)
+    return `${t.tb}:${id}`
+  }
+  return String(v)
 }
 
 export default function ClientObjectCardPage() {
@@ -65,9 +81,16 @@ export default function ClientObjectCardPage() {
     enabled: isSuccess && !!fileId,
     queryFn: async (): Promise<FileRow | null> => {
       if (!fileId) return null
-      const res = await surreal.query("SELECT * FROM file WHERE id == $id LIMIT 1", { id: fileId })
-      const rows = extractRows<FileRow>(res)
-      return rows[0] ?? null
+      const res = await surreal.query("SELECT * FROM file WHERE id == <record> $id LIMIT 1;", { id: fileId })
+      const rows = extractRows<any>(res)
+      const raw = rows[0]
+      if (!raw) return null
+      const normalized: FileRow = {
+        ...raw,
+        id: thingToString(raw.id),
+        dataset: thingToString(raw.dataset),
+      }
+      return normalized
     },
     refetchOnWindowFocus: false,
     staleTime: 5_000,
@@ -83,8 +106,8 @@ export default function ClientObjectCardPage() {
         "SELECT id, name, key, bucket FROM file WHERE dataset == $dataset ORDER BY name ASC",
         { dataset: datasetName }
       )
-      const rows = extractRows<NavRow>(res)
-      return rows
+      const rows = extractRows<any>(res)
+      return rows.map((r) => ({ ...r, id: thingToString(r.id) })) as NavRow[]
     },
     refetchOnWindowFocus: false,
     staleTime: 5_000,
@@ -176,7 +199,13 @@ export default function ClientObjectCardPage() {
     let createdBlob: string | null = null
     const run = async () => {
       const bucket = file?.bucket || fallbackBucket
-      const key = file?.key || fallbackKey
+      const isVideo = (file?.mime || '').startsWith('video/')
+      // If video without thumbnail, do not attempt to preview the video itself
+      if (isVideo && !file?.thumbKey) { setPreviewUrl(null); return }
+      // If this is a video and we have a stored thumbnail key, prefer that for preview
+      const key = (isVideo && file?.thumbKey)
+        ? file?.thumbKey
+        : (file?.key || fallbackKey)
       if (!bucket || !key) { setPreviewUrl(null); return }
       try {
         const { url, isBlob, sizeBytes } = await getObjectUrlPreferPresign(bucket, key)
@@ -193,7 +222,7 @@ export default function ClientObjectCardPage() {
       cancelled = true
       if (createdBlob) { try { URL.revokeObjectURL(createdBlob) } catch { } }
     }
-  }, [file?.bucket, file?.key, fallbackBucket, fallbackKey])
+  }, [file?.bucket, file?.key, file?.thumbKey, file?.mime, fallbackBucket, fallbackKey])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -341,15 +370,9 @@ export default function ClientObjectCardPage() {
             {isPending ? (
               <Skeleton height="360px" />
             ) : previewUrl ? (
-              (file?.mime || "").startsWith("video/") ? (
-                <Box asChild>
-                  <video src={previewUrl} controls style={{ width: "100%", maxHeight: "70vh", display: "block" }} />
-                </Box>
-              ) : (
-                <Box asChild>
-                  <img src={previewUrl} alt={file?.name || objectName || "object"} style={{ width: "100%", height: "auto", display: "block" }} />
-                </Box>
-              )
+              <Box asChild>
+                <img src={previewUrl} alt={file?.name || objectName || "object"} style={{ width: "100%", height: "auto", display: "block" }} />
+              </Box>
             ) : (
               <Box p={6}>
                 <Text color="gray.500">プレビューを表示できません。</Text>

@@ -59,6 +59,22 @@ export default function ClientOpenedDatasetPage() {
     name: string
     size?: number
     uploadedAt?: string
+    thumbKey?: string
+  }
+
+  // Normalize SurrealDB Thing values (e.g., id) to strings for safe usage
+  type ThingLike = { tb: string; id: unknown }
+  function thingToString(v: unknown): string {
+    if (v == null) return ""
+    if (typeof v === "string") return v
+    if (typeof v === "object" && v !== null && "tb" in (v as any) && "id" in (v as any)) {
+      const t = v as ThingLike
+      const id = typeof t.id === "object" && t.id !== null
+        ? ((t.id as any).toString?.() ?? JSON.stringify(t.id))
+        : String(t.id)
+      return `${t.tb}:${id}`
+    }
+    return String(v)
   }
 
   const { data: files = [], isPending, isError, error, refetch } = useQuery({
@@ -66,8 +82,13 @@ export default function ClientOpenedDatasetPage() {
     enabled: isSuccess && !!datasetName,
     queryFn: async () => {
       const res = await surreal.query("SELECT * FROM file WHERE dataset == $dataset ORDER BY name ASC", { dataset: datasetName })
-      const rows = extractRows<FileRow>(res)
-      return rows
+      const rows = extractRows<any>(res)
+      // Ensure id (and dataset if needed) are strings
+      return rows.map((r: any) => ({
+        ...r,
+        id: thingToString(r?.id),
+        dataset: typeof r?.dataset === 'string' ? r.dataset : thingToString(r?.dataset),
+      })) as FileRow[]
     },
     refetchOnWindowFocus: false,
     staleTime: 5_000,
@@ -154,11 +175,14 @@ export default function ClientOpenedDatasetPage() {
     const run = async () => {
       const next: Record<string, string> = {}
       for (const f of files) {
-        if (f.mime && f.mime.startsWith("image/")) {
+        const isImage = (f.mime || "").startsWith("image/")
+        const isVideoWithThumb = (f.mime || "").startsWith("video/") && !!f.thumbKey
+        if (isImage || isVideoWithThumb) {
           try {
-            const { url, isBlob } = await getObjectUrlPreferPresign(f.bucket, f.key)
+            const keyToFetch = isImage ? f.key : (f.thumbKey as string)
+            const { url, isBlob } = await getObjectUrlPreferPresign(f.bucket, keyToFetch)
             if (cancelled) return
-            next[f.key] = url
+            next[f.key] = url // map by file key for rendering lookup
             if (isBlob) createdBlobs.push(url)
           } catch {
             // ignore errors for individual objects
@@ -308,13 +332,14 @@ export default function ClientOpenedDatasetPage() {
             ) : (
             sortedVisibleFiles.map((f) => {
               const isImage = (f.mime || "").startsWith("image/")
-              const url = isImage ? imgUrls[f.key] : undefined
+              const isVideoWithThumb = (f.mime || "").startsWith("video/") && !!f.thumbKey
+              const url = (isImage || isVideoWithThumb) ? imgUrls[f.key] : undefined
               const href = `/dataset/opened-dataset/object-card?d=${encodeBase64Utf8(datasetName)}&id=${encodeBase64Utf8(f.id)}&n=${encodeBase64Utf8(f.name || f.key)}&b=${encodeBase64Utf8(f.bucket)}&k=${encodeBase64Utf8(f.key)}`
               return (
                 <NextLink key={f.id} href={href}>
                   <Box bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">
                     <Box bg="bg.subtle" style={{ aspectRatio: 1 as any }}>
-                      {isImage && url ? (
+                      {(url) ? (
                         <Image src={url} alt={f.name} objectFit="cover" w="100%" h="100%" />
                       ) : (
                         <Image

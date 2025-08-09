@@ -25,7 +25,7 @@ import { FileUpload, Icon } from "@chakra-ui/react"
 import { LuUpload } from "react-icons/lu"
 
 import { LuCloudUpload, LuPartyPopper, LuSparkles, LuCheck } from "react-icons/lu";
-import { S3Client } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Upload as S3MultipartUpload } from "@aws-sdk/lib-storage";
 import { MINIO_CONFIG } from "@/app/secrets/minio-config";
 import { useState, useCallback, useRef, useEffect } from "react";
@@ -135,25 +135,28 @@ export default function Page() {
             video.remove()
           }
           const onLoaded = () => {
-            // Try to grab a frame shortly after start
-            const targetTime = Math.min(0.1, (video.duration || 1) - 0.1)
+            // Seek a little into the video to avoid black frames
+            const dur = Number.isFinite(video.duration) ? video.duration : 0
+            const targetTime = Math.min(Math.max(1.0, dur * 0.15), Math.max(0, dur - 0.5))
             const capture = () => {
               try {
                 const w = video.videoWidth || 320
                 const h = video.videoHeight || 180
                 const canvas = document.createElement('canvas')
-                // normalize to square-ish but keep aspect by fitting into square
-                const size = 600
-                // compute draw size to fit
-                const scale = Math.min(size / w, size / h)
-                const dw = Math.round(w * scale)
-                const dh = Math.round(h * scale)
+                // Keep aspect ratio and cap the longer side for a sharper image
+                const MAX_DIM = 1280
+                const scale = Math.min(MAX_DIM / Math.max(w, h), 1)
+                const dw = Math.max(1, Math.round(w * scale))
+                const dh = Math.max(1, Math.round(h * scale))
                 canvas.width = dw
                 canvas.height = dh
                 const ctx = canvas.getContext('2d')
                 if (!ctx) throw new Error('no ctx')
+                ctx.imageSmoothingEnabled = true
+                // high-quality resampling where supported
+                ;(ctx as any).imageSmoothingQuality = 'high'
                 ctx.drawImage(video, 0, 0, dw, dh)
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.95)
                 cleanup()
                 resolve(dataUrl)
               } catch (e) {
@@ -165,7 +168,8 @@ export default function Page() {
             video.currentTime = targetTime > 0 ? targetTime : 0
             video.addEventListener('seeked', onSeeked, { once: true })
           }
-          video.addEventListener('loadeddata', onLoaded, { once: true })
+          // Use loadedmetadata to get dimensions/duration quickly; then seek to capture
+          video.addEventListener('loadedmetadata', onLoaded, { once: true })
           video.addEventListener('error', () => {
             cleanup()
             resolve(null)
@@ -286,6 +290,21 @@ export default function Page() {
       },
     })
 
+    const toUint8Array = (dataUrl: string): Uint8Array => {
+      // data:[<mediatype>][;base64],<data>
+      const parts = dataUrl.split(',')
+      const b64 = parts[1] || ''
+      const bin = atob(b64)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      return bytes
+    }
+
+    const getThumbKeyFor = (dataset: string, name: string) => {
+      const base = name.replace(/\/+$/, '')
+      return `${dataset}/.thumbs/${base}.jpg`
+    }
+
     const tasks = selectedFiles.map((file, idx) => () => {
       const Key = `${title}/${file.name}`
       const uploader = new S3MultipartUpload({
@@ -312,7 +331,26 @@ export default function Page() {
         })
       })
 
-      return uploader.done().then(() => {
+      return uploader.done().then(async () => {
+        // If this is a video and we have a generated thumbnail, upload it too
+        if (file.type.startsWith('video/')) {
+          const thumbDataUrl = videoThumbs[idx]
+          if (thumbDataUrl) {
+            try {
+              const Body = toUint8Array(thumbDataUrl)
+              const ThumbKey = getThumbKeyFor(title, file.name)
+              await client.send(new PutObjectCommand({
+                Bucket: MINIO_CONFIG.bucket,
+                Key: ThumbKey,
+                Body,
+                ContentType: 'image/jpeg',
+              }))
+            } catch (e) {
+              // Non-fatal: continue even if thumbnail upload fails
+              console.warn('Thumbnail upload failed for', file.name, e)
+            }
+          }
+        }
         setProgress((prev) => {
           const next = [...prev]
           next[idx] = 100
@@ -359,11 +397,15 @@ export default function Page() {
         try {
           // Register file metadata to SurrealDB after all uploads complete
           const now = new Date().toISOString()
-          for (const file of selectedFiles) {
+          for (let i = 0; i < selectedFiles.length; i++) {
+            const file = selectedFiles[i]
             const key = `${title}/${file.name}`
+            const thumbKey = file.type.startsWith('video/') && videoThumbs[i]
+              ? `${title}/.thumbs/${file.name}.jpg`
+              : undefined
             try {
               await surreal.query(
-                "CREATE file SET name = $name, key = $key, bucket = $bucket, size = $size, mime = $mime, dataset = $dataset, encode = $encode, uploadedAt = time::now()",
+                "CREATE file SET name = $name, key = $key, bucket = $bucket, size = $size, mime = $mime, dataset = $dataset, encode = $encode, uploadedAt = time::now(), thumbKey = $thumbKey",
                 {
                   name: file.name,
                   key,
@@ -373,6 +415,7 @@ export default function Page() {
                   dataset: title,
                   encode: encodeMode,
                   now,
+                  thumbKey,
                 },
               )
             } catch (e) {
