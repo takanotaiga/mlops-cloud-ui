@@ -114,6 +114,9 @@ export default function ClientOpenedDatasetPage() {
         // 2) Delete all objects from S3 (best-effort)
         for (const f of files) {
           try { await deleteObjectFromS3(f.bucket, f.key) } catch { /* ignore */ }
+          if (f.thumbKey) {
+            try { await deleteObjectFromS3(f.bucket, f.thumbKey) } catch { /* ignore */ }
+          }
         }
       })(), 3000)
     } catch {

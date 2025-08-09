@@ -107,7 +107,14 @@ export default function ClientObjectCardPage() {
         { dataset: datasetName }
       )
       const rows = extractRows<any>(res)
-      return rows.map((r) => ({ ...r, id: thingToString(r.id) })) as NavRow[]
+      const mapped = rows.map((r) => ({ ...r, id: thingToString(r.id) })) as NavRow[]
+      // Ensure sort order matches dataset grid: case-insensitive, numeric-aware by name fallback to key
+      mapped.sort((a, b) => {
+        const an = (a.name || a.key || "").toString()
+        const bn = (b.name || b.key || "").toString()
+        return an.localeCompare(bn, undefined, { sensitivity: "base", numeric: true })
+      })
+      return mapped
     },
     refetchOnWindowFocus: false,
     staleTime: 5_000,
@@ -162,16 +169,20 @@ export default function ClientObjectCardPage() {
       await withTimeout((async () => {
         // 1) Delete from SurrealDB
         if (file?.id) {
-          await surreal.query("DELETE file WHERE id = $id", { id: file.id })
+          await surreal.query("DELETE file WHERE id = <record> $id", { id: file.id })
         } else if (datasetName && (file?.key || fallbackKey)) {
           await surreal.query("DELETE file WHERE dataset = $dataset AND key = $key", { dataset: datasetName, key: file?.key || fallbackKey })
         }
 
-        // 2) Delete from MinIO
+        // 2) Delete from MinIO (object and its thumbnail if present)
         const bucket = file?.bucket || fallbackBucket
         const key = file?.key || fallbackKey
+        const thumbKey = file?.thumbKey
         if (bucket && key) {
           try { await deleteObjectFromS3(bucket, key) } catch { /* ignore S3 delete errors */ }
+        }
+        if (bucket && thumbKey) {
+          try { await deleteObjectFromS3(bucket, thumbKey) } catch { /* ignore */ }
         }
       })(), 3000)
 
