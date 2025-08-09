@@ -13,13 +13,18 @@ import {
   Text,
   HStack,
   For,
-  } from "@chakra-ui/react"
-import ContentCard from "@/components/content-card"
+} from "@chakra-ui/react"
+// import ContentCard from "@/components/content-card"
 import { useSearchParams } from "next/navigation"
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { decodeBase64Utf8 } from "@/components/utils/base64"
 import NextLink from "next/link"
 import { Link } from "@chakra-ui/react"
+import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
+import { useQuery } from "@tanstack/react-query"
+import { extractRows } from "@/components/surreal/normalize"
+import { getObjectUrlPreferPresign } from "@/components/utils/minio"
+import { Image } from "@chakra-ui/react"
 
 export default function Page() {
   const params = useSearchParams()
@@ -32,6 +37,78 @@ export default function Page() {
       return ""
     }
   }, [params])
+
+  const surreal = useSurrealClient()
+  const { isSuccess } = useSurreal()
+
+  type FileRow = {
+    bucket: string
+    dataset: string
+    encode?: string
+    id: string
+    key: string
+    mime?: string
+    name: string
+    size?: number
+    uploadedAt?: string
+  }
+
+  const { data: files = [], isPending, isError, error, refetch } = useQuery({
+    queryKey: ["dataset-files", datasetName],
+    enabled: isSuccess && !!datasetName,
+    queryFn: async () => {
+      const res = await surreal.query("SELECT * FROM file WHERE dataset == $dataset", { dataset: datasetName })
+      const rows = extractRows<FileRow>(res)
+      return rows
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 5_000,
+  })
+
+  const [imgUrls, setImgUrls] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    // If there are no files, clear and revoke any blob URLs we created earlier.
+    if (!files || files.length === 0) {
+      setImgUrls((prev) => {
+        Object.values(prev).forEach((u) => { if (u.startsWith("blob:")) URL.revokeObjectURL(u) })
+        return {}
+      })
+      return
+    }
+
+    let cancelled = false
+    const createdBlobs: string[] = []
+    const run = async () => {
+      const next: Record<string, string> = {}
+      for (const f of files) {
+        if (f.mime && f.mime.startsWith("image/")) {
+          try {
+            const { url, isBlob } = await getObjectUrlPreferPresign(f.bucket, f.key)
+            if (cancelled) return
+            next[f.key] = url
+            if (isBlob) createdBlobs.push(url)
+          } catch {
+            // ignore errors for individual objects
+          }
+        }
+      }
+      if (cancelled) return
+      setImgUrls((prev) => {
+        const prevKeys = Object.keys(prev)
+        const nextKeys = Object.keys(next)
+        if (prevKeys.length === nextKeys.length && nextKeys.every((k) => prev[k] === next[k])) {
+          return prev
+        }
+        return next
+      })
+    }
+    run()
+    return () => {
+      cancelled = true
+      createdBlobs.forEach((u) => { try { URL.revokeObjectURL(u) } catch { } })
+    }
+  }, [files])
 
   return (
     <Box px="10%" py="20px">
@@ -51,7 +128,7 @@ export default function Page() {
           {datasetName || "(unknown)"}
         </Heading>
 
-        <Box mt={8} textAlign="right">
+        <Box mt={8} textAlign="right" pb="10px">
           <Button mr={4} size="sm" variant="outline" rounded="full">
             Export Dataset
           </Button>
@@ -103,10 +180,37 @@ export default function Page() {
         </VStack>
 
         <Box flex="1" ml={8}>
+          {isError && (
+            <HStack color="red.500" justify="space-between" mb="2">
+              <Box>Failed to load files: {String((error as any)?.message ?? error)}</Box>
+              <Button size="xs" variant="outline" onClick={() => refetch()}>Retry</Button>
+            </HStack>
+          )}
           <SimpleGrid columns={[2, 3, 4]} gap="10px">
-            {Array.from({ length: 11 }).map((_, i) => (
-              <ContentCard key={i} />
-            ))}
+            {!isPending && files.map((f) => {
+              const isImage = (f.mime || "").startsWith("image/")
+              const url = isImage ? imgUrls[f.key] : undefined
+              return (
+                <Box key={f.id} bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">
+                  <Box bg="bg.subtle" style={{ aspectRatio: 1 as any }}>
+                    {isImage && url ? (
+                      <Image src={url} alt={f.name} objectFit="cover" w="100%" h="100%" />
+                    ) : (
+                      <Image
+                        src="/static/sample.jpg"
+                        alt={f.name}
+                        objectFit="cover"
+                        w="100%"
+                        h="100%"
+                      />
+                    )}
+                  </Box>
+                  <Box px="8px" pt="6px">
+                    <Text fontSize="sm" style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{f.name}</Text>
+                  </Box>
+                </Box>
+              )
+            })}
           </SimpleGrid>
         </Box>
       </Flex>
