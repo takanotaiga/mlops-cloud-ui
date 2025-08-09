@@ -13,6 +13,7 @@ import {
   Dialog,
   Portal,
   CloseButton,
+  Input,
 } from "@chakra-ui/react"
 import NextLink from "next/link"
 import { useSearchParams } from "next/navigation"
@@ -96,6 +97,39 @@ export default function ClientObjectCardPage() {
     staleTime: 5_000,
   })
 
+  // Dataset-level labels
+  type LabelRow = { id: string; dataset: string; name: string }
+  const { data: labels = [], isPending: labelsPending } = useQuery({
+    queryKey: ["dataset-labels", datasetName],
+    enabled: isSuccess && !!datasetName,
+    queryFn: async (): Promise<LabelRow[]> => {
+      const res = await surreal.query("SELECT * FROM label WHERE dataset == $dataset ORDER BY name ASC", { dataset: datasetName })
+      const rows = extractRows<any>(res)
+      return rows.map((r: any) => ({ ...r, id: thingToString(r?.id) })) as LabelRow[]
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 5_000,
+  })
+
+  // File-level annotations (bounding boxes)
+  type AnnotationRow = { id: string; dataset: string; file: string; label?: string; x1: number; y1: number; x2: number; y2: number }
+  const activeFileId = file?.id || fileId
+  const { data: annotations = [] } = useQuery({
+    queryKey: ["file-annotations", activeFileId],
+    enabled: isSuccess && !!activeFileId,
+    queryFn: async (): Promise<AnnotationRow[]> => {
+      const res = await surreal.query("SELECT * FROM annotation WHERE file == <record> $fid", { fid: activeFileId })
+      const rows = extractRows<any>(res)
+      return rows.map((r: any) => ({
+        ...r,
+        id: thingToString(r?.id),
+        file: thingToString(r?.file),
+      })) as AnnotationRow[]
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 2_000,
+  })
+
   // Fetch ordered list for navigation (Prev/Next)
   type NavRow = { id: string; name?: string; key: string; bucket: string }
   const { data: navList = [] } = useQuery({
@@ -153,6 +187,54 @@ export default function ClientObjectCardPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewSize, setPreviewSize] = useState<number | undefined>(undefined)
   const [removing, setRemoving] = useState(false)
+  const [activeLabel, setActiveLabel] = useState<string>("")
+  const [newLabelName, setNewLabelName] = useState<string>("")
+
+  // Helpers to mutate labels
+  async function addLabel(name: string) {
+    const trimmed = name.trim()
+    if (!datasetName || !trimmed) return
+    // Upsert-like behavior: check existence by dataset+name
+    const exists = labels.some((l) => l.name === trimmed)
+    if (exists) return
+    await surreal.query("CREATE label CONTENT { dataset: $dataset, name: $name }", { dataset: datasetName, name: trimmed })
+    await queryClient.invalidateQueries({ queryKey: ["dataset-labels", datasetName] })
+    setActiveLabel(trimmed)
+  }
+
+  async function removeLabel(name: string) {
+    if (!datasetName || !name) return
+    // Remove label and any annotations referencing it in this dataset
+    await surreal.query("DELETE label WHERE dataset == $dataset AND name == $name", { dataset: datasetName, name })
+    await surreal.query("DELETE annotation WHERE dataset == $dataset AND label == $name", { dataset: datasetName, name })
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["dataset-labels", datasetName] }),
+      queryClient.invalidateQueries({ queryKey: ["file-annotations", activeFileId] }),
+    ])
+    if (activeLabel === name) setActiveLabel("")
+  }
+
+  // Annotation mutations
+  async function addBoxAnnotation(box: { x1: number; y1: number; x2: number; y2: number }) {
+    if (!datasetName || !activeFileId) return
+    const payload = {
+      dataset: datasetName,
+      file: activeFileId,
+      label: activeLabel || undefined,
+      ...box,
+    }
+    await surreal.query(
+      "CREATE annotation CONTENT { dataset: $dataset, file: <record> $file, label: $label, x1: $x1, y1: $y1, x2: $x2, y2: $y2 }",
+      payload as any,
+    )
+    await queryClient.invalidateQueries({ queryKey: ["file-annotations", activeFileId] })
+  }
+
+  async function deleteAnnotation(id: string) {
+    if (!id) return
+    await surreal.query("DELETE annotation WHERE id = <record> $id", { id })
+    await queryClient.invalidateQueries({ queryKey: ["file-annotations", activeFileId] })
+  }
 
   // Helper to add timeout to a promise
   function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -373,6 +455,49 @@ export default function ClientObjectCardPage() {
               </VStack>
             )}
           </Box>
+
+          {/* Labels (dataset-shared) */}
+          <Box borderTopWidth="1px" pt={3}>
+            <Heading size="sm" mb={2}>BBox Labels</Heading>
+            <HStack gap={2} wrap="wrap">
+              {labelsPending ? (
+                <SkeletonText noOfLines={2} />
+              ) : labels.length === 0 ? (
+                <Text color="gray.500">ラベルがありません。追加してください。</Text>
+              ) : (
+                labels.map((l) => (
+                  <HStack
+                    key={l.id}
+                    gap={1}
+                    px={2}
+                    py={1}
+                    borderWidth="1px"
+                    rounded="md"
+                    cursor="pointer"
+                    onClick={() => setActiveLabel(l.name)}
+                    bg={activeLabel === l.name ? "gray.100" : undefined}
+                  >
+                    <Text>{l.name}</Text>
+                    <Button size="xs" variant="ghost" colorPalette="red" onClick={(e) => { e.stopPropagation(); removeLabel(l.name) }}>x</Button>
+                  </HStack>
+                ))
+              )}
+            </HStack>
+            <HStack mt={2} gap={2}>
+              <Input
+                value={newLabelName}
+                onChange={(e) => setNewLabelName(e.target.value)}
+                placeholder="新しいラベル名"
+                size="sm"
+                flex={1}
+                onKeyDown={(e) => { if (e.key === 'Enter') { addLabel(newLabelName); setNewLabelName("") } }}
+              />
+              <Button size="sm" onClick={() => { addLabel(newLabelName); setNewLabelName("") }}>Add</Button>
+            </HStack>
+            {activeLabel && (
+              <Text mt={2} fontSize="sm" color="gray.600">現在のアノテーション用ラベル: {activeLabel}</Text>
+            )}
+          </Box>
         </VStack>
 
         {/* Right: Preview */}
@@ -381,9 +506,22 @@ export default function ClientObjectCardPage() {
             {isPending ? (
               <Skeleton height="360px" />
             ) : previewUrl ? (
-              <Box asChild>
-                <img src={previewUrl} alt={file?.name || objectName || "object"} style={{ width: "100%", height: "auto", display: "block" }} />
-              </Box>
+              <ImageAnnotator
+                src={previewUrl}
+                canAnnotate={(file?.mime || "").startsWith("image/") || (file?.name || fallbackKey || "").match(/\.(jpg|jpeg|png|webp|gif|avif)$/i) != null}
+                boxes={annotations}
+                onAddBox={async (b) => {
+                  if (!activeLabel) {
+                    // Require a label selection before saving
+                    alert("先にラベルを選択または追加してください。")
+                    return
+                  }
+                  await addBoxAnnotation(b)
+                }}
+                onRemoveBox={(id) => deleteAnnotation(id)}
+                labelFor={(l?: string) => l || "(no label)"}
+                getBoxColor={(l?: string) => (l ? stringToColor(l) : "#3182ce")}
+              />
             ) : (
               <Box p={6}>
                 <Text color="gray.500">プレビューを表示できません。</Text>
@@ -420,4 +558,112 @@ function formatBytes(size?: number): string {
   let i = 0
   while (s >= 1024 && i < units.length - 1) { s /= 1024; i++ }
   return `${s.toFixed(1)} ${units[i]}`
+}
+
+// Deterministic color from string
+function stringToColor(str: string): string {
+  let hash = 0
+  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash)
+  const r = (hash >> 0) & 0xff
+  const g = (hash >> 8) & 0xff
+  const b = (hash >> 16) & 0xff
+  return `rgb(${r % 200}, ${g % 200}, ${b % 200})`
+}
+
+type AnnotBox = { id?: string; label?: string; x1: number; y1: number; x2: number; y2: number }
+
+function ImageAnnotator(props: {
+  src: string
+  canAnnotate: boolean
+  boxes: { id: string; label?: string; x1: number; y1: number; x2: number; y2: number }[]
+  onAddBox: (b: { x1: number; y1: number; x2: number; y2: number }) => void | Promise<void>
+  onRemoveBox: (id: string) => void | Promise<void>
+  labelFor?: (label?: string) => string
+  getBoxColor?: (label?: string) => string
+}) {
+  const { src, canAnnotate, boxes, onAddBox, onRemoveBox, labelFor, getBoxColor } = props
+  const [start, setStart] = useState<{ x: number; y: number } | null>(null)
+  // track size if needed in future (e.g., natural dims)
+
+  function normPoint(e: any) {
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
+    const x = (e.clientX - rect.left) / rect.width
+    const y = (e.clientY - rect.top) / rect.height
+    return { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) }
+  }
+
+  function onClick(e: any) {
+    if (!canAnnotate) return
+    const p = normPoint(e)
+    if (!start) {
+      setStart(p)
+    } else {
+      const x1 = Math.min(start.x, p.x)
+      const y1 = Math.min(start.y, p.y)
+      const x2 = Math.max(start.x, p.x)
+      const y2 = Math.max(start.y, p.y)
+      setStart(null)
+      onAddBox({ x1, y1, x2, y2 })
+    }
+  }
+
+  function toCss(b: AnnotBox) {
+    const left = `${Math.min(b.x1, b.x2) * 100}%`
+    const top = `${Math.min(b.y1, b.y2) * 100}%`
+    const width = `${Math.abs(b.x2 - b.x1) * 100}%`
+    const height = `${Math.abs(b.y2 - b.y1) * 100}%`
+    return { left, top, width, height }
+  }
+
+  return (
+    <Box position="relative" onClick={onClick} cursor={canAnnotate ? (start ? "crosshair" : "crosshair") : "default"}>
+      <img
+        src={src}
+        alt="preview"
+        style={{ width: "100%", height: "auto", display: "block" }}
+        onLoad={() => { /* no-op */ }}
+      />
+      {/* Existing boxes */}
+      {boxes?.map((b) => {
+        const color = getBoxColor?.(b.label) || "#3182ce"
+        return (
+          <Box
+            key={b.id}
+            position="absolute"
+            border="2px solid"
+            borderColor={color}
+            bg="transparent"
+            pointerEvents="auto"
+            {...toCss(b)}
+          >
+            <Box position="absolute" top="-22px" left={0} bg={color} color="white" px={2} py={0.5} fontSize="xs" rounded="sm">
+              {labelFor?.(b.label) || b.label || "box"}
+            </Box>
+            <Button
+              size="xs"
+              variant="solid"
+              colorPalette="red"
+              position="absolute"
+              top={-22}
+              right={0}
+              onClick={(e) => { e.stopPropagation(); onRemoveBox(b.id) }}
+            >
+              x
+            </Button>
+          </Box>
+        )
+      })}
+      {/* Provisional box while selecting second point */}
+      {start && (
+        <Box position="absolute" left={`${start.x * 100}%`} top={`${start.y * 100}%`} width="0" height="0">
+          <Box width="8px" height="8px" bg="#3182ce" rounded="full" transform="translate(-50%, -50%)" />
+        </Box>
+      )}
+      {canAnnotate ? (
+        <Box position="absolute" bottom={2} left={2} bg="blackAlpha.600" color="white" px={2} py={1} fontSize="xs" rounded="sm">
+          {start ? "2点目をクリックして四角形を確定" : "画像上を2回クリックして四角形を作成"}
+        </Box>
+      ) : null}
+    </Box>
+  )
 }
