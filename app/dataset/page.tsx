@@ -17,7 +17,7 @@ import { BsPlusCircleFill } from "react-icons/bs";
 import { LuSearch } from "react-icons/lu"
 
 import NextLink from "next/link"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
 
 export default function Page() {
@@ -26,6 +26,13 @@ export default function Page() {
   const [datasets, setDatasets] = useState<string[]>([])
   const [loading, setLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
+  const [query, setQuery] = useState<string>("")
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return datasets
+    return datasets.filter((name) => name.toLowerCase().includes(q))
+  }, [datasets, query])
 
   useEffect(() => {
     if (!isSuccess) return
@@ -78,7 +85,13 @@ export default function Page() {
           <Box alignSelf="flex-start" ml="30px">
             <Spacer h="10px" />
             <InputGroup flex="1" startElement={<LuSearch />} >
-              <Input placeholder="Search datasets" size="sm" variant="flushed" />
+              <Input
+                placeholder="Search datasets"
+                size="sm"
+                variant="flushed"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
             </InputGroup>
           </Box>
         </HStack>
@@ -86,8 +99,11 @@ export default function Page() {
           <Box w="95%" ml="30px" color="red.500">{error}</Box>
         )}
         <SimpleGrid columns={[2, 3, 4]} gap="30px" mx="auto">
-          {!loading && datasets.map((name) => <ImageCard key={name} title={name} />)}
+          {!loading && filtered.map((name) => <ImageCard key={name} title={name} />)}
         </SimpleGrid>
+        {!loading && filtered.length === 0 && (
+          <Box w="95%" ml="30px" color="gray.500" py="10px">No datasets found</Box>
+        )}
       </VStack>
     </HStack>
   )
