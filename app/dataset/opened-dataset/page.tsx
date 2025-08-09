@@ -67,6 +67,30 @@ export default function Page() {
 
   const [imgUrls, setImgUrls] = useState<Record<string, string>>({})
 
+  // Media type filtering
+  const MEDIA_OPTIONS = useMemo(() => ["Video", "Image", "PointCloud", "ROSBag"] as const, [])
+  type MediaType = (typeof MEDIA_OPTIONS)[number]
+  const [selectedMedia, setSelectedMedia] = useState<MediaType[]>([...MEDIA_OPTIONS])
+
+  const classifyMedia = (f: FileRow): MediaType | "Other" => {
+    const mime = (f.mime || "").toLowerCase()
+    if (mime.startsWith("image/")) return "Image"
+    if (mime.startsWith("video/")) return "Video"
+    // Extension fallback
+    const key = (f.name || f.key || "").toLowerCase()
+    if (key.endsWith(".jpg") || key.endsWith(".jpeg") || key.endsWith(".png") || key.endsWith(".webp") || key.endsWith(".gif") || key.endsWith(".avif")) return "Image"
+    if (key.endsWith(".mp4") || key.endsWith(".mov") || key.endsWith(".mkv") || key.endsWith(".avi") || key.endsWith(".webm")) return "Video"
+    if (key.endsWith(".pcd") || key.endsWith(".ply") || key.endsWith(".las") || key.endsWith(".laz") || key.endsWith(".bin")) return "PointCloud"
+    if (key.endsWith(".bag") || key.endsWith(".mcap")) return "ROSBag"
+    return "Other"
+  }
+
+  const visibleFiles = useMemo(() => {
+    if (!files || selectedMedia.length === 0) return []
+    const set = new Set(selectedMedia)
+    return files.filter((f) => set.has(classifyMedia(f) as MediaType))
+  }, [files, selectedMedia])
+
   useEffect(() => {
     // If there are no files, clear and revoke any blob URLs we created earlier.
     if (!files || files.length === 0) {
@@ -164,8 +188,16 @@ export default function Page() {
               <Text fontWeight="bold">Media Type</Text>
             </Fieldset.Legend>
             <Fieldset.Content>
-              <CheckboxGroup name="media" defaultValue={["Image"]}>
-                <For each={["Video", "Image", "PointCloud", "ROSBag"]}>
+              <CheckboxGroup
+                name="media"
+                value={selectedMedia}
+                onValueChange={(e: any) => {
+                  const next = (e?.value ?? e) as string[]
+                  // Coerce to MediaType[], filter out unknowns
+                  setSelectedMedia(next.filter((v) => (MEDIA_OPTIONS as readonly string[]).includes(v)) as MediaType[])
+                }}
+              >
+                <For each={MEDIA_OPTIONS as unknown as string[]}>
                   {(value) => (
                     <Checkbox.Root key={value} value={value}>
                       <Checkbox.HiddenInput />
@@ -187,7 +219,7 @@ export default function Page() {
             </HStack>
           )}
           <SimpleGrid columns={[2, 3, 4]} gap="10px">
-            {!isPending && files.map((f) => {
+            {!isPending && visibleFiles.map((f) => {
               const isImage = (f.mime || "").startsWith("image/")
               const url = isImage ? imgUrls[f.key] : undefined
               return (
