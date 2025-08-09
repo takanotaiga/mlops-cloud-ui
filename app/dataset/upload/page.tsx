@@ -29,6 +29,7 @@ import { S3Client } from "@aws-sdk/client-s3";
 import { Upload as S3MultipartUpload } from "@aws-sdk/lib-storage";
 import { MINIO_CONFIG } from "@/app/secrets/minio-config";
 import { useState, useCallback, useRef, useEffect } from "react";
+import { useSurrealClient } from "@/components/surreal/SurrealProvider";
 import { FILE_UPLOAD_CONCURRENCY } from "@/app/dataset/upload/parameters";
 
 type EncodeModeSelectProps = {
@@ -81,6 +82,7 @@ const encodeModes = createListCollection({
 
 
 export default function Page() {
+  const surreal = useSurrealClient()
   const [error, setError] = useState<string | null>(null)
   const MAX_FILE_SIZE = 50 * 1024 * 1024 * 1024 // 50GB
   const [counts, setCounts] = useState<{ images: number; videos: number }>({ images: 0, videos: 0 })
@@ -352,7 +354,36 @@ export default function Page() {
     }
 
     runWithConcurrency(tasks, FILE_UPLOAD_CONCURRENCY)
-      .then(() => setView("done"))
+      .then(async () => {
+        try {
+          // Register file metadata to SurrealDB after all uploads complete
+          const now = new Date().toISOString()
+          for (const file of selectedFiles) {
+            const key = `${title}/${file.name}`
+            try {
+              await surreal.query(
+                "CREATE file SET name = $name, key = $key, bucket = $bucket, size = $size, mime = $mime, dataset = $dataset, encode = $encode, uploadedAt = time::now()",
+                {
+                  name: file.name,
+                  key,
+                  bucket: MINIO_CONFIG.bucket,
+                  size: file.size,
+                  mime: file.type || "application/octet-stream",
+                  dataset: title,
+                  encode: encodeMode,
+                  now,
+                },
+              )
+            } catch (e) {
+              console.error("Failed to register file in SurrealDB:", file.name, e)
+            }
+          }
+        } catch (e) {
+          console.error("SurrealDB registration error:", e)
+        } finally {
+          setView("done")
+        }
+      })
       .catch((err) => {
         console.error("Upload failed", err)
         setError("アップロードに失敗しました。設定やネットワークを確認してください。")
