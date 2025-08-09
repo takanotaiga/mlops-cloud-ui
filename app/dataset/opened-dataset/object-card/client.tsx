@@ -97,6 +97,21 @@ export default function ClientObjectCardPage() {
     staleTime: 5_000,
   })
 
+  // Media type helpers
+  const isImageType = useMemo(() => {
+    const m = (file?.mime || "").toLowerCase()
+    if (m.startsWith("image/")) return true
+    const n = (file?.name || fallbackKey || "").toLowerCase()
+    return /\.(jpg|jpeg|png|webp|gif|avif)$/.test(n)
+  }, [file?.mime, file?.name, fallbackKey])
+
+  const isVideoType = useMemo(() => {
+    const m = (file?.mime || "").toLowerCase()
+    if (m.startsWith("video/")) return true
+    const n = (file?.name || fallbackKey || "").toLowerCase()
+    return /\.(mp4|mov|mkv|avi|webm)$/.test(n)
+  }, [file?.mime, file?.name, fallbackKey])
+
   // Dataset-level labels
   type LabelRow = { id: string; dataset: string; name: string }
   const { data: labels = [], isPending: labelsPending } = useQuery({
@@ -112,13 +127,21 @@ export default function ClientObjectCardPage() {
   })
 
   // File-level annotations (bounding boxes)
-  type AnnotationRow = { id: string; dataset: string; file: string; label?: string; x1: number; y1: number; x2: number; y2: number }
+  type AnnotationRow = { id: string; dataset: string; file: string; label?: string; x1: number; y1: number; x2: number; y2: number; category?: string }
   const activeFileId = file?.id || fileId
+  const annotationCategory = isVideoType ? "sam2_key_bbox" : "image_bbox"
   const { data: annotations = [] } = useQuery({
-    queryKey: ["file-annotations", activeFileId],
+    queryKey: ["file-annotations", activeFileId, annotationCategory],
     enabled: isSuccess && !!activeFileId,
     queryFn: async (): Promise<AnnotationRow[]> => {
-      const res = await surreal.query("SELECT * FROM annotation WHERE file == <record> $fid", { fid: activeFileId })
+      // Backward compatibility: for images also include legacy rows with no category
+      const where = isVideoType
+        ? "category = 'sam2_key_bbox'"
+        : "(category = 'image_bbox' OR category = NONE)"
+      const res = await surreal.query(
+        `SELECT * FROM annotation WHERE file == <record> $fid AND ${where}`,
+        { fid: activeFileId },
+      )
       const rows = extractRows<any>(res)
       return rows.map((r: any) => ({
         ...r,
@@ -221,19 +244,20 @@ export default function ClientObjectCardPage() {
       dataset: datasetName,
       file: activeFileId,
       label: activeLabel || undefined,
+      category: annotationCategory,
       ...box,
     }
     await surreal.query(
-      "CREATE annotation CONTENT { dataset: $dataset, file: <record> $file, label: $label, x1: $x1, y1: $y1, x2: $x2, y2: $y2 }",
+      "CREATE annotation CONTENT { dataset: $dataset, file: <record> $file, label: $label, category: $category, x1: $x1, y1: $y1, x2: $x2, y2: $y2 }",
       payload as any,
     )
-    await queryClient.invalidateQueries({ queryKey: ["file-annotations", activeFileId] })
+    await queryClient.invalidateQueries({ queryKey: ["file-annotations", activeFileId, annotationCategory] })
   }
 
   async function deleteAnnotation(id: string) {
     if (!id) return
     await surreal.query("DELETE annotation WHERE id = <record> $id", { id })
-    await queryClient.invalidateQueries({ queryKey: ["file-annotations", activeFileId] })
+    await queryClient.invalidateQueries({ queryKey: ["file-annotations", activeFileId, annotationCategory] })
   }
 
   // Helper to add timeout to a promise
@@ -508,7 +532,7 @@ export default function ClientObjectCardPage() {
             ) : previewUrl ? (
               <ImageAnnotator
                 src={previewUrl}
-                canAnnotate={(file?.mime || "").startsWith("image/") || (file?.name || fallbackKey || "").match(/\.(jpg|jpeg|png|webp|gif|avif)$/i) != null}
+                canAnnotate={isImageType || isVideoType}
                 boxes={annotations}
                 onAddBox={async (b) => {
                   if (!activeLabel) return
