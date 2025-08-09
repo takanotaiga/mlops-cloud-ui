@@ -1,4 +1,4 @@
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3"
+import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3"
 import { MINIO_CONFIG } from "@/app/secrets/minio-config"
 
 function createS3Client() {
@@ -88,6 +88,11 @@ export async function getObjectUrlPreferPresign(
         .join("/")
       const url = `${base}/${objectPath}`
       return { url, isBlob: false }
+    }
   }
 }
+
+export async function deleteObjectFromS3(bucket: string, key: string): Promise<void> {
+  const s3 = createS3Client()
+  await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
 }

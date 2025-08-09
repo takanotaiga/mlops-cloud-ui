@@ -10,15 +10,19 @@ import {
   Button,
   Skeleton,
   SkeletonText,
+  Dialog,
+  Portal,
+  CloseButton,
 } from "@chakra-ui/react"
 import NextLink from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { decodeBase64Utf8 } from "@/components/utils/base64"
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { extractRows } from "@/components/surreal/normalize"
-import { getObjectUrlPreferPresign } from "@/components/utils/minio"
+import { getObjectUrlPreferPresign, deleteObjectFromS3 } from "@/components/utils/minio"
+import { useRouter } from "next/navigation"
 
 type FileRow = {
   id: string
@@ -31,7 +35,9 @@ type FileRow = {
 }
 
 export default function ClientObjectCardPage() {
+  const router = useRouter()
   const params = useSearchParams()
+  const queryClient = useQueryClient()
   const { datasetName, objectName, fileId, fallbackBucket, fallbackKey } = useMemo(() => {
     const d = params.get("d") || ""
     const n = params.get("n") || ""
@@ -69,6 +75,55 @@ export default function ClientObjectCardPage() {
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewSize, setPreviewSize] = useState<number | undefined>(undefined)
+  const [removing, setRemoving] = useState(false)
+
+  // Helper to add timeout to a promise
+  function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error("Timeout")), ms)
+      p.then((v) => { clearTimeout(t); resolve(v) }).catch((e) => { clearTimeout(t); reject(e) })
+    })
+  }
+
+  async function handleRemove() {
+    if (removing) return
+    setRemoving(true)
+    try {
+      await withTimeout((async () => {
+        // 1) Delete from SurrealDB
+        if (file?.id) {
+          await surreal.query("DELETE file WHERE id = $id", { id: file.id })
+        } else if (datasetName && (file?.key || fallbackKey)) {
+          await surreal.query("DELETE file WHERE dataset = $dataset AND key = $key", { dataset: datasetName, key: file?.key || fallbackKey })
+        }
+
+        // 2) Delete from MinIO
+        const bucket = file?.bucket || fallbackBucket
+        const key = file?.key || fallbackKey
+        if (bucket && key) {
+          try { await deleteObjectFromS3(bucket, key) } catch { /* ignore S3 delete errors */ }
+        }
+      })(), 3000)
+
+      // Invalidate dataset file list and navigate back with a refresh token
+      const d = params.get("d") || ""
+      if (datasetName) {
+        queryClient.invalidateQueries({ queryKey: ["dataset-files", datasetName] })
+      }
+      const r = Date.now().toString()
+      router.push(`/dataset/opened-dataset?d=${encodeURIComponent(d)}&r=${encodeURIComponent(r)}`)
+    } catch (e) {
+      // On timeout or failure, do not block the user. Navigate back and refresh silently.
+      const d = params.get("d") || ""
+      if (datasetName) {
+        queryClient.invalidateQueries({ queryKey: ["dataset-files", datasetName] })
+      }
+      const r = Date.now().toString()
+      router.push(`/dataset/opened-dataset?d=${encodeURIComponent(d)}&r=${encodeURIComponent(r)}`)
+    } finally {
+      setRemoving(false)
+    }
+  }
   useEffect(() => {
     let cancelled = false
     let createdBlob: string | null = null
@@ -123,7 +178,38 @@ export default function ClientObjectCardPage() {
           {" / "}
           {objectName || file?.name || "Object"}
         </Heading>
-        <Button variant="outline" colorPalette="red" size="sm" rounded="full">Remove</Button>
+        <Dialog.Root>
+          <Dialog.Trigger asChild>
+            <Button variant="outline" colorPalette="red" size="sm" rounded="full" disabled={removing || (!file && !fallbackBucket)}>
+              Remove
+            </Button>
+          </Dialog.Trigger>
+          <Portal>
+            <Dialog.Backdrop />
+            <Dialog.Positioner>
+              <Dialog.Content>
+                <Dialog.Header>
+                  <Dialog.Title>Delete Object</Dialog.Title>
+                </Dialog.Header>
+                <Dialog.Body>
+                  <Text>このオブジェクトを削除します。よろしいですか？</Text>
+                  <Text mt={2} color="gray.600">メタデータ（DB）削除後、MinIOの実体も削除します。</Text>
+                </Dialog.Body>
+                <Dialog.Footer>
+                  <Dialog.ActionTrigger asChild>
+                    <Button variant="outline">Cancel</Button>
+                  </Dialog.ActionTrigger>
+                  <Button onClick={handleRemove} disabled={removing} colorPalette="red">
+                    {removing ? "Removing..." : "Delete"}
+                  </Button>
+                </Dialog.Footer>
+                <Dialog.CloseTrigger asChild>
+                  <CloseButton size="sm" />
+                </Dialog.CloseTrigger>
+              </Dialog.Content>
+            </Dialog.Positioner>
+          </Portal>
+        </Dialog.Root>
       </HStack>
 
       <Box display="grid" gridTemplateColumns={{ base: "1fr", md: "30% 1fr" }} gap={8} mt={8}>
@@ -206,4 +292,3 @@ function formatBytes(size?: number): string {
   while (s >= 1024 && i < units.length - 1) { s /= 1024; i++ }
   return `${s.toFixed(1)} ${units[i]}`
 }
-

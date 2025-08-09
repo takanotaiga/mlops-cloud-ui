@@ -38,6 +38,7 @@ export default function ClientOpenedDatasetPage() {
       return ""
     }
   }, [params])
+  const refreshToken = useMemo(() => params.get("r") || "", [params])
 
   const surreal = useSurrealClient()
   const { isSuccess } = useSurreal()
@@ -55,7 +56,7 @@ export default function ClientOpenedDatasetPage() {
   }
 
   const { data: files = [], isPending, isError, error, refetch } = useQuery({
-    queryKey: ["dataset-files", datasetName],
+    queryKey: ["dataset-files", datasetName, refreshToken],
     enabled: isSuccess && !!datasetName,
     queryFn: async () => {
       const res = await surreal.query("SELECT * FROM file WHERE dataset == $dataset", { dataset: datasetName })
