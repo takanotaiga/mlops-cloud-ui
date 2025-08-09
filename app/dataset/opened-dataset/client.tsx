@@ -20,7 +20,7 @@ import {
 } from "@chakra-ui/react"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
-import { decodeBase64Utf8 } from "@/components/utils/base64"
+import { decodeBase64Utf8, encodeBase64Utf8 } from "@/components/utils/base64"
 import NextLink from "next/link"
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
 import { useQuery } from "@tanstack/react-query"
@@ -234,25 +234,28 @@ export default function ClientOpenedDatasetPage() {
             visibleFiles.map((f) => {
               const isImage = (f.mime || "").startsWith("image/")
               const url = isImage ? imgUrls[f.key] : undefined
+              const href = `/dataset/opened-dataset/object-card?d=${encodeBase64Utf8(datasetName)}&id=${encodeBase64Utf8(f.id)}&n=${encodeBase64Utf8(f.name || f.key)}`
               return (
-                <Box key={f.id} bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">
-                  <Box bg="bg.subtle" style={{ aspectRatio: 1 as any }}>
-                    {isImage && url ? (
-                      <Image src={url} alt={f.name} objectFit="cover" w="100%" h="100%" />
-                    ) : (
-                      <Image
-                        src="/static/sample.jpg"
-                        alt={f.name}
-                        objectFit="cover"
-                        w="100%"
-                        h="100%"
-                      />
-                    )}
+                <NextLink key={f.id} href={href}>
+                  <Box bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">
+                    <Box bg="bg.subtle" style={{ aspectRatio: 1 as any }}>
+                      {isImage && url ? (
+                        <Image src={url} alt={f.name} objectFit="cover" w="100%" h="100%" />
+                      ) : (
+                        <Image
+                          src="/static/sample.jpg"
+                          alt={f.name}
+                          objectFit="cover"
+                          w="100%"
+                          h="100%"
+                        />
+                      )}
+                    </Box>
+                    <Box px="8px" pt="6px">
+                      <Text fontSize="sm" style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{f.name}</Text>
+                    </Box>
                   </Box>
-                  <Box px="8px" pt="6px">
-                    <Text fontSize="sm" style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{f.name}</Text>
-                  </Box>
-                </Box>
+                </NextLink>
               )
             })
             )}
