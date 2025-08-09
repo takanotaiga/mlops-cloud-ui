@@ -1,3 +1,4 @@
+"use client"
 import {
   Text,
   HStack,
@@ -16,8 +17,49 @@ import { BsPlusCircleFill } from "react-icons/bs";
 import { LuSearch } from "react-icons/lu"
 
 import NextLink from "next/link"
+import { useEffect, useState } from "react"
+import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
 
 export default function Page() {
+  const surreal = useSurrealClient()
+  const { isSuccess } = useSurreal()
+  const [datasets, setDatasets] = useState<string[]>([])
+  const [loading, setLoading] = useState<boolean>(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isSuccess) return
+    let cancelled = false
+    const run = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const res: any = await surreal.query("SELECT dataset FROM file GROUP BY dataset;")
+        // Handle both shapes: [{ result: [...] }] and [[ ... ]]
+        let rows: any[] = []
+        if (Array.isArray(res)) {
+          if (Array.isArray(res[0])) {
+            rows = res[0]
+          } else if (Array.isArray((res as any)[0]?.result)) {
+            rows = (res as any)[0].result
+          } else {
+            rows = (res as any[]).flatMap((r: any) => (Array.isArray(r?.result) ? r.result : Array.isArray(r) ? r : []))
+          }
+        }
+        const names = rows
+          .map((r: any) => (typeof r?.dataset === "string" ? r.dataset : null))
+          .filter((v: any): v is string => !!v)
+        if (!cancelled) setDatasets(Array.from(new Set(names)))
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || "Failed to load datasets")
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [surreal, isSuccess])
+
   return (
     <HStack justify="center">
       <VStack w="70%" >
@@ -40,10 +82,11 @@ export default function Page() {
             </InputGroup>
           </Box>
         </HStack>
+        {error && (
+          <Box w="95%" ml="30px" color="red.500">{error}</Box>
+        )}
         <SimpleGrid columns={[2, 3, 4]} gap="30px" mx="auto">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <ImageCard key={i} />
-          ))}
+          {!loading && datasets.map((name) => <ImageCard key={name} title={name} />)}
         </SimpleGrid>
       </VStack>
     </HStack>
