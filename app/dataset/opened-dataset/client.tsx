@@ -65,7 +65,7 @@ export default function ClientOpenedDatasetPage() {
     queryKey: ["dataset-files", datasetName, refreshToken],
     enabled: isSuccess && !!datasetName,
     queryFn: async () => {
-      const res = await surreal.query("SELECT * FROM file WHERE dataset == $dataset", { dataset: datasetName })
+      const res = await surreal.query("SELECT * FROM file WHERE dataset == $dataset ORDER BY name ASC", { dataset: datasetName })
       const rows = extractRows<FileRow>(res)
       return rows
     },
@@ -129,6 +129,14 @@ export default function ClientOpenedDatasetPage() {
     const set = new Set(selectedMedia)
     return files.filter((f) => set.has(classifyMedia(f) as MediaType))
   }, [files, selectedMedia])
+
+  const sortedVisibleFiles = useMemo(() => {
+    return [...visibleFiles].sort((a, b) => {
+      const an = (a.name || a.key || "").toString()
+      const bn = (b.name || b.key || "").toString()
+      return an.localeCompare(bn, undefined, { sensitivity: "base", numeric: true })
+    })
+  }, [visibleFiles])
 
   useEffect(() => {
     // If there are no files, clear once if needed and exit without updating state repeatedly.
@@ -298,7 +306,7 @@ export default function ClientOpenedDatasetPage() {
                 </Box>
               ))
             ) : (
-            visibleFiles.map((f) => {
+            sortedVisibleFiles.map((f) => {
               const isImage = (f.mime || "").startsWith("image/")
               const url = isImage ? imgUrls[f.key] : undefined
               const href = `/dataset/opened-dataset/object-card?d=${encodeBase64Utf8(datasetName)}&id=${encodeBase64Utf8(f.id)}&n=${encodeBase64Utf8(f.name || f.key)}&b=${encodeBase64Utf8(f.bucket)}&k=${encodeBase64Utf8(f.key)}`
