@@ -35,3 +35,41 @@
 - Secrets: Store env vars in .env.local (git-ignored). Reference via process.env and Next.js runtime config as needed.
 - Assets: Place user-visible assets in public/static. Avoid importing large files into client bundles.
 - Accessibility: Use semantic markup and Chakra’s a11y-friendly components; verify color mode via components/ui/color-mode.tsx.
+
+## Backend Architecture
+
+- MinIO: S3-compatible object storage used for binary data (images/videos). Accessed directly from the browser via AWS SDK v3 `S3Client` using an S3 endpoint, access key/secret, and bucket.
+- SurrealDB: Graph/SQL database used for metadata (files, datasets). Accessed from the browser via the `surrealdb` JS client through a `SurrealProvider` React context.
+- Secrets Module: Default development credentials and endpoints live in `app/secrets/*` for convenience. Real secrets must be provided via environment variables in `.env.local`.
+
+### Key Files
+- `app/secrets/minio-config.tsx`: Exposes `MINIO_CONFIG` (endpoint, region, accessKeyId, secretAccessKey, bucket, `forcePathStyle`). Used by upload UI and connection checks.
+- `app/secrets/surreal-config.ts`: Exposes `SURREAL_CONFIG` (URL, ns, db, username, password). Consumed by `app/provider.tsx` to initialize the DB client.
+- `components/surreal/SurrealProvider.tsx`: Wraps the app with a Surreal client; handles connect, signin, and `USE NS/DB` selection.
+- `components/status/connection-status.tsx`: Lightweight health indicator for SurrealDB and MinIO (HeadBucket check).
+- `app/dataset/upload/page.tsx`: Client-side multipart upload to MinIO, then metadata registration in SurrealDB.
+
+### Environment Variables
+- Prefer setting client-usable values via `NEXT_PUBLIC_*` in `.env.local` so they are available in the browser:
+  - `NEXT_PUBLIC_SURREAL_URL` (e.g., `ws://127.0.0.1:8000/rpc`)
+  - `NEXT_PUBLIC_SURREAL_NS`, `NEXT_PUBLIC_SURREAL_DB`
+  - `NEXT_PUBLIC_SURREAL_USER`, `NEXT_PUBLIC_SURREAL_PASS`
+- `MINIO_CONFIG` currently reads static values from `app/secrets/minio-config.tsx`. For production, move these to environment variables and avoid shipping credentials to the client.
+
+### Connectivity Notes
+- SurrealDB URL: The Surreal JS client supports WebSocket (recommended for browser) in the form `ws://host:port/rpc`. Ensure the path includes `/rpc` when using WebSocket/HTTP as required by your server.
+- MinIO: The AWS SDK v3 is configured with `forcePathStyle: true` for MinIO compatibility. Ensure CORS and bucket policy allow browser-based PUT/Multipart uploads from your app’s origin.
+
+### Data Flow
+- Upload: User selects files → client uploads to MinIO (`S3MultipartUpload`) → upon success, the app writes metadata to SurrealDB with fields: `name`, `key`, `bucket`, `size`, `mime`, `dataset`, `encode`, `uploadedAt`.
+- Dataset Listing: Query SurrealDB for datasets grouped by name, e.g. `SELECT dataset FROM file GROUP BY dataset;`, then render dynamic dataset tiles using the existing thumbnail UI.
+
+### Security Considerations
+- Do not commit real access keys or DB passwords. The values in `app/secrets/*` are placeholders for local development only.
+- Direct-from-browser S3/MinIO uploads require exposing credentials or using presigned URLs. For production, prefer a server/API that issues short-lived presigned URLs or uses an identity provider.
+- Validate and sanitize any user-provided dataset names when writing to the DB or constructing object keys.
+
+### Local Setup (example)
+- MinIO: Start a local MinIO server, create a bucket (e.g., `horus-bucket`), and set CORS to allow your dev origin. Update `endpoint`, `accessKeyId`, `secretAccessKey`, and `bucket` in `app/secrets/minio-config.tsx` or via env.
+- SurrealDB: Start SurrealDB with WebSocket enabled. Set `NEXT_PUBLIC_SURREAL_URL` to `ws://localhost:8000/rpc`, and configure `NEXT_PUBLIC_SURREAL_NS`, `NEXT_PUBLIC_SURREAL_DB`, `NEXT_PUBLIC_SURREAL_USER`, `NEXT_PUBLIC_SURREAL_PASS`.
+- Dev Flow: `yarn dev` starts the UI. The header’s connection badge reflects SurrealDB and MinIO reachability.
