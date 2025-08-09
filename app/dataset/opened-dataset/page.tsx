@@ -92,9 +92,10 @@ export default function Page() {
   }, [files, selectedMedia])
 
   useEffect(() => {
-    // If there are no files, clear and revoke any blob URLs we created earlier.
+    // If there are no files, clear once if needed and exit without updating state repeatedly.
     if (!files || files.length === 0) {
       setImgUrls((prev) => {
+        if (Object.keys(prev).length === 0) return prev
         Object.values(prev).forEach((u) => { if (u.startsWith("blob:")) URL.revokeObjectURL(u) })
         return {}
       })
