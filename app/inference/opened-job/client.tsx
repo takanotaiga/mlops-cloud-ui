@@ -9,6 +9,7 @@ import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvid
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { extractRows } from "@/components/surreal/normalize"
 import { useRouter } from "next/navigation"
+import { useI18n } from "@/components/i18n/LanguageProvider"
 
 type JobRow = {
   id: string
@@ -33,6 +34,7 @@ function thingToString(v: unknown): string {
 }
 
 export default function ClientOpenedInferenceJobPage() {
+  const { t } = useI18n()
   const params = useSearchParams()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -99,12 +101,12 @@ export default function ClientOpenedInferenceJobPage() {
         <HStack gap="3" align="center">
           <Heading size="2xl">
             <Link asChild color="black" _hover={{ textDecoration: "none", color: "black" }}>
-              <NextLink href="/inference">Inference 🤖</NextLink>
+              <NextLink href="/inference">{t('inference.detail.breadcrumb','Inference 🤖')}</NextLink>
             </Link>
             {" / "}
             {jobName || "(unknown)"}
           </Heading>
-          <Badge rounded="full" variant="subtle" colorPalette="teal">Inference</Badge>
+          <Badge rounded="full" variant="subtle" colorPalette="teal">{t('inference.badge','Inference')}</Badge>
         </HStack>
         <HStack>
           {job?.status === 'ProcessWaiting' && (
@@ -115,11 +117,11 @@ export default function ClientOpenedInferenceJobPage() {
                 queryClient.invalidateQueries({ queryKey: ["inference-jobs"] })
                 refetch()
               } catch {}
-            }}>Stop</Button>
+            }}>{t('common.stop','Stop')}</Button>
           )}
           <Dialog.Root>
             <Dialog.Trigger asChild>
-              <Button size="sm" rounded="full" colorPalette="red" disabled={removing}>Remove Job</Button>
+              <Button size="sm" rounded="full" colorPalette="red" disabled={removing}>{t('common.remove_job','Remove Job')}</Button>
             </Dialog.Trigger>
             <Portal>
               <Dialog.Backdrop />
@@ -133,9 +135,9 @@ export default function ClientOpenedInferenceJobPage() {
                   </Dialog.Body>
                   <Dialog.Footer>
                     <Dialog.ActionTrigger asChild>
-                      <Button variant="outline">Cancel</Button>
+                      <Button variant="outline">{t('common.cancel','Cancel')}</Button>
                     </Dialog.ActionTrigger>
-                    <Button colorPalette="red" onClick={handleRemove} disabled={removing}>Remove</Button>
+                    <Button colorPalette="red" onClick={handleRemove} disabled={removing}>{t('common.remove','Remove')}</Button>
                   </Dialog.Footer>
                   <Dialog.CloseTrigger asChild>
                     <CloseButton size="sm" />

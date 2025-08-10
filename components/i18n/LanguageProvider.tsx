@@ -1,0 +1,250 @@
+"use client"
+
+import React, { createContext, useContext, useMemo, useState } from "react"
+
+type Lang = "en" | "ja"
+
+type Dict = Record<string, string>
+
+const en: Dict = {
+  // Nav
+  "nav.datasets": "Datasets",
+  "nav.training": "Training",
+  "nav.inference": "Inference",
+  "nav.playground": "Playground",
+
+  // Home
+  "home.introducing": "Introducing",
+  "home.title": "MLOps Cloud ✨",
+  "home.subtitle": "Build delightful ML workflows — store, train, and infer with a smile 😄",
+  "cta.get_started": "Get Started 🎉",
+  "cta.view_training": "View Training 🚀",
+  "cta.try_playground": "Try Playground ⚡",
+  "features.dataset.title": "Dataset Management 📚",
+  "features.dataset.desc": "Version, preview, and search datasets with ease.",
+  "features.training.title": "Automated Training 🚀",
+  "features.training.desc": "Start, monitor, and tune runs from the UI.",
+  "features.registry.title": "Model Registry 🏷️",
+  "features.registry.desc": "Track best checkpoints and promote to prod.",
+  "features.observability.title": "Observability 📈",
+  "features.observability.desc": "Metrics, artifacts, and GPU usage in one place.",
+
+  // Datasets
+  "datasets.title": "Datasets 📚",
+  "datasets.subtitle": "Store, explore, and sparkle ✨",
+  "datasets.search.placeholder": "Search datasets",
+  "datasets.empty": "No datasets found",
+  "datasets.panel": "Datasets",
+  "datasets.select_filtered": "Select filtered",
+  "datasets.none": "No datasets",
+  "datasets.selected_suffix": "selected",
+  "configuration.panel": "Configuration",
+  "dataset.breadcrumb": "Datasets 📚",
+  "upload.title": "Upload 📤",
+  "upload.subtitle": "Drop files, we’ll handle the magic ✨",
+  "upload.uploading": "Uploading ⏫",
+  "upload.complete": "Upload Complete 🎉",
+  "upload.explore": "Explore datasets",
+
+  // Training
+  "training.title": "Training Jobs 🚀",
+  "training.badge": "Training",
+  "training.subtitle": "Train models, chase SOTA, have fun 🎉",
+  "training.search.placeholder": "Search jobs by name, model, task",
+  "training.empty": "No jobs found",
+  "training.create.title": "Create Training Job 🎛️",
+  "training.create.subtitle": "Pick a task, choose a model, and let's train 🚀",
+  "training.detail.breadcrumb": "Training 🚀",
+  "training.new": "New Training",
+  "training.job_name": "Job Name",
+  "training.task_type": "Task Type",
+  "training.model": "Model",
+  "training.labels": "Labels",
+  "training.labels.select_datasets": "Select datasets to load labels",
+  "training.labels.none": "No labels found in selected datasets",
+  "training.select_all": "Select all",
+  "training.datasets": "Datasets",
+  "training.train_test_split": "Train / Test Split",
+  "training.train_test_ratio": "Train : Test",
+  "training.epochs": "Epochs",
+  "training.batch_size": "Batch Size",
+
+  // Inference
+  "inference.title": "Inference Jobs 🤖",
+  "inference.badge": "Inference",
+  "inference.subtitle": "Run models on your data — fast and fun ✨",
+  "inference.create.title": "Create Inference Job 🧪",
+  "inference.create.subtitle": "Pick a task, choose a model, then go infer ✨",
+  "inference.detail.breadcrumb": "Inference 🤖",
+  "inference.new": "New Inference",
+  "playground.title": "Quick Playground ⚡",
+  "playground.subtitle": "Try tasks instantly — no setup, just vibes 🎈",
+  "inference.job_name": "Job Name",
+  "inference.task_type": "Task Type",
+  "inference.model_source": "Model Source",
+  "inference.model_source.internet": "Internet",
+  "inference.model_source.trained": "Trained",
+  "inference.internet_model": "Internet Model",
+  "inference.select_model": "Select model",
+  "inference.select_task_first": "Select task type first",
+  "inference.completed_training_job": "Completed Training Job",
+  "inference.select_completed_job": "Select completed job",
+  "inference.no_completed_jobs": "No completed jobs",
+  "inference.datasets": "Datasets",
+
+  // Common
+  "common.clear": "Clear",
+  "common.retry": "Retry",
+  "common.start": "Start",
+  "common.stop": "Stop",
+  "common.remove": "Remove",
+  "common.remove_job": "Remove Job",
+  "common.cancel": "Cancel",
+  "common.loading": "Loading...",
+}
+
+const ja: Dict = {
+  // Nav
+  "nav.datasets": "データセット",
+  "nav.training": "トレーニング",
+  "nav.inference": "推論",
+  "nav.playground": "お試しエリア",
+
+  // Home
+  "home.introducing": "ご紹介",
+  "home.title": "MLOps Cloud ✨",
+  "home.subtitle": "楽しくMLワークフローを構築 — 保存・学習・推論までスマイルで 😄",
+  "cta.get_started": "はじめる 🎉",
+  "cta.view_training": "トレーニングを見る 🚀",
+  "cta.try_playground": "お試しエリアを試す ⚡",
+  "features.dataset.title": "データセット管理 📚",
+  "features.dataset.desc": "バージョン管理、プレビュー、検索がかんたん。",
+  "features.training.title": "自動トレーニング 🚀",
+  "features.training.desc": "UIから実行・監視・チューニング。",
+  "features.registry.title": "モデルレジストリ 🏷️",
+  "features.registry.desc": "ベストチェックポイントを管理し本番へ。",
+  "features.observability.title": "可観測性 📈",
+  "features.observability.desc": "メトリクス/成果物/GPU使用率をひと目で。",
+
+  // Datasets
+  "datasets.title": "データセット 📚",
+  "datasets.subtitle": "たくさんためて、楽しく探索 ✨",
+  "datasets.search.placeholder": "データセットを検索",
+  "datasets.empty": "データセットが見つかりません",
+  "dataset.breadcrumb": "データセット 📚",
+  "upload.title": "アップロード 📤",
+  "upload.subtitle": "ファイルを置くだけ。あとはおまかせ ✨",
+  "upload.uploading": "アップロード中 ⏫",
+  "upload.complete": "アップロード完了 🎉",
+  "upload.explore": "データセットを見る",
+  "datasets.panel": "データセット",
+  "datasets.select_filtered": "絞り込みを選択",
+  "datasets.none": "データセットはありません",
+  "datasets.selected_suffix": "件選択中",
+  "configuration.panel": "設定",
+
+  // Training
+  "training.title": "トレーニングジョブ 🚀",
+  "training.badge": "Training",
+  "training.subtitle": "モデルを鍛えてSOTAへ、楽しく🎉",
+  "training.search.placeholder": "ジョブ名/モデル/タスクで検索",
+  "training.empty": "ジョブが見つかりません",
+  "training.create.title": "トレーニングジョブ作成 🎛️",
+  "training.create.subtitle": "タスクとモデルを選んで、いざ学習！🚀",
+  "training.detail.breadcrumb": "トレーニング 🚀",
+  "training.new": "新規トレーニング",
+  "training.job_name": "ジョブ名",
+  "training.task_type": "タスク種別",
+  "training.model": "モデル",
+  "training.labels": "ラベル",
+  "training.labels.select_datasets": "データセットを選択するとラベルを読み込みます",
+  "training.labels.none": "選択したデータセットにラベルがありません",
+  "training.select_all": "すべて選択",
+  "training.datasets": "データセット",
+  "training.train_test_split": "学習/評価の比率",
+  "training.train_test_ratio": "学習 : 評価",
+  "training.epochs": "エポック数",
+  "training.batch_size": "バッチサイズ",
+
+  // Inference
+  "inference.title": "推論ジョブ 🤖",
+  "inference.badge": "Inference",
+  "inference.subtitle": "あなたのデータでサクッと推論 ✨",
+  "inference.create.title": "推論ジョブ作成 🧪",
+  "inference.create.subtitle": "タスクとモデルを選んで、すぐ推論 ✨",
+  "inference.detail.breadcrumb": "推論 🤖",
+  "inference.new": "新規推論",
+  "playground.title": "クイック・お試しエリア ⚡",
+  "playground.subtitle": "今すぐ試す — セットアップ不要でワクワク 🎈",
+  "inference.job_name": "ジョブ名",
+  "inference.task_type": "タスク種別",
+  "inference.model_source": "モデルソース",
+  "inference.model_source.internet": "インターネット",
+  "inference.model_source.trained": "学習済み",
+  "inference.internet_model": "インターネットモデル",
+  "inference.select_model": "モデルを選択",
+  "inference.select_task_first": "先にタスクを選択してください",
+  "inference.completed_training_job": "完了したトレーニングジョブ",
+  "inference.select_completed_job": "完了ジョブを選択",
+  "inference.no_completed_jobs": "完了ジョブがありません",
+  "inference.datasets": "データセット",
+
+  // Common
+  "common.clear": "クリア",
+  "common.retry": "再試行",
+  "common.start": "開始",
+  "common.stop": "停止",
+  "common.remove": "削除",
+  "common.remove_job": "ジョブを削除",
+  "common.cancel": "キャンセル",
+  "common.loading": "読み込み中...",
+}
+
+const DICTS: Record<Lang, Dict> = { en, ja }
+
+type Ctx = {
+  lang: Lang
+  setLang: (l: Lang) => void
+  t: (key: string, fallback?: string) => string
+}
+
+const LanguageContext = createContext<Ctx | undefined>(undefined)
+
+export function LanguageProvider({ children, initialLang }: { children: React.ReactNode; initialLang?: Lang }) {
+  const [lang, setLangState] = useState<Lang>(() => {
+    if (initialLang === 'en' || initialLang === 'ja') return initialLang
+    try {
+      if (typeof window !== 'undefined') {
+        const saved = localStorage.getItem("mlops-ui.lang") as Lang | null
+        if (saved === "en" || saved === "ja") return saved
+        const nav = navigator?.language?.toLowerCase() || "en"
+        return nav.startsWith("ja") ? "ja" : "en"
+      }
+    } catch { }
+    return "en"
+  })
+
+  const setLang = (l: Lang) => {
+    setLangState(l)
+    try {
+      localStorage.setItem("mlops-ui.lang", l)
+      if (typeof document !== 'undefined') {
+        document.cookie = `mlops-ui.lang=${l}; path=/; max-age=${60 * 60 * 24 * 365}`
+      }
+    } catch { }
+  }
+
+  const t = (key: string, fallback?: string) => {
+    const d = DICTS[lang]
+    return d[key] ?? fallback ?? key
+  }
+
+  const value = useMemo(() => ({ lang, setLang, t }), [lang])
+  return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>
+}
+
+export function useI18n() {
+  const ctx = useContext(LanguageContext)
+  if (!ctx) throw new Error("useI18n must be used within LanguageProvider")
+  return ctx
+}

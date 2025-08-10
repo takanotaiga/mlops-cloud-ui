@@ -25,6 +25,7 @@ import { extractDatasetNames, extractRows } from "@/components/surreal/normalize
 import { LuSearch } from "react-icons/lu"
 import { useRouter } from "next/navigation"
 import { encodeBase64Utf8 } from "@/components/utils/base64"
+import { useI18n } from "@/components/i18n/LanguageProvider"
 
 const INTERNET_MODELS_BY_TASK: Record<string, { label: string; value: string }[]> = {
   "object-detection": [
@@ -50,6 +51,7 @@ const taskOptions = createListCollection({
 })
 
 export default function Page() {
+  const { t } = useI18n()
   const surreal = useSurrealClient()
   const { isSuccess } = useSurreal()
   const router = useRouter()
@@ -157,31 +159,31 @@ export default function Page() {
         {/* Header */}
         <HStack justify="space-between">
           <HStack gap="3" align="center">
-            <Heading size="2xl">Create Inference Job 🧪</Heading>
-            <Badge rounded="full" variant="subtle" colorPalette="teal">Inference</Badge>
+            <Heading size="2xl">{t('inference.create.title','Create Inference Job 🧪')}</Heading>
+            <Badge rounded="full" variant="subtle" colorPalette="teal">{t('inference.badge','Inference')}</Badge>
           </HStack>
           <HStack gap="2">
-            <Button size="sm" rounded="full" colorPalette="green" onClick={handleStart} disabled={locked || !canStart}>Start</Button>
+            <Button size="sm" rounded="full" colorPalette="green" onClick={handleStart} disabled={locked || !canStart}>{t('common.start','Start')}</Button>
           </HStack>
         </HStack>
-        <Text textStyle="sm" color="gray.600">Pick a task, choose a model, then go infer ✨</Text>
+        <Text textStyle="sm" color="gray.600">{t('inference.create.subtitle')}</Text>
 
         <HStack align="flex-start" justify="center" gap="24px">
           {/* Left: Datasets */}
           <VStack w={{ base: "100%", md: "50%" }} align="stretch" gap="16px">
             <Box p="16px" rounded="md" borderWidth="1px" bg="bg.panel">
-              <Text fontWeight="bold" mb="12px">Datasets</Text>
+              <Text fontWeight="bold" mb="12px">{t('datasets.panel','Datasets')}</Text>
               <InputGroup
                 flex="1"
                 startElement={<LuSearch />}
                 endElement={
                   query ? (
-                    <Button size="xs" variant="ghost" onClick={() => setQuery("")} disabled={locked}>Clear</Button>
+                    <Button size="xs" variant="ghost" onClick={() => setQuery("")} disabled={locked}>{t('common.clear','Clear')}</Button>
                   ) : undefined
                 }
               >
                 <Input
-                  placeholder="Search datasets"
+                  placeholder={t('datasets.search.placeholder','Search datasets')}
                   size="sm"
                   variant="flushed"
                   aria-label="Search datasets by name"
@@ -191,7 +193,7 @@ export default function Page() {
                 />
               </InputGroup>
               <HStack mt="10px" justify="space-between">
-                <Text textStyle="xs" color="gray.500">{selectedDatasets.length} selected</Text>
+                <Text textStyle="xs" color="gray.500">{selectedDatasets.length} {t('datasets.selected_suffix','selected')}</Text>
                 <HStack gap="1">
                   <Button
                     size="xs"
@@ -199,9 +201,9 @@ export default function Page() {
                     onClick={() => setSelectedDatasets(filteredDatasets)}
                     disabled={locked || filteredDatasets.length === 0}
                   >
-                    Select filtered
+                    {t('datasets.select_filtered','Select filtered')}
                   </Button>
-                  <Button size="xs" variant="ghost" onClick={() => setSelectedDatasets([])} disabled={locked}>Clear</Button>
+                  <Button size="xs" variant="ghost" onClick={() => setSelectedDatasets([])} disabled={locked}>{t('common.clear','Clear')}</Button>
                 </HStack>
               </HStack>
               <Box mt="8px">
@@ -213,8 +215,8 @@ export default function Page() {
                   </VStack>
                 ) : isError ? (
                   <HStack justify="space-between" align="center">
-                    <Text color="red.500" textStyle="sm">Failed to load datasets: {String((error as any)?.message ?? error)}</Text>
-                    <Button size="xs" variant="outline" onClick={() => refetch()}>Retry</Button>
+                  <Text color="red.500" textStyle="sm">Failed to load datasets: {String((error as any)?.message ?? error)}</Text>
+                    <Button size="xs" variant="outline" onClick={() => refetch()}>{t('common.retry','Retry')}</Button>
                   </HStack>
                 ) : (
                   <CheckboxGroup
@@ -233,7 +235,7 @@ export default function Page() {
                         </Checkbox.Root>
                       ))}
                       {filteredDatasets.length === 0 && (
-                        <Text textStyle="sm" color="gray.500">No datasets</Text>
+                        <Text textStyle="sm" color="gray.500">{t('datasets.none','No datasets')}</Text>
                       )}
                     </VStack>
                   </CheckboxGroup>
@@ -245,12 +247,12 @@ export default function Page() {
           {/* Right: Configuration */}
           <VStack w={{ base: "100%", md: "50%" }} align="stretch" gap="16px">
             <Box p="16px" rounded="md" borderWidth="1px" bg="bg.panel">
-              <Text fontWeight="bold" mb="12px">Configuration</Text>
+              <Text fontWeight="bold" mb="12px">{t('configuration.panel','Configuration')}</Text>
 
               <Stack gap="14px">
                 {/* Job Name */}
                 <Box>
-                  <Text textStyle="sm" color="gray.600" mb="6px">Job Name</Text>
+                  <Text textStyle="sm" color="gray.600" mb="6px">{t('inference.job_name','Job Name')}</Text>
                   <Input
                     placeholder="my-inference-job"
                     size="sm"
@@ -261,7 +263,7 @@ export default function Page() {
                 </Box>
                 {/* Task Type */}
                 <Box>
-                  <Text textStyle="sm" color="gray.600" mb="6px">Task Type</Text>
+                  <Text textStyle="sm" color="gray.600" mb="6px">{t('inference.task_type','Task Type')}</Text>
                   <Select.Root
                     collection={taskOptions}
                     size="sm"
@@ -273,7 +275,7 @@ export default function Page() {
                     <Select.HiddenSelect />
                     <Select.Control>
                       <Select.Trigger>
-                        <Select.ValueText placeholder="Select task type" />
+                        <Select.ValueText placeholder={t('inference.task_type','Task Type')} />
                       </Select.Trigger>
                       <Select.IndicatorGroup>
                         <Select.Indicator />
@@ -296,17 +298,17 @@ export default function Page() {
 
                 {/* Model Source */}
                 <Box>
-                  <Text textStyle="sm" color="gray.600" mb="6px">Model Source</Text>
+                  <Text textStyle="sm" color="gray.600" mb="6px">{t('inference.model_source','Model Source')}</Text>
                   <HStack gap="2">
-                    <Button size="xs" rounded="full" variant={modelSource === 'internet' ? 'solid' : 'outline'} onClick={() => setModelSource('internet')}>Internet</Button>
-                    <Button size="xs" rounded="full" variant={modelSource === 'trained' ? 'solid' : 'outline'} onClick={() => setModelSource('trained')}>Trained</Button>
+                    <Button size="xs" rounded="full" variant={modelSource === 'internet' ? 'solid' : 'outline'} onClick={() => setModelSource('internet')}>{t('inference.model_source.internet','Internet')}</Button>
+                    <Button size="xs" rounded="full" variant={modelSource === 'trained' ? 'solid' : 'outline'} onClick={() => setModelSource('trained')}>{t('inference.model_source.trained','Trained')}</Button>
                   </HStack>
                 </Box>
 
                 {/* Internet Model */}
                 {modelSource === 'internet' && (
                   <Box>
-                    <Text textStyle="sm" color="gray.600" mb="6px">Internet Model</Text>
+                    <Text textStyle="sm" color="gray.600" mb="6px">{t('inference.internet_model','Internet Model')}</Text>
                     <Select.Root
                       collection={internetModelCollection}
                       size="sm"
@@ -318,7 +320,7 @@ export default function Page() {
                       <Select.HiddenSelect />
                       <Select.Control>
                         <Select.Trigger>
-                          <Select.ValueText placeholder={taskType ? "Select model" : "Select task type first"} />
+                          <Select.ValueText placeholder={taskType ? t('inference.select_model','Select model') : t('inference.select_task_first','Select task type first')} />
                         </Select.Trigger>
                         <Select.IndicatorGroup>
                           <Select.Indicator />
@@ -343,7 +345,7 @@ export default function Page() {
                 {/* Trained Model */}
                 {modelSource === 'trained' && (
                   <Box>
-                    <Text textStyle="sm" color="gray.600" mb="6px">Completed Training Job</Text>
+                    <Text textStyle="sm" color="gray.600" mb="6px">{t('inference.completed_training_job','Completed Training Job')}</Text>
                     <Select.Root
                       // Build collection inline to avoid stale values
                       collection={createListCollection({ items: completedTrainingJobs.map((n) => ({ label: n, value: n })) })}
@@ -356,7 +358,7 @@ export default function Page() {
                       <Select.HiddenSelect />
                       <Select.Control>
                         <Select.Trigger>
-                          <Select.ValueText placeholder={completedTrainingJobs.length ? "Select completed job" : "No completed jobs"} />
+                          <Select.ValueText placeholder={completedTrainingJobs.length ? t('inference.select_completed_job','Select completed job') : t('inference.no_completed_jobs','No completed jobs')} />
                         </Select.Trigger>
                         <Select.IndicatorGroup>
                           <Select.Indicator />
@@ -381,15 +383,15 @@ export default function Page() {
                 {/* Datasets (display-only of selected) */}
                 <Box>
                   <HStack justify="space-between" align="center" mb="6px">
-                    <Text textStyle="sm" color="gray.600">Datasets</Text>
-                    <Text textStyle="xs" color="gray.500">{selectedDatasets.length} selected</Text>
+                    <Text textStyle="sm" color="gray.600">{t('inference.datasets','Datasets')}</Text>
+                    <Text textStyle="xs" color="gray.500">{selectedDatasets.length} {t('datasets.selected_suffix','selected')}</Text>
                   </HStack>
                   <VStack align="stretch" gap="1" maxH="140px" overflowY="auto" pr="2">
                     {selectedDatasets.map((name) => (
                       <Text key={name} textStyle="sm">• {name}</Text>
                     ))}
                     {selectedDatasets.length === 0 && (
-                      <Text textStyle="sm" color="gray.500">No datasets selected</Text>
+                      <Text textStyle="sm" color="gray.500">{t('datasets.none','No datasets')}</Text>
                     )}
                   </VStack>
                 </Box>

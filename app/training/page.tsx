@@ -9,6 +9,7 @@ import { useQuery } from "@tanstack/react-query"
 import { extractRows } from "@/components/surreal/normalize"
 import { encodeBase64Utf8 } from "@/components/utils/base64"
 import { useSearchParams } from "next/navigation"
+import { useI18n } from "@/components/i18n/LanguageProvider"
 
 type JobRow = {
   id: string
@@ -39,6 +40,7 @@ function formatTimestamp(ts?: string): string {
 }
 
 function TrainingJobsPage() {
+  const { t } = useI18n()
   const surreal = useSurrealClient()
   const { isSuccess } = useSurreal()
   const [query, setQuery] = useState("")
@@ -75,25 +77,25 @@ function TrainingJobsPage() {
       <VStack w="70%" align="stretch" py="24px" gap="16px">
         <HStack justify="space-between" pb="8px">
           <HStack gap="3" align="center">
-            <Heading size="2xl">Training Jobs 🚀</Heading>
-            <Badge rounded="full" variant="subtle" colorPalette="orange">Training</Badge>
+            <Heading size="2xl">{t('training.title','Training Jobs 🚀')}</Heading>
+            <Badge rounded="full" variant="subtle" colorPalette="orange">{t('training.badge','Training')}</Badge>
           </HStack>
           <NextLink href="/training/create" passHref>
-            <Button rounded="full">New Training</Button>
+            <Button rounded="full">{t('training.new','New Training')}</Button>
           </NextLink>
         </HStack>
-        <Text textStyle="sm" color="gray.600">Train models, chase SOTA, have fun 🎉</Text>
+        <Text textStyle="sm" color="gray.600">{t('training.subtitle')}</Text>
         <InputGroup
           flex="1"
           startElement={<LuSearch />}
           endElement={
             query ? (
-              <Button size="xs" variant="ghost" onClick={() => setQuery("")}>Clear</Button>
+              <Button size="xs" variant="ghost" onClick={() => setQuery("")}>{t('common.clear','Clear')}</Button>
             ) : undefined
           }
         >
           <Input
-            placeholder="Search jobs by name, model, task"
+            placeholder={t('training.search.placeholder','Search jobs by name, model, task')}
             size="sm"
             variant="flushed"
             aria-label="Search jobs"
@@ -105,7 +107,7 @@ function TrainingJobsPage() {
         {isError && (
           <HStack color="red.500" justify="space-between">
             <Box>Failed to load jobs: {String((error as any)?.message ?? error)}</Box>
-            <Button size="xs" variant="outline" onClick={() => refetch()}>Retry</Button>
+            <Button size="xs" variant="outline" onClick={() => refetch()}>{t('common.retry','Retry')}</Button>
           </HStack>
         )}
 
@@ -119,7 +121,7 @@ function TrainingJobsPage() {
               </Box>
             ))
           ) : filtered.length === 0 ? (
-            <Text color="gray.500">No jobs found</Text>
+            <Text color="gray.500">{t('training.empty','No jobs found')}</Text>
           ) : (
             filtered.map((j) => (
               <NextLink key={j.id} href={`/training/opened-job?j=${encodeBase64Utf8(j.name)}`}>

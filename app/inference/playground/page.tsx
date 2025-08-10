@@ -2,6 +2,7 @@
 
 import { Box, HStack, VStack, Heading, Text, Button, Input, Textarea, Select, createListCollection, Portal } from "@chakra-ui/react"
 import { useState } from "react"
+import { useI18n } from "@/components/i18n/LanguageProvider"
 
 const taskOptions = createListCollection({
   items: [
@@ -12,6 +13,7 @@ const taskOptions = createListCollection({
 })
 
 export default function Page() {
+  const { t } = useI18n()
   const [taskType, setTaskType] = useState<string>("")
   const [prompt, setPrompt] = useState("")
   const [imageUrl, setImageUrl] = useState<string | null>(null)
@@ -32,14 +34,14 @@ export default function Page() {
       <VStack w={{ base: "90%", md: "70%" }} align="stretch" gap="16px" py="24px">
         <HStack justify="space-between">
           <HStack gap="3" align="center">
-            <Heading size="2xl">Quick Playground ⚡</Heading>
-            <Button size="xs" rounded="full" variant="subtle" colorPalette="teal">Inference</Button>
+            <Heading size="2xl">{t('playground.title','Quick Playground ⚡')}</Heading>
+            <Button size="xs" rounded="full" variant="subtle" colorPalette="teal">{t('inference.badge','Inference')}</Button>
           </HStack>
           <Button rounded="full" onClick={() => setRunning(true)} disabled={!taskType || running}>
-            {running ? "Running..." : "Run"}
+            {running ? t('common.loading','Loading...') : t('common.start','Start')}
           </Button>
         </HStack>
-        <Text textStyle="sm" color="gray.600">Try tasks instantly — no setup, just vibes 🎈</Text>
+        <Text textStyle="sm" color="gray.600">{t('playground.subtitle')}</Text>
 
         <VStack align="stretch" gap="16px">
           {/* Task */}

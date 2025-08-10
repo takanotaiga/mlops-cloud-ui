@@ -20,6 +20,7 @@ import { BsPlusCircleFill } from "react-icons/bs";
 import { LuSearch } from "react-icons/lu"
 
 import NextLink from "next/link"
+import { useI18n } from "@/components/i18n/LanguageProvider"
 import { useDeferredValue, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
@@ -27,6 +28,7 @@ import { extractDatasetNames } from "@/components/surreal/normalize"
 import { encodeBase64Utf8 } from "@/components/utils/base64"
 
 export default function Page() {
+  const { t } = useI18n()
   const surreal = useSurrealClient()
   const { isSuccess } = useSurreal()
   const [query, setQuery] = useState<string>("")
@@ -56,15 +58,15 @@ export default function Page() {
         <HStack w="95%" justify="space-between" pb="40px" pt="30px">
           <Box alignSelf="flex-start" ml="30px">
             <HStack alignSelf="flex-start">
-              <Heading size="2xl">Datasets 📚</Heading>
-              <Badge rounded="full" variant="subtle" colorPalette="purple">Datasets</Badge>
+              <Heading size="2xl">{t('datasets.title','Datasets 📚')}</Heading>
+              <Badge rounded="full" variant="subtle" colorPalette="purple">{t('nav.datasets','Datasets')}</Badge>
               <NextLink href="/dataset/upload" passHref>
                 <Button variant="plain" rounded="full" w="10px" aria-label="Upload dataset">
                   <BsPlusCircleFill color="#8E8E93" />
                 </Button>
               </NextLink>
             </HStack>
-            <Text textAlign="left" w="100%" fontWeight="normal" textStyle="sm" color="gray.600">Store, explore, and sparkle ✨</Text>
+            <Text textAlign="left" w="100%" fontWeight="normal" textStyle="sm" color="gray.600">{t('datasets.subtitle')}</Text>
           </Box>
           <Box alignSelf="flex-start" ml="30px">
             <Spacer h="10px" />
@@ -78,7 +80,7 @@ export default function Page() {
               }
             >
               <Input
-                placeholder="Search datasets"
+                placeholder={t('datasets.search.placeholder','Search datasets')}
                 size="sm"
                 variant="flushed"
                 aria-label="Search datasets by name"
@@ -116,7 +118,7 @@ export default function Page() {
               ))}
         </SimpleGrid>
         {!isPending && filtered.length === 0 && (
-          <Box w="95%" ml="30px" color="gray.500" py="10px">No datasets found</Box>
+          <Box w="95%" ml="30px" color="gray.500" py="10px">{t('datasets.empty','No datasets found')}</Box>
         )}
       </VStack>
     </HStack>

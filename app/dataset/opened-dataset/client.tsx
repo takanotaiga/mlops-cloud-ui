@@ -31,8 +31,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { extractRows } from "@/components/surreal/normalize"
 import { getObjectUrlPreferPresign, deleteObjectFromS3 } from "@/components/utils/minio"
 import { useRouter } from "next/navigation"
+import { useI18n } from "@/components/i18n/LanguageProvider"
 
 export default function ClientOpenedDatasetPage() {
+  const { t } = useI18n()
   const router = useRouter()
   const params = useSearchParams()
   const queryClient = useQueryClient()
@@ -239,7 +241,7 @@ export default function ClientOpenedDatasetPage() {
               _focusVisible={{ outline: "none", boxShadow: "none" }}
               _active={{ outline: "none", boxShadow: "none" }}
             >
-              <NextLink href="/dataset">Datasets 📚</NextLink>
+              <NextLink href="/dataset">{t('dataset.breadcrumb','Datasets 📚')}</NextLink>
             </Link>
             {" / "}
             {datasetName || "(unknown)"}

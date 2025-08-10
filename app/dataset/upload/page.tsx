@@ -30,6 +30,7 @@ import { Upload as S3MultipartUpload } from "@aws-sdk/lib-storage";
 import { MINIO_CONFIG } from "@/app/secrets/minio-config";
 import { useState, useCallback, useRef, useEffect } from "react";
 import NextLink from "next/link"
+import { useI18n } from "@/components/i18n/LanguageProvider"
 import { useSurrealClient } from "@/components/surreal/SurrealProvider";
 import { FILE_UPLOAD_CONCURRENCY } from "@/app/dataset/upload/parameters";
 
@@ -85,6 +86,7 @@ const makeVideoEncodeModes = (hasLongVideo15: boolean, hasMultipleVideos: boolea
 
 
 export default function Page() {
+  const { t } = useI18n()
   const surreal = useSurrealClient()
   const [error, setError] = useState<string | null>(null)
   const MAX_FILE_SIZE = 50 * 1024 * 1024 * 1024 // 50GB
@@ -480,7 +482,7 @@ export default function Page() {
           <HStack w="95%" justify="space-between" pt="40px">
             <Box alignSelf="flex-start" ml="30px">
               <HStack alignSelf="flex-start">
-                <Heading size="2xl">Uploading ⏫</Heading>
+                <Heading size="2xl">{t('upload.uploading','Uploading ⏫')}</Heading>
               </HStack>
             </Box>
           </HStack>
@@ -526,7 +528,7 @@ export default function Page() {
                 <Icon color="green.500" boxSize={8}>
                   <LuPartyPopper />
                 </Icon>
-                <Heading size="2xl">Upload Complete 🎉</Heading>
+                <Heading size="2xl">{t('upload.complete','Upload Complete 🎉')}</Heading>
                 <Icon color="purple.500" boxSize={7}>
                   <LuSparkles />
                 </Icon>
@@ -583,7 +585,7 @@ export default function Page() {
             <HStack mt="16px" gap="12px">
               <Button rounded="full" onClick={() => { resetFileSelection(); setView("form") }}>Upload more</Button>
               <NextLink href="/dataset" passHref>
-                <Button rounded="full" variant="outline">Explore datasets</Button>
+                <Button rounded="full" variant="outline">{t('upload.explore','Explore datasets')}</Button>
               </NextLink>
             </HStack>
           </Box>
@@ -599,8 +601,8 @@ export default function Page() {
         <HStack w="95%" justify="space-between" pt="40px">
           <Box alignSelf="flex-start" ml="30px">
             <HStack alignSelf="flex-start">
-              <Heading size="2xl">Upload 📤</Heading>
-              <Text mt="1" textStyle="sm" color="gray.600">Drop files, we’ll handle the magic ✨</Text>
+              <Heading size="2xl">{t('upload.title','Upload 📤')}</Heading>
+              <Text mt="1" textStyle="sm" color="gray.600">{t('upload.subtitle','Drop files, we’ll handle the magic ✨')}</Text>
             </HStack>
           </Box>
         </HStack>

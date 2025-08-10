@@ -9,6 +9,7 @@ import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvid
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { extractRows } from "@/components/surreal/normalize"
 import { useRouter } from "next/navigation"
+import { useI18n } from "@/components/i18n/LanguageProvider"
 
 type JobRow = {
   id: string
@@ -38,6 +39,7 @@ function thingToString(v: unknown): string {
 }
 
 export default function ClientOpenedJobPage() {
+  const { t } = useI18n()
   const params = useSearchParams()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -144,12 +146,12 @@ export default function ClientOpenedJobPage() {
         <HStack gap="3" align="center">
           <Heading size="2xl">
             <Link asChild color="black" _hover={{ textDecoration: "none", color: "black" }}>
-              <NextLink href="/training">Training 🚀</NextLink>
+            <NextLink href="/training">{t('training.detail.breadcrumb','Training 🚀')}</NextLink>
             </Link>
             {" / "}
             {jobName || "(unknown)"}
           </Heading>
-          <Badge rounded="full" variant="subtle" colorPalette="orange">Training</Badge>
+          <Badge rounded="full" variant="subtle" colorPalette="orange">{t('training.badge','Training')}</Badge>
         </HStack>
         <HStack>
           {job?.status === 'ProcessWaiting' && (
@@ -160,11 +162,11 @@ export default function ClientOpenedJobPage() {
                 queryClient.invalidateQueries({ queryKey: ["training-jobs"] })
                 refetch()
               } catch {}
-            }}>Stop</Button>
+            }}>{t('common.stop','Stop')}</Button>
           )}
           <Dialog.Root>
             <Dialog.Trigger asChild>
-              <Button size="sm" rounded="full" colorPalette="red" disabled={removing}>Remove Job</Button>
+              <Button size="sm" rounded="full" colorPalette="red" disabled={removing}>{t('common.remove_job','Remove Job')}</Button>
             </Dialog.Trigger>
             <Portal>
               <Dialog.Backdrop />
@@ -178,9 +180,9 @@ export default function ClientOpenedJobPage() {
                   </Dialog.Body>
                   <Dialog.Footer>
                     <Dialog.ActionTrigger asChild>
-                      <Button variant="outline">Cancel</Button>
+                      <Button variant="outline">{t('common.cancel','Cancel')}</Button>
                     </Dialog.ActionTrigger>
-                    <Button colorPalette="red" onClick={handleRemove} disabled={removing}>Remove</Button>
+                    <Button colorPalette="red" onClick={handleRemove} disabled={removing}>{t('common.remove','Remove')}</Button>
                   </Dialog.Footer>
                   <Dialog.CloseTrigger asChild>
                     <CloseButton size="sm" />

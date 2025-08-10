@@ -9,6 +9,7 @@ import { useQuery } from "@tanstack/react-query"
 import { extractRows } from "@/components/surreal/normalize"
 import { encodeBase64Utf8 } from "@/components/utils/base64"
 import { useSearchParams } from "next/navigation"
+import { useI18n } from "@/components/i18n/LanguageProvider"
 
 type JobRow = {
   id: string
@@ -39,6 +40,7 @@ function formatTimestamp(ts?: string): string {
 }
 
 function InferenceJobsPage() {
+  const { t } = useI18n()
   const surreal = useSurrealClient()
   const { isSuccess } = useSurreal()
   const [query, setQuery] = useState("")
@@ -75,30 +77,30 @@ function InferenceJobsPage() {
       <VStack w="70%" align="stretch" py="24px" gap="16px">
         <HStack justify="space-between" pb="8px">
           <HStack gap="3" align="center">
-            <Heading size="2xl">Inference Jobs 🤖</Heading>
-            <Badge rounded="full" variant="subtle" colorPalette="teal">Inference</Badge>
+            <Heading size="2xl">{t('inference.title','Inference Jobs 🤖')}</Heading>
+            <Badge rounded="full" variant="subtle" colorPalette="teal">{t('inference.badge','Inference')}</Badge>
           </HStack>
           <HStack>
             <NextLink href="/inference/playground" passHref>
-              <Button rounded="full" variant="outline">Playground ⚡</Button>
+              <Button rounded="full" variant="outline">{t('nav.playground','Playground')} ⚡</Button>
             </NextLink>
             <NextLink href="/inference/create" passHref>
-              <Button rounded="full">New Inference</Button>
+              <Button rounded="full">{t('inference.new','New Inference')}</Button>
             </NextLink>
           </HStack>
         </HStack>
-        <Text textStyle="sm" color="gray.600">Run models on your data — fast and fun ✨</Text>
+        <Text textStyle="sm" color="gray.600">{t('inference.subtitle')}</Text>
         <InputGroup
           flex="1"
           startElement={<LuSearch />}
           endElement={
             query ? (
-              <Button size="xs" variant="ghost" onClick={() => setQuery("")}>Clear</Button>
+              <Button size="xs" variant="ghost" onClick={() => setQuery("")}>{t('common.clear','Clear')}</Button>
             ) : undefined
           }
         >
           <Input
-            placeholder="Search jobs by name, model, task"
+            placeholder={t('training.search.placeholder','Search jobs by name, model, task')}
             size="sm"
             variant="flushed"
             aria-label="Search jobs"
@@ -110,7 +112,7 @@ function InferenceJobsPage() {
         {isError && (
           <HStack color="red.500" justify="space-between">
             <Box>Failed to load jobs: {String((error as any)?.message ?? error)}</Box>
-            <Button size="xs" variant="outline" onClick={() => refetch()}>Retry</Button>
+            <Button size="xs" variant="outline" onClick={() => refetch()}>{t('common.retry','Retry')}</Button>
           </HStack>
         )}
 
@@ -124,7 +126,7 @@ function InferenceJobsPage() {
               </Box>
             ))
           ) : filtered.length === 0 ? (
-            <Text color="gray.500">No jobs found</Text>
+            <Text color="gray.500">{t('training.empty','No jobs found')}</Text>
           ) : (
             filtered.map((j) => (
               <NextLink key={j.id} href={`/inference/opened-job?j=${encodeBase64Utf8(j.name)}`}>
