@@ -111,6 +111,9 @@ export default function Page() {
   const [modelValue, setModelValue] = useState<string>("")
   const [jobName, setJobName] = useState<string>("")
   const [trainSplit, setTrainSplit] = useState<number>(80)
+  const [epochs, setEpochs] = useState<number | "">(50)
+  const [batchSize, setBatchSize] = useState<number | "">(16)
+  const [currentStatus, setCurrentStatus] = useState<string>("Idle")
   useEffect(() => {
     // Reset model if task changes to a set that doesn't include current model
     if (!taskType) { setModelValue(""); return }
@@ -158,6 +161,90 @@ export default function Page() {
     return datasets.filter((n) => n.toLowerCase().includes(q))
   }, [datasets, deferredQuery])
   const canStart = useMemo(() => selectedDatasets.length > 0, [selectedDatasets])
+  const statusText = currentStatus || "Idle"
+
+  // Load existing training job by name (to lock / populate when in progress)
+  const trimmedJobName = (jobName || "").trim()
+  const { data: existingJob, refetch: refetchJob } = useQuery({
+    queryKey: ["training-job", trimmedJobName],
+    enabled: isSuccess && !!trimmedJobName,
+    queryFn: async () => {
+      const res = await surreal.query(
+        "SELECT * FROM training_job WHERE name == $name ORDER BY updatedAt DESC LIMIT 1",
+        { name: trimmedJobName },
+      )
+      const rows = extractRows<any>(res)
+      return rows[0] || null
+    },
+    staleTime: 2000,
+    refetchOnWindowFocus: false,
+  })
+
+  const locked = useMemo(() => (existingJob?.status === "ProcessWaiting"), [existingJob?.status])
+
+  useEffect(() => {
+    if (existingJob) {
+      setCurrentStatus(existingJob.status || "Idle")
+      // Populate fields from job (view-only when locked)
+      if (typeof existingJob.taskType === 'string') setTaskType(existingJob.taskType)
+      if (typeof existingJob.model === 'string') setModelValue(existingJob.model)
+      if (Array.isArray(existingJob.datasets)) setSelectedDatasets(existingJob.datasets)
+      if (Array.isArray(existingJob.labels)) setSelectedLabels(existingJob.labels)
+      if (typeof existingJob.splitTrain === 'number') setTrainSplit(existingJob.splitTrain)
+      if (typeof existingJob.epochs === 'number') setEpochs(existingJob.epochs)
+      if (typeof existingJob.batchSize === 'number') setBatchSize(existingJob.batchSize)
+    } else {
+      setCurrentStatus("Idle")
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existingJob])
+
+  async function handleStart() {
+    if (!trimmedJobName || !taskType || !modelValue || selectedDatasets.length === 0) return
+    const payload = {
+      status: "ProcessWaiting",
+      taskType,
+      model: modelValue,
+      datasets: selectedDatasets,
+      labels: selectedLabels,
+      epochs: typeof epochs === 'number' ? epochs : undefined,
+      batchSize: typeof batchSize === 'number' ? batchSize : undefined,
+      splitTrain: trainSplit,
+      splitTest: 100 - trainSplit,
+    }
+    try {
+      // Upsert by name
+      const check = await surreal.query("SELECT id FROM training_job WHERE name == $name LIMIT 1", { name: trimmedJobName })
+      const rows = extractRows<any>(check)
+      if (rows.length > 0) {
+        await surreal.query(
+          "UPDATE training_job SET status = 'ProcessWaiting', taskType = $taskType, model = $model, datasets = $datasets, labels = $labels, epochs = $epochs, batchSize = $batchSize, splitTrain = $splitTrain, splitTest = $splitTest, updatedAt = time::now() WHERE name == $name",
+          { name: trimmedJobName, ...payload },
+        )
+      } else {
+        await surreal.query(
+          "CREATE training_job CONTENT { name: $name, status: 'ProcessWaiting', taskType: $taskType, model: $model, datasets: $datasets, labels: $labels, epochs: $epochs, batchSize: $batchSize, splitTrain: $splitTrain, splitTest: $splitTest, createdAt: time::now(), updatedAt: time::now() }",
+          { name: trimmedJobName, ...payload },
+        )
+      }
+      setCurrentStatus("ProcessWaiting")
+      refetchJob()
+    } catch (e) {
+      // swallow
+    }
+  }
+
+  async function handleStop() {
+    if (!trimmedJobName) return
+    try {
+      await surreal.query(
+        "UPDATE training_job SET status = 'StopInterrept', updatedAt = time::now() WHERE name == $name",
+        { name: trimmedJobName },
+      )
+      setCurrentStatus("StopInterrept")
+      refetchJob()
+    } catch {}
+  }
 
   return (
     <HStack justify="center">
@@ -166,8 +253,8 @@ export default function Page() {
         <HStack justify="space-between">
           <Heading size="2xl">Training</Heading>
           <HStack gap="2">
-            <Button size="sm" variant="outline" rounded="full">Stop</Button>
-            <Button size="sm" rounded="full" colorPalette="green" disabled={!canStart}>Start</Button>
+            <Button size="sm" variant="outline" rounded="full" onClick={handleStop} disabled={!locked}>Stop</Button>
+            <Button size="sm" rounded="full" colorPalette="green" onClick={handleStart} disabled={locked || !canStart || !trimmedJobName || !taskType || !modelValue}>Start</Button>
           </HStack>
         </HStack>
 
@@ -181,7 +268,7 @@ export default function Page() {
                 startElement={<LuSearch />}
                 endElement={
                   query ? (
-                    <Button size="xs" variant="ghost" onClick={() => setQuery("")}>Clear</Button>
+                    <Button size="xs" variant="ghost" onClick={() => setQuery("")} disabled={locked}>Clear</Button>
                   ) : undefined
                 }
               >
@@ -192,6 +279,7 @@ export default function Page() {
                   aria-label="Search datasets by name"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  disabled={locked}
                 />
               </InputGroup>
               <HStack mt="10px" justify="space-between">
@@ -201,11 +289,11 @@ export default function Page() {
                     size="xs"
                     variant="ghost"
                     onClick={() => setSelectedDatasets(filteredDatasets)}
-                    disabled={filteredDatasets.length === 0}
+                    disabled={locked || filteredDatasets.length === 0}
                   >
                     Select filtered
                   </Button>
-                  <Button size="xs" variant="ghost" onClick={() => setSelectedDatasets([])}>Clear</Button>
+                  <Button size="xs" variant="ghost" onClick={() => setSelectedDatasets([])} disabled={locked}>Clear</Button>
                 </HStack>
               </HStack>
               <Box mt="8px">
@@ -230,7 +318,7 @@ export default function Page() {
                   >
                     <VStack align="stretch" gap="1" maxH="340px" overflowY="auto" pr="2">
                       {filteredDatasets.map((name) => (
-                        <Checkbox.Root key={name} value={name}>
+                        <Checkbox.Root key={name} value={name} disabled={locked}>
                           <Checkbox.HiddenInput />
                           <Checkbox.Control />
                           <Checkbox.Label>{name}</Checkbox.Label>
@@ -272,6 +360,7 @@ export default function Page() {
                     width="100%"
                     value={taskType ? [taskType] : []}
                     onValueChange={(details: any) => setTaskType(details?.value?.[0] ?? "")}
+                    disabled={locked}
                   >
                     <Select.HiddenSelect />
                     <Select.Control>
@@ -306,7 +395,7 @@ export default function Page() {
                     width="100%"
                     value={modelValue ? [modelValue] : []}
                     onValueChange={(details: any) => setModelValue(details?.value?.[0] ?? "")}
-                    disabled={!taskType}
+                    disabled={!taskType || locked}
                   >
                     <Select.HiddenSelect />
                     <Select.Control>
@@ -357,8 +446,8 @@ export default function Page() {
                     ) : (
                       <>
                         <HStack mb="4" gap="2">
-                          <Button size="xs" variant="ghost" onClick={() => setSelectedLabels(mergedLabels)}>Select all</Button>
-                          <Button size="xs" variant="ghost" onClick={() => setSelectedLabels([])}>Clear</Button>
+                          <Button size="xs" variant="ghost" onClick={() => setSelectedLabels(mergedLabels)} disabled={locked}>Select all</Button>
+                          <Button size="xs" variant="ghost" onClick={() => setSelectedLabels([])} disabled={locked}>Clear</Button>
                         </HStack>
                         <CheckboxGroup
                           value={selectedLabels}
@@ -366,7 +455,7 @@ export default function Page() {
                         >
                           <VStack align="stretch" gap="1" maxH="200px" overflowY="auto" pr="2">
                             {mergedLabels.map((name) => (
-                              <Checkbox.Root key={name} value={name}>
+                              <Checkbox.Root key={name} value={name} disabled={locked}>
                                 <Checkbox.HiddenInput />
                                 <Checkbox.Control />
                                 <Checkbox.Label>{name}</Checkbox.Label>
@@ -404,6 +493,7 @@ export default function Page() {
                     min={5}
                     max={95}
                     step={5}
+                    disabled={locked}
                     onValueChange={(details: any) => {
                       const v = Number(details?.value?.[0] ?? details?.value ?? trainSplit)
                       if (Number.isFinite(v)) setTrainSplit(Math.max(5, Math.min(95, Math.round(v))))
@@ -426,11 +516,21 @@ export default function Page() {
                 <HStack gap="12px">
                   <Box flex="1">
                     <Text textStyle="sm" color="gray.600" mb="6px">Epochs</Text>
-                    <Input placeholder="50" size="sm" variant="flushed" />
+                    <Input placeholder="50" size="sm" variant="flushed" value={epochs === "" ? "" : String(epochs)} onChange={(e) => {
+                      const v = e.target.value
+                      if (!v) return setEpochs("")
+                      const n = Number(v)
+                      if (Number.isFinite(n)) setEpochs(Math.max(1, Math.floor(n)))
+                    }} disabled={locked} />
                   </Box>
                   <Box flex="1">
                     <Text textStyle="sm" color="gray.600" mb="6px">Batch Size</Text>
-                    <Input placeholder="16" size="sm" variant="flushed" />
+                    <Input placeholder="16" size="sm" variant="flushed" value={batchSize === "" ? "" : String(batchSize)} onChange={(e) => {
+                      const v = e.target.value
+                      if (!v) return setBatchSize("")
+                      const n = Number(v)
+                      if (Number.isFinite(n)) setBatchSize(Math.max(1, Math.floor(n)))
+                    }} disabled={locked} />
                   </Box>
                 </HStack>
                 {/* Removed Learning Rate and Weight Decay as requested */}
@@ -446,7 +546,7 @@ export default function Page() {
             {/* Status above charts */}
             <Box p="16px" rounded="md" borderWidth="1px" bg="bg.panel">
               <Text fontWeight="bold" mb="8px">Status</Text>
-              <Text textStyle="sm" color="gray.600">Idle. Press Start to begin training.</Text>
+              <Text textStyle="sm" color="gray.600">{statusText}</Text>
             </Box>
             <Box rounded="md" borderWidth="1px" bg="white" p="12px">
               <TabsRoot defaultValue="loss">
