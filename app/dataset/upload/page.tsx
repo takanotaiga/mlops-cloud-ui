@@ -101,6 +101,9 @@ export default function Page() {
   const [view, setView] = useState<"form" | "progress" | "done">("form")
   const [progress, setProgress] = useState<number[]>([])
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  // Track explicitly removed files and generate deterministic keys for dedupe
+  const removedKeysRef = useRef<Set<string>>(new Set())
+  const fileKey = useCallback((f: File) => `${f.name}__${f.size}__${f.lastModified}__${f.type}`, [])
 
   const resetFileSelection = useCallback(() => {
     setSelectedFiles([])
@@ -108,6 +111,7 @@ export default function Page() {
     setFilesInvalid(false)
     setError(null)
     setProgress([])
+    removedKeysRef.current.clear()
     if (fileInputRef.current) {
       try { fileInputRef.current.value = "" } catch { }
     }
@@ -213,48 +217,73 @@ export default function Page() {
 
   const handleFileChange = useCallback<React.ChangeEventHandler<HTMLInputElement>>(
     (e) => {
-      const files = e.target.files ? Array.from(e.target.files) : []
-      let images = 0
-      let videos = 0
-      if (files.length === 0) {
-        setCounts({ images: 0, videos: 0 })
-        setFilesInvalid(true)
-        setError(null)
-        setSelectedFiles([])
+      const pickedRaw = e.target.files ? Array.from(e.target.files) : []
+      if (pickedRaw.length === 0) {
+        try { e.target.value = "" } catch {}
         return
       }
-      for (const file of files) {
-        const isImage = file.type.startsWith("image/")
-        const isVideo = file.type.startsWith("video/")
+      // Validate and normalize picked files
+      for (const f of pickedRaw) {
+        const isImage = f.type.startsWith("image/")
+        const isVideo = f.type.startsWith("video/")
         if (!isImage && !isVideo) {
           setError("画像または動画のみアップロードできます")
-          // reset selection
-          e.target.value = ""
-          setCounts({ images: 0, videos: 0 })
-          setSelectedFiles([])
+          try { e.target.value = "" } catch {}
           return
         }
-        if (file.size > MAX_FILE_SIZE) {
+        if (f.size > MAX_FILE_SIZE) {
           setError("1ファイルあたり最大50GBまでです")
-          e.target.value = ""
-          setCounts({ images: 0, videos: 0 })
-          setSelectedFiles([])
+          try { e.target.value = "" } catch {}
           return
         }
-        if (isImage) images += 1
-        if (isVideo) videos += 1
       }
+      // Unique within the picked batch
+      const picked: File[] = []
+      const pickedKeys = new Set<string>()
+      for (const f of pickedRaw) {
+        const k = fileKey(f)
+        if (pickedKeys.has(k)) continue
+        pickedKeys.add(k)
+        picked.push(f)
+      }
+
       setError(null)
-      setCounts({ images, videos })
       setFilesInvalid(false)
-      setSelectedFiles(files)
+      setSelectedFiles((prev) => {
+        // Build next map from current selection (excluding any historically removed keys)
+        const map = new Map<string, File>()
+        for (const f of prev) {
+          const k = fileKey(f)
+          if (!removedKeysRef.current.has(k)) map.set(k, f)
+        }
+        // Add new unique picked files if not removed and not already chosen
+        for (const f of picked) {
+          const k = fileKey(f)
+          if (removedKeysRef.current.has(k)) continue
+          if (map.has(k)) continue
+          map.set(k, f)
+        }
+        const next = Array.from(map.values())
+        // Update counts based on final next
+        let images = 0, videos = 0
+        for (const f of next) {
+          if (f.type.startsWith("image/")) images++
+          else if (f.type.startsWith("video/")) videos++
+        }
+        setCounts({ images, videos })
+        return next
+      })
+      // Clear input value to avoid stale selections
+      try { e.target.value = "" } catch {}
     },
-    []
+    [MAX_FILE_SIZE, fileKey]
   )
 
   const removeFileAt = useCallback((index: number) => {
     setSelectedFiles((prev) => {
+      const target = prev[index]
       const next = prev.filter((_, i) => i !== index)
+      if (target) removedKeysRef.current.add(fileKey(target))
       let images = 0
       let videos = 0
       for (const file of next) {
@@ -262,12 +291,14 @@ export default function Page() {
         else if (file.type.startsWith("video/")) videos += 1
       }
       setCounts({ images, videos })
-      if (next.length === 0) {
-        setFilesInvalid(false)
-      }
+      if (next.length === 0) setFilesInvalid(false)
       return next
     })
-  }, [])
+    // Also clear the input value so removed files can't resurface
+    if (fileInputRef.current) {
+      try { fileInputRef.current.value = "" } catch {}
+    }
+  }, [fileKey])
 
   const handleUploadClick = useCallback(() => {
     let invalid = false
