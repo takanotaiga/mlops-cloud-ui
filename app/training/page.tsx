@@ -1,598 +1,140 @@
 "use client"
 
-import {
-  Box,
-  HStack,
-  VStack,
-  Heading,
-  Text,
-  Button,
-  Input,
-  Select,
-  createListCollection,
-  Portal,
-  Stack,
-  TabsRoot,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-  AspectRatio,
-  CheckboxGroup,
-  Checkbox,
-  Skeleton,
-  InputGroup,
-  Slider,
-} from "@chakra-ui/react"
-import { useDeferredValue, useEffect, useMemo, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
-import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
-import { extractDatasetNames, extractRows } from "@/components/surreal/normalize"
+import { Box, HStack, VStack, Heading, Text, Button, Input, InputGroup, SimpleGrid, Badge, Skeleton, SkeletonText } from "@chakra-ui/react"
+import { useDeferredValue, useMemo, useState } from "react"
+import NextLink from "next/link"
 import { LuSearch } from "react-icons/lu"
+import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
+import { useQuery } from "@tanstack/react-query"
+import { extractRows } from "@/components/surreal/normalize"
+import { encodeBase64Utf8 } from "@/components/utils/base64"
+import { useSearchParams } from "next/navigation"
 
-const MODEL_OPTIONS_BY_TASK: Record<string, { label: string; value: string }[]> = {
-  "object-detection": [
-    { label: "YOLOv8", value: "yolov8" },
-    { label: "YOLOv9", value: "yolov9" },
-  ],
-  "image-to-text": [
-    { label: "BLIP-2", value: "blip2" },
-    { label: "ViT-GPT2", value: "vit-gpt2" },
-  ],
-  "text-to-image": [
-    { label: "Stable Diffusion 1.5", value: "sd15" },
-    { label: "Stable Diffusion XL", value: "sdxl" },
-  ],
+type JobRow = {
+  id: string
+  name: string
+  status?: string
+  taskType?: string
+  model?: string
+  updatedAt?: string
 }
 
-const taskOptions = createListCollection({
-  items: [
-    { label: "Object Detection", value: "object-detection" },
-    { label: "Image to Text", value: "image-to-text" },
-    { label: "Text to Image", value: "text-to-image" },
-  ],
-})
+function thingToString(v: unknown): string {
+  if (v == null) return ""
+  if (typeof v === "string") return v
+  if (typeof v === "object" && v !== null && "tb" in (v as any) && "id" in (v as any)) {
+    const t = v as any
+    const id = typeof t.id === "object" && t.id !== null ? ((t.id as any).toString?.() ?? JSON.stringify(t.id)) : String(t.id)
+    return `${t.tb}:${id}`
+  }
+  return String(v)
+}
 
-type Point = Record<string, number | string>
-
-function LineSvg({ data, yKey, color = "#2b6cb0" }: { data: Point[]; yKey: string; color?: string }) {
-  const width = 800
-  const height = 300
-  const pad = { l: 40, r: 12, t: 12, b: 24 }
-  const innerW = width - pad.l - pad.r
-  const innerH = height - pad.t - pad.b
-  const xs = data.map((_, i) => i)
-  const ys = data.map((d) => Number(d[yKey] as any))
-  const yMin = Math.min(...ys)
-  const yMax = Math.max(...ys)
-  const ySpan = yMax - yMin || 1
-  const toX = (i: number) => pad.l + (innerW * i) / Math.max(1, xs.length - 1)
-  const toY = (y: number) => pad.t + innerH - ((y - yMin) / ySpan) * innerH
-  const dAttr = data
-    .map((d, i) => `${i === 0 ? "M" : "L"}${toX(i)},${toY(Number(d[yKey] as any))}`)
-    .join(" ")
-  const xTicks = 5
-  const yTicks = 4
-  return (
-    <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-      <rect x="0" y="0" width={width} height={height} fill="white" />
-      {[...Array(xTicks)].map((_, i) => {
-        const x = pad.l + (innerW * i) / (xTicks - 1)
-        return <line key={`vx-${i}`} x1={x} x2={x} y1={pad.t} y2={pad.t + innerH} stroke="#eee" />
-      })}
-      {[...Array(yTicks)].map((_, i) => {
-        const y = pad.t + (innerH * i) / (yTicks - 1)
-        return <line key={`hz-${i}`} x1={pad.l} x2={pad.l + innerW} y1={y} y2={y} stroke="#eee" />
-      })}
-      <path d={dAttr} fill="none" stroke={color} strokeWidth={2} />
-    </svg>
-  )
+function formatTimestamp(ts?: string): string {
+  if (!ts) return ""
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return String(ts)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 export default function Page() {
-  // SurrealDB datasets
   const surreal = useSurrealClient()
   const { isSuccess } = useSurreal()
-
-  const { data: datasets = [], isPending, isError, error, refetch } = useQuery({
-    queryKey: ["datasets-for-training"],
-    enabled: isSuccess,
-    queryFn: async () => {
-      const res = await surreal.query("SELECT dataset FROM file GROUP BY dataset;")
-      return extractDatasetNames(res)
-    },
-    staleTime: 10_000,
-    refetchOnWindowFocus: false,
-  })
-
-  const [selectedDatasets, setSelectedDatasets] = useState<string[]>([])
-  const [taskType, setTaskType] = useState<string>("")
-  const modelItems = useMemo(() => (taskType ? (MODEL_OPTIONS_BY_TASK[taskType] ?? []) : []), [taskType])
-  const modelCollection = useMemo(() => createListCollection({ items: modelItems }), [modelItems])
-  const [modelValue, setModelValue] = useState<string>("")
-  const [jobName, setJobName] = useState<string>("")
-  const [trainSplit, setTrainSplit] = useState<number>(80)
-  const [epochs, setEpochs] = useState<number | "">(50)
-  const [batchSize, setBatchSize] = useState<number | "">(16)
-  const [currentStatus, setCurrentStatus] = useState<string>("Idle")
-  useEffect(() => {
-    // Reset model if task changes to a set that doesn't include current model
-    if (!taskType) { setModelValue(""); return }
-    const values = new Set(modelItems.map((i) => i.value))
-    if (!values.has(modelValue)) setModelValue("")
-  }, [taskType, modelItems])
-  // Object Detection labels state and query
-  const [selectedLabels, setSelectedLabels] = useState<string[]>([])
-  const {
-    data: mergedLabels = [],
-    isPending: labelsPending,
-    isError: labelsIsError,
-    error: labelsError,
-    refetch: refetchLabels,
-  } = useQuery({
-    queryKey: ["merged-labels", taskType, [...selectedDatasets].sort()],
-    enabled: isSuccess && taskType === "object-detection" && selectedDatasets.length > 0,
-    queryFn: async () => {
-      const names: string[] = []
-      for (const d of selectedDatasets) {
-        try {
-          const res = await surreal.query("SELECT name FROM label WHERE dataset == $dataset", { dataset: d })
-          const rows = extractRows<any>(res)
-          for (const r of rows) {
-            const n = (r?.name ?? "").toString()
-            if (n) names.push(n)
-          }
-        } catch { }
-      }
-      const uniq = Array.from(new Set(names))
-      uniq.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
-      return uniq
-    },
-    staleTime: 5_000,
-    refetchOnWindowFocus: false,
-  })
-  useEffect(() => {
-    setSelectedLabels([])
-  }, [taskType, selectedDatasets.join("|")])
   const [query, setQuery] = useState("")
-  const deferredQuery = useDeferredValue(query)
-  const filteredDatasets = useMemo(() => {
-    const q = deferredQuery.trim().toLowerCase()
-    if (!q) return datasets
-    return datasets.filter((n) => n.toLowerCase().includes(q))
-  }, [datasets, deferredQuery])
-  const canStart = useMemo(() => selectedDatasets.length > 0, [selectedDatasets])
-  const statusText = currentStatus || "Idle"
-
-  // Load existing training job by name (to lock / populate when in progress)
-  const trimmedJobName = (jobName || "").trim()
-  const { data: existingJob, refetch: refetchJob } = useQuery({
-    queryKey: ["training-job", trimmedJobName],
-    enabled: isSuccess && !!trimmedJobName,
-    queryFn: async () => {
-      const res = await surreal.query(
-        "SELECT * FROM training_job WHERE name == $name ORDER BY updatedAt DESC LIMIT 1",
-        { name: trimmedJobName },
-      )
+  const deferred = useDeferredValue(query)
+  const params = useSearchParams()
+  const refresh = params.get("r") || ""
+  const { data: jobs = [], isPending, isError, error, refetch } = useQuery({
+    queryKey: ["training-jobs", refresh],
+    enabled: isSuccess,
+    queryFn: async (): Promise<JobRow[]> => {
+      const res = await surreal.query("SELECT * FROM training_job ORDER BY updatedAt DESC")
       const rows = extractRows<any>(res)
-      return rows[0] || null
+      return rows.map((r: any) => ({
+        id: thingToString(r?.id),
+        name: String(r?.name ?? ""),
+        status: r?.status,
+        taskType: r?.taskType,
+        model: r?.model,
+        updatedAt: r?.updatedAt,
+      }))
     },
-    staleTime: 2000,
+    staleTime: 5000,
     refetchOnWindowFocus: false,
   })
 
-  const locked = useMemo(() => (existingJob?.status === "ProcessWaiting"), [existingJob?.status])
-
-  useEffect(() => {
-    if (existingJob) {
-      setCurrentStatus(existingJob.status || "Idle")
-      // Populate fields from job (view-only when locked)
-      if (typeof existingJob.taskType === 'string') setTaskType(existingJob.taskType)
-      if (typeof existingJob.model === 'string') setModelValue(existingJob.model)
-      if (Array.isArray(existingJob.datasets)) setSelectedDatasets(existingJob.datasets)
-      if (Array.isArray(existingJob.labels)) setSelectedLabels(existingJob.labels)
-      if (typeof existingJob.splitTrain === 'number') setTrainSplit(existingJob.splitTrain)
-      if (typeof existingJob.epochs === 'number') setEpochs(existingJob.epochs)
-      if (typeof existingJob.batchSize === 'number') setBatchSize(existingJob.batchSize)
-    } else {
-      setCurrentStatus("Idle")
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existingJob])
-
-  async function handleStart() {
-    if (!trimmedJobName || !taskType || !modelValue || selectedDatasets.length === 0) return
-    const payload = {
-      status: "ProcessWaiting",
-      taskType,
-      model: modelValue,
-      datasets: selectedDatasets,
-      labels: selectedLabels,
-      epochs: typeof epochs === 'number' ? epochs : undefined,
-      batchSize: typeof batchSize === 'number' ? batchSize : undefined,
-      splitTrain: trainSplit,
-      splitTest: 100 - trainSplit,
-    }
-    try {
-      // Upsert by name
-      const check = await surreal.query("SELECT id FROM training_job WHERE name == $name LIMIT 1", { name: trimmedJobName })
-      const rows = extractRows<any>(check)
-      if (rows.length > 0) {
-        await surreal.query(
-          "UPDATE training_job SET status = 'ProcessWaiting', taskType = $taskType, model = $model, datasets = $datasets, labels = $labels, epochs = $epochs, batchSize = $batchSize, splitTrain = $splitTrain, splitTest = $splitTest, updatedAt = time::now() WHERE name == $name",
-          { name: trimmedJobName, ...payload },
-        )
-      } else {
-        await surreal.query(
-          "CREATE training_job CONTENT { name: $name, status: 'ProcessWaiting', taskType: $taskType, model: $model, datasets: $datasets, labels: $labels, epochs: $epochs, batchSize: $batchSize, splitTrain: $splitTrain, splitTest: $splitTest, createdAt: time::now(), updatedAt: time::now() }",
-          { name: trimmedJobName, ...payload },
-        )
-      }
-      setCurrentStatus("ProcessWaiting")
-      refetchJob()
-    } catch (e) {
-      // swallow
-    }
-  }
-
-  async function handleStop() {
-    if (!trimmedJobName) return
-    try {
-      await surreal.query(
-        "UPDATE training_job SET status = 'StopInterrept', updatedAt = time::now() WHERE name == $name",
-        { name: trimmedJobName },
-      )
-      setCurrentStatus("StopInterrept")
-      refetchJob()
-    } catch {}
-  }
+  const filtered = useMemo(() => {
+    const q = deferred.trim().toLowerCase()
+    if (!q) return jobs
+    return jobs.filter((j) => j.name?.toLowerCase().includes(q) || j.model?.toLowerCase().includes(q) || j.taskType?.toLowerCase().includes(q))
+  }, [jobs, deferred])
 
   return (
     <HStack justify="center">
-      <VStack w="70%" align="stretch" gap="24px" py="24px">
-        {/* Header */}
-        <HStack justify="space-between">
-          <Heading size="2xl">Training</Heading>
-          <HStack gap="2">
-            <Button size="sm" variant="outline" rounded="full" onClick={handleStop} disabled={!locked}>Stop</Button>
-            <Button size="sm" rounded="full" colorPalette="green" onClick={handleStart} disabled={locked || !canStart || !trimmedJobName || !taskType || !modelValue}>Start</Button>
+      <VStack w="70%" align="stretch" py="24px" gap="16px">
+        <HStack justify="space-between" pb="8px">
+          <Heading size="2xl">Training Jobs</Heading>
+          <NextLink href="/training/create" passHref>
+            <Button rounded="full">Create new</Button>
+          </NextLink>
+        </HStack>
+        <InputGroup
+          flex="1"
+          startElement={<LuSearch />}
+          endElement={
+            query ? (
+              <Button size="xs" variant="ghost" onClick={() => setQuery("")}>Clear</Button>
+            ) : undefined
+          }
+        >
+          <Input
+            placeholder="Search jobs by name, model, task"
+            size="sm"
+            variant="flushed"
+            aria-label="Search jobs"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </InputGroup>
+
+        {isError && (
+          <HStack color="red.500" justify="space-between">
+            <Box>Failed to load jobs: {String((error as any)?.message ?? error)}</Box>
+            <Button size="xs" variant="outline" onClick={() => refetch()}>Retry</Button>
           </HStack>
-        </HStack>
+        )}
 
-        <HStack align="flex-start" gap="24px">
-          {/* Left: dataset selection */}
-          <VStack w={{ base: "100%", md: "28%" }} align="stretch" gap="16px">
-            <Box p="16px" rounded="md" borderWidth="1px" bg="bg.panel">
-              <Text fontWeight="bold" mb="12px">Datasets</Text>
-              <InputGroup
-                flex="1"
-                startElement={<LuSearch />}
-                endElement={
-                  query ? (
-                    <Button size="xs" variant="ghost" onClick={() => setQuery("")} disabled={locked}>Clear</Button>
-                  ) : undefined
-                }
-              >
-                <Input
-                  placeholder="Search datasets"
-                  size="sm"
-                  variant="flushed"
-                  aria-label="Search datasets by name"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  disabled={locked}
-                />
-              </InputGroup>
-              <HStack mt="10px" justify="space-between">
-                <Text textStyle="xs" color="gray.500">{selectedDatasets.length} selected</Text>
-                <HStack gap="1">
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    onClick={() => setSelectedDatasets(filteredDatasets)}
-                    disabled={locked || filteredDatasets.length === 0}
-                  >
-                    Select filtered
-                  </Button>
-                  <Button size="xs" variant="ghost" onClick={() => setSelectedDatasets([])} disabled={locked}>Clear</Button>
-                </HStack>
-              </HStack>
-              <Box mt="8px">
-                {isPending ? (
-                  <VStack align="stretch" gap="2">
-                    <Skeleton h="20px" />
-                    <Skeleton h="20px" />
-                    <Skeleton h="20px" />
-                  </VStack>
-                ) : isError ? (
-                  <HStack justify="space-between" align="center">
-                    <Text color="red.500" textStyle="sm">Failed to load datasets: {String((error as any)?.message ?? error)}</Text>
-                    <Button size="xs" variant="outline" onClick={() => refetch()}>Retry</Button>
-                  </HStack>
-                ) : (
-                  <CheckboxGroup
-                    value={selectedDatasets}
-                    onValueChange={(e: any) => {
-                      const next = (e?.value ?? e) as string[]
-                      setSelectedDatasets(next)
-                    }}
-                  >
-                    <VStack align="stretch" gap="1" maxH="340px" overflowY="auto" pr="2">
-                      {filteredDatasets.map((name) => (
-                        <Checkbox.Root key={name} value={name} disabled={locked}>
-                          <Checkbox.HiddenInput />
-                          <Checkbox.Control />
-                          <Checkbox.Label>{name}</Checkbox.Label>
-                        </Checkbox.Root>
-                      ))}
-                      {filteredDatasets.length === 0 && (
-                        <Text textStyle="sm" color="gray.500">No datasets</Text>
-                      )}
-                    </VStack>
-                  </CheckboxGroup>
-                )}
+        <SimpleGrid columns={[1, 2, 3]} gap="16px">
+          {isPending ? (
+            Array.from({ length: 3 }).map((_, i) => (
+              <Box key={i} rounded="md" borderWidth="1px" bg="white" p="12px">
+                <SkeletonText noOfLines={1} w="60%" />
+                <Skeleton mt="3" h="14px" w="40%" />
+                <Skeleton mt="2" h="14px" w="50%" />
               </Box>
-            </Box>
-          </VStack>
-
-          {/* Middle: configuration */}
-          <VStack w={{ base: "100%", md: "28%" }} align="stretch" gap="16px">
-            <Box p="16px" rounded="md" borderWidth="1px" bg="bg.panel">
-              <Text fontWeight="bold" mb="12px">Configuration</Text>
-
-              <Stack gap="14px">
-                {/* Job Name */}
-                <Box>
-                  <Text textStyle="sm" color="gray.600" mb="6px">Job Name</Text>
-                  <Input
-                    placeholder="my-training-job"
-                    size="sm"
-                    variant="flushed"
-                    value={jobName}
-                    onChange={(e) => setJobName(e.target.value)}
-                  />
-                </Box>
-                {/* Task Type */}
-                <Box>
-                  <Text textStyle="sm" color="gray.600" mb="6px">Task Type</Text>
-                  <Select.Root
-                    collection={taskOptions}
-                    size="sm"
-                    width="100%"
-                    value={taskType ? [taskType] : []}
-                    onValueChange={(details: any) => setTaskType(details?.value?.[0] ?? "")}
-                    disabled={locked}
-                  >
-                    <Select.HiddenSelect />
-                    <Select.Control>
-                      <Select.Trigger>
-                        <Select.ValueText placeholder="Select task type" />
-                      </Select.Trigger>
-                      <Select.IndicatorGroup>
-                        <Select.Indicator />
-                      </Select.IndicatorGroup>
-                    </Select.Control>
-                    <Portal>
-                      <Select.Positioner>
-                        <Select.Content>
-                          {taskOptions.items.map((item) => (
-                            <Select.Item item={item} key={item.value}>
-                              {item.label}
-                              <Select.ItemIndicator />
-                            </Select.Item>
-                          ))}
-                        </Select.Content>
-                      </Select.Positioner>
-                    </Portal>
-                  </Select.Root>
-                </Box>
-
-                {/* Model */}
-                <Box>
-                  <Text textStyle="sm" color="gray.600" mb="6px">Model</Text>
-                  <Select.Root
-                    collection={modelCollection}
-                    size="sm"
-                    width="100%"
-                    value={modelValue ? [modelValue] : []}
-                    onValueChange={(details: any) => setModelValue(details?.value?.[0] ?? "")}
-                    disabled={!taskType || locked}
-                  >
-                    <Select.HiddenSelect />
-                    <Select.Control>
-                      <Select.Trigger>
-                        <Select.ValueText placeholder={taskType ? "Select model" : "Select task type first"} />
-                      </Select.Trigger>
-                      <Select.IndicatorGroup>
-                        <Select.Indicator />
-                      </Select.IndicatorGroup>
-                    </Select.Control>
-                    <Portal>
-                      <Select.Positioner>
-                        <Select.Content>
-                          {modelItems.map((item) => (
-                            <Select.Item item={item} key={item.value}>
-                              {item.label}
-                              <Select.ItemIndicator />
-                            </Select.Item>
-                          ))}
-                        </Select.Content>
-                      </Select.Positioner>
-                    </Portal>
-                  </Select.Root>
-                </Box>
-
-                {/* Labels (Object Detection) */}
-                {taskType === "object-detection" && (
-                  <Box>
-                    <HStack justify="space-between" align="center" mb="6px">
-                      <Text textStyle="sm" color="gray.600">Labels</Text>
-                      <Text textStyle="xs" color="gray.500">{selectedLabels.length} selected</Text>
-                    </HStack>
-                    {selectedDatasets.length === 0 ? (
-                      <Text textStyle="sm" color="gray.500">Select datasets to load labels</Text>
-                    ) : labelsPending ? (
-                      <VStack align="stretch" gap="2">
-                        <Skeleton h="18px" />
-                        <Skeleton h="18px" />
-                        <Skeleton h="18px" />
-                      </VStack>
-                    ) : labelsIsError ? (
-                      <HStack justify="space-between" align="center">
-                        <Text color="red.500" textStyle="sm">Failed to load labels: {String((labelsError as any)?.message ?? labelsError)}</Text>
-                        <Button size="xs" variant="outline" onClick={() => refetchLabels()}>Retry</Button>
-                      </HStack>
-                    ) : mergedLabels.length === 0 ? (
-                      <Text textStyle="sm" color="gray.500">No labels found in selected datasets</Text>
-                    ) : (
-                      <>
-                        <HStack mb="4" gap="2">
-                          <Button size="xs" variant="ghost" onClick={() => setSelectedLabels(mergedLabels)} disabled={locked}>Select all</Button>
-                          <Button size="xs" variant="ghost" onClick={() => setSelectedLabels([])} disabled={locked}>Clear</Button>
-                        </HStack>
-                        <CheckboxGroup
-                          value={selectedLabels}
-                          onValueChange={(e: any) => setSelectedLabels((e?.value ?? e) as string[])}
-                        >
-                          <VStack align="stretch" gap="1" maxH="200px" overflowY="auto" pr="2">
-                            {mergedLabels.map((name) => (
-                              <Checkbox.Root key={name} value={name} disabled={locked}>
-                                <Checkbox.HiddenInput />
-                                <Checkbox.Control />
-                                <Checkbox.Label>{name}</Checkbox.Label>
-                              </Checkbox.Root>
-                            ))}
-                          </VStack>
-                        </CheckboxGroup>
-                      </>
-                    )}
-                  </Box>
-                )}
-
-                {/* Datasets (display-only of selected) */}
-                <Box>
-                  <HStack justify="space-between" align="center" mb="6px">
-                    <Text textStyle="sm" color="gray.600">Datasets</Text>
-                    <Text textStyle="xs" color="gray.500">{selectedDatasets.length} selected</Text>
+            ))
+          ) : filtered.length === 0 ? (
+            <Text color="gray.500">No jobs found</Text>
+          ) : (
+            filtered.map((j) => (
+              <NextLink key={j.id} href={`/training/opened-job?j=${encodeBase64Utf8(j.name)}`}>
+                <Box rounded="md" borderWidth="1px" bg="white" p="12px" _hover={{ shadow: "md" }}>
+                  <HStack justify="space-between" mb="1">
+                    <Heading size="md">{j.name || "(no name)"}</Heading>
+                    <Badge colorPalette={j.status === 'ProcessWaiting' ? 'green' : j.status === 'StopInterrept' ? 'red' : 'gray'}>{j.status || 'Idle'}</Badge>
                   </HStack>
-                  <VStack align="stretch" gap="1" maxH="140px" overflowY="auto" pr="2">
-                    {selectedDatasets.map((name) => (
-                      <Text key={name} textStyle="sm">• {name}</Text>
-                    ))}
-                    {selectedDatasets.length === 0 && (
-                      <Text textStyle="sm" color="gray.500">No datasets selected</Text>
-                    )}
-                  </VStack>
+                  <Text textStyle="sm" color="gray.600">{j.taskType || "-"} • {j.model || "-"}</Text>
+                  {j.updatedAt && (
+                    <Text mt="1" textStyle="xs" color="gray.500">Updated: {formatTimestamp(j.updatedAt)}</Text>
+                  )}
                 </Box>
+              </NextLink>
+            ))
+          )}
+        </SimpleGrid>
 
-                {/* Train / Test Split */}
-                <Box>
-                  <Text textStyle="sm" color="gray.600" mb="6px">Train / Test Split</Text>
-                  <Slider.Root
-                    size="sm"
-                    value={[trainSplit]}
-                    min={5}
-                    max={95}
-                    step={5}
-                    disabled={locked}
-                    onValueChange={(details: any) => {
-                      const v = Number(details?.value?.[0] ?? details?.value ?? trainSplit)
-                      if (Number.isFinite(v)) setTrainSplit(Math.max(5, Math.min(95, Math.round(v))))
-                    }}
-                  >
-                    <HStack justify="space-between" mb="2">
-                      <Slider.Label>Train : Test</Slider.Label>
-                      <Text textStyle="sm">{trainSplit} : {100 - trainSplit}</Text>
-                    </HStack>
-                    <Slider.Control>
-                      <Slider.Track>
-                        <Slider.Range />
-                      </Slider.Track>
-                      <Slider.Thumbs rounded="l1" />
-                    </Slider.Control>
-                  </Slider.Root>
-                </Box>
-
-                {/* Hyperparameters */}
-                <HStack gap="12px">
-                  <Box flex="1">
-                    <Text textStyle="sm" color="gray.600" mb="6px">Epochs</Text>
-                    <Input placeholder="50" size="sm" variant="flushed" value={epochs === "" ? "" : String(epochs)} onChange={(e) => {
-                      const v = e.target.value
-                      if (!v) return setEpochs("")
-                      const n = Number(v)
-                      if (Number.isFinite(n)) setEpochs(Math.max(1, Math.floor(n)))
-                    }} disabled={locked} />
-                  </Box>
-                  <Box flex="1">
-                    <Text textStyle="sm" color="gray.600" mb="6px">Batch Size</Text>
-                    <Input placeholder="16" size="sm" variant="flushed" value={batchSize === "" ? "" : String(batchSize)} onChange={(e) => {
-                      const v = e.target.value
-                      if (!v) return setBatchSize("")
-                      const n = Number(v)
-                      if (Number.isFinite(n)) setBatchSize(Math.max(1, Math.floor(n)))
-                    }} disabled={locked} />
-                  </Box>
-                </HStack>
-                {/* Removed Learning Rate and Weight Decay as requested */}
-              </Stack>
-
-              {/* Save Config button removed as requested */}
-            </Box>
-
-          </VStack>
-
-          {/* Right: charts tabs */}
-          <VStack flex="1" align="stretch" gap="16px">
-            {/* Status above charts */}
-            <Box p="16px" rounded="md" borderWidth="1px" bg="bg.panel">
-              <Text fontWeight="bold" mb="8px">Status</Text>
-              <Text textStyle="sm" color="gray.600">{statusText}</Text>
-            </Box>
-            <Box rounded="md" borderWidth="1px" bg="white" p="12px">
-              <TabsRoot defaultValue="loss">
-                <TabsList>
-                  <TabsTrigger value="loss">Loss</TabsTrigger>
-                  <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
-                  <TabsTrigger value="gpu">GPU Memory Usage</TabsTrigger>
-                </TabsList>
-                <Box h="12px" />
-                <TabsContent value="loss">
-                  <AspectRatio ratio={16 / 9}>
-                    <Box>
-                      <LineSvg
-                        data={[{ epoch: 1, value: 1.2 }, { epoch: 2, value: 0.9 }, { epoch: 3, value: 0.7 }, { epoch: 4, value: 0.55 }, { epoch: 5, value: 0.48 }, { epoch: 6, value: 0.42 }, { epoch: 7, value: 0.38 }, { epoch: 8, value: 0.35 }]}
-                        yKey="value"
-                        color="#E53E3E"
-                      />
-                    </Box>
-                  </AspectRatio>
-                </TabsContent>
-                <TabsContent value="accuracy">
-                  <AspectRatio ratio={16 / 9}>
-                    <Box>
-                      <LineSvg
-                        data={[{ epoch: 1, value: 0.45 }, { epoch: 2, value: 0.55 }, { epoch: 3, value: 0.62 }, { epoch: 4, value: 0.7 }, { epoch: 5, value: 0.76 }, { epoch: 6, value: 0.8 }, { epoch: 7, value: 0.83 }, { epoch: 8, value: 0.86 }]}
-                        yKey="value"
-                        color="#2F855A"
-                      />
-                    </Box>
-                  </AspectRatio>
-                </TabsContent>
-                <TabsContent value="gpu">
-                  <AspectRatio ratio={16 / 9}>
-                    <Box>
-                      <LineSvg
-                        data={[{ step: 0, value: 3000 }, { step: 1, value: 5500 }, { step: 2, value: 6200 }, { step: 3, value: 6400 }, { step: 4, value: 6400 }, { step: 5, value: 6500 }]}
-                        yKey="value"
-                        color="#3182CE"
-                      />
-                    </Box>
-                  </AspectRatio>
-                </TabsContent>
-              </TabsRoot>
-            </Box>
-          </VStack>
-        </HStack>
+        
       </VStack>
     </HStack>
   )
