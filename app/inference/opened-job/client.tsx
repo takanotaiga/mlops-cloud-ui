@@ -1,0 +1,209 @@
+"use client"
+
+import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton } from "@chakra-ui/react"
+import NextLink from "next/link"
+import { useSearchParams } from "next/navigation"
+import { useMemo, useState } from "react"
+import { decodeBase64Utf8 } from "@/components/utils/base64"
+import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { extractRows } from "@/components/surreal/normalize"
+import { useRouter } from "next/navigation"
+
+type JobRow = {
+  id: string
+  name: string
+  status?: string
+  taskType?: string
+  model?: string
+  datasets?: string[]
+  createdAt?: string
+  updatedAt?: string
+}
+
+function thingToString(v: unknown): string {
+  if (v == null) return ""
+  if (typeof v === "string") return v
+  if (typeof v === "object" && v !== null && "tb" in (v as any) && "id" in (v as any)) {
+    const t = v as any
+    const id = typeof t.id === "object" && t.id !== null ? ((t.id as any).toString?.() ?? JSON.stringify(t.id)) : String(t.id)
+    return `${t.tb}:${id}`
+  }
+  return String(v)
+}
+
+export default function ClientOpenedInferenceJobPage() {
+  const params = useSearchParams()
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const jobName = useMemo(() => {
+    const j = params.get("j")
+    if (!j) return ""
+    try { return decodeBase64Utf8(j) } catch { return "" }
+  }, [params])
+
+  const surreal = useSurrealClient()
+  const { isSuccess } = useSurreal()
+  const [removing, setRemoving] = useState(false)
+
+  const { data: job, isPending, isError, error, refetch } = useQuery({
+    queryKey: ["inference-job-detail", jobName],
+    enabled: isSuccess && !!jobName,
+    queryFn: async (): Promise<JobRow | null> => {
+      const res = await surreal.query("SELECT * FROM inference_job WHERE name == $name ORDER BY updatedAt DESC LIMIT 1", { name: jobName })
+      const rows = extractRows<any>(res)
+      const r = rows[0]
+      if (!r) return null
+      return {
+        id: thingToString(r?.id),
+        name: String(r?.name ?? ""),
+        status: r?.status,
+        taskType: r?.taskType,
+        model: r?.model,
+        datasets: Array.isArray(r?.datasets) ? r.datasets : [],
+        createdAt: r?.createdAt,
+        updatedAt: r?.updatedAt,
+      }
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 2000,
+  })
+
+  function formatTimestamp(ts?: string): string {
+    if (!ts) return ""
+    const d = new Date(ts)
+    if (isNaN(d.getTime())) return String(ts)
+    const pad = (n: number) => String(n).padStart(2, "0")
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  async function handleRemove() {
+    if (!jobName || removing) return
+    setRemoving(true)
+    try {
+      await surreal.query("DELETE inference_job WHERE name == $name", { name: jobName })
+      // Invalidate job list and navigate with refresh token to force reload
+      queryClient.invalidateQueries({ queryKey: ["inference-jobs"] })
+      const r = Date.now().toString()
+      router.push(`/inference?r=${encodeURIComponent(r)}`)
+    } catch {
+      // ignore
+    } finally {
+      setRemoving(false)
+    }
+  }
+
+  return (
+    <Box px="10%" py="20px">
+      <HStack align="center" justify="space-between">
+        <Heading size="2xl">
+          <Link asChild color="black" _hover={{ textDecoration: "none", color: "black" }}>
+            <NextLink href="/inference">Inference</NextLink>
+          </Link>
+          {" / "}
+          {jobName || "(unknown)"}
+        </Heading>
+        <HStack>
+          {job?.status === 'ProcessWaiting' && (
+            <Button size="sm" rounded="full" variant="outline" onClick={async () => {
+              if (!jobName) return
+              try {
+                await surreal.query("UPDATE inference_job SET status = 'StopInterrept', updatedAt = time::now() WHERE name == $name", { name: jobName })
+                queryClient.invalidateQueries({ queryKey: ["inference-jobs"] })
+                refetch()
+              } catch {}
+            }}>Stop</Button>
+          )}
+          <Dialog.Root>
+            <Dialog.Trigger asChild>
+              <Button size="sm" rounded="full" colorPalette="red" disabled={removing}>Remove Job</Button>
+            </Dialog.Trigger>
+            <Portal>
+              <Dialog.Backdrop />
+              <Dialog.Positioner>
+                <Dialog.Content>
+                  <Dialog.Header>
+                    <Dialog.Title>Remove Inference Job</Dialog.Title>
+                  </Dialog.Header>
+                  <Dialog.Body>
+                    <Text>ジョブ「{jobName}」を削除します。よろしいですか？</Text>
+                  </Dialog.Body>
+                  <Dialog.Footer>
+                    <Dialog.ActionTrigger asChild>
+                      <Button variant="outline">Cancel</Button>
+                    </Dialog.ActionTrigger>
+                    <Button colorPalette="red" onClick={handleRemove} disabled={removing}>Remove</Button>
+                  </Dialog.Footer>
+                  <Dialog.CloseTrigger asChild>
+                    <CloseButton size="sm" />
+                  </Dialog.CloseTrigger>
+                </Dialog.Content>
+              </Dialog.Positioner>
+            </Portal>
+          </Dialog.Root>
+        </HStack>
+      </HStack>
+
+      <HStack align="flex-start" gap="16px" mt="16px">
+        <Box w={{ base: "100%", md: "40%" }} rounded="md" borderWidth="1px" bg="bg.panel" p="16px">
+          {isPending ? (
+            <>
+              <SkeletonText noOfLines={1} w="30%" />
+              <Skeleton mt="2" h="14px" w="40%" />
+              <Skeleton mt="2" h="14px" w="50%" />
+            </>
+          ) : isError ? (
+            <HStack color="red.500" justify="space-between">
+              <Box>Failed to load job: {String((error as any)?.message ?? error)}</Box>
+              <Button size="xs" variant="outline" onClick={() => refetch()}>Retry</Button>
+            </HStack>
+          ) : !job ? (
+            <Text color="gray.500">Job not found</Text>
+          ) : (
+            <VStack align="stretch" gap="8px">
+              <HStack justify="space-between">
+                <HStack gap="3">
+                  <Heading size="lg">{job.name}</Heading>
+                  <Badge
+                    colorPalette={
+                      job.status === 'ProcessWaiting'
+                        ? 'green'
+                        : job.status === 'StopInterrept'
+                        ? 'red'
+                        : (job.status === 'Complete' || job.status === 'Completed')
+                        ? 'blue'
+                        : 'gray'
+                    }
+                  >
+                    {job.status || 'Idle'}
+                  </Badge>
+                </HStack>
+              </HStack>
+              <Text textStyle="sm" color="gray.700">Task: {job.taskType || '-'}</Text>
+              <Text textStyle="sm" color="gray.700">Model: {job.model || '-'}</Text>
+              <Box>
+                <Text textStyle="sm" color="gray.700" fontWeight="bold">Datasets</Text>
+                {(!job.datasets || job.datasets.length === 0) ? (
+                  <Text textStyle="sm" color="gray.500">(none)</Text>
+                ) : (
+                  <VStack align="start" gap="1" mt="1">
+                    {job.datasets.map((d) => (
+                      <Text key={d} textStyle="sm">• {d}</Text>
+                    ))}
+                  </VStack>
+                )}
+              </Box>
+              <Text textStyle="xs" color="gray.500">Created: {formatTimestamp(job.createdAt)}</Text>
+              <Text textStyle="xs" color="gray.500">Updated: {formatTimestamp(job.updatedAt)}</Text>
+            </VStack>
+          )}
+        </Box>
+
+        <Box flex="1" rounded="md" borderWidth="1px" bg="bg.panel" p="16px" minH="200px">
+          <Text color="gray.500">Inference charts / logs can appear here.</Text>
+        </Box>
+      </HStack>
+    </Box>
+  )
+}
+
