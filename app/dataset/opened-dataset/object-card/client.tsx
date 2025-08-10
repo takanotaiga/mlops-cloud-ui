@@ -59,12 +59,16 @@ export default function ClientObjectCardPage() {
   const router = useRouter()
   const params = useSearchParams()
   const queryClient = useQueryClient()
-  const { datasetName, objectName, fileId, fallbackBucket, fallbackKey } = useMemo(() => {
+  const { datasetName, objectName, fileId, fallbackBucket, fallbackKey, mediaParam, lb, ls, lt } = useMemo(() => {
     const d = params.get("d") || ""
     const n = params.get("n") || ""
     const i = params.get("id") || ""
     const b = params.get("b") || ""
     const k = params.get("k") || ""
+    const m = params.get("m") || ""
+    const lb = (params.get("lb") || "any").toLowerCase()
+    const ls = (params.get("ls") || "any").toLowerCase()
+    const lt = (params.get("lt") || "any").toLowerCase()
     let datasetName = ""
     let objectName = ""
     let fileId = ""
@@ -75,7 +79,7 @@ export default function ClientObjectCardPage() {
     try { fileId = i ? decodeBase64Utf8(i) : "" } catch { fileId = "" }
     try { fallbackBucket = b ? decodeBase64Utf8(b) : "" } catch { fallbackBucket = "" }
     try { fallbackKey = k ? decodeBase64Utf8(k) : "" } catch { fallbackKey = "" }
-    return { datasetName, objectName, fileId, fallbackBucket, fallbackKey }
+    return { datasetName, objectName, fileId, fallbackBucket, fallbackKey, mediaParam: m, lb, ls, lt }
   }, [params])
 
   const surreal = useSurrealClient()
@@ -96,6 +100,50 @@ export default function ClientObjectCardPage() {
         dataset: thingToString(raw.dataset),
       }
       return normalized
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 5_000,
+  })
+
+  // Parse incoming filters
+  type MediaType = "Video" | "Image" | "PointCloud" | "ROSBag"
+  const selectedMedia = useMemo<MediaType[]>(() => {
+    const all: MediaType[] = ["Video", "Image", "PointCloud", "ROSBag"]
+    if (!mediaParam) return all
+    const parts = mediaParam.split(",").map((s) => s.trim()).filter(Boolean)
+    const filtered = all.filter((m) => parts.includes(m))
+    return filtered.length ? filtered : all
+  }, [mediaParam])
+
+  type LabelMode = "any" | "has" | "no"
+  const labelFilter = useMemo(() => ({
+    bbox: (lb === "has" || lb === "no") ? (lb as LabelMode) : "any",
+    seg: (ls === "has" || ls === "no") ? (ls as LabelMode) : "any",
+    text: (lt === "has" || lt === "no") ? (lt as LabelMode) : "any",
+  }), [lb, ls, lt])
+
+  // Label presence map per file
+  const { data: labelPresence = {} } = useQuery({
+    queryKey: ["dataset-label-presence", datasetName],
+    enabled: !!datasetName,
+    queryFn: async () => {
+      try {
+        const res = await surreal.query(
+          "SELECT file, array::distinct(category) AS cats FROM annotation WHERE dataset == $dataset GROUP BY file",
+          { dataset: datasetName }
+        )
+        const rows = extractRows<any>(res)
+        const map: Record<string, { bbox: boolean; seg: boolean; text: boolean }> = {}
+        for (const r of rows) {
+          const fid = thingToString(r?.file)
+          const cats = Array.isArray(r?.cats) ? r.cats.map((c: any) => String(c)) : []
+          const bbox = cats.some((c: string) => /bbox/i.test(c))
+          const seg = cats.some((c: string) => /(seg|mask)/i.test(c))
+          const text = cats.some((c: string) => /text/i.test(c))
+          map[fid] = { bbox, seg, text }
+        }
+        return map
+      } catch { return {} }
     },
     refetchOnWindowFocus: false,
     staleTime: 5_000,
@@ -181,25 +229,52 @@ export default function ClientObjectCardPage() {
     staleTime: 5_000,
   })
 
+  // Media classifier for nav list
+  const classifyMedia = (n?: string): MediaType | "Other" => {
+    const name = (n || "").toLowerCase()
+    if (/\.(jpg|jpeg|png|webp|gif|avif)$/.test(name)) return "Image"
+    if (/\.(mp4|mov|mkv|avi|webm)$/.test(name)) return "Video"
+    if (/\.(pcd|ply|las|laz|bin)$/.test(name)) return "PointCloud"
+    if (/\.(bag|mcap)$/.test(name)) return "ROSBag"
+    return "Other"
+  }
+
+  const filteredNavList = useMemo(() => {
+    if (!navList || navList.length === 0) return []
+    const mediaSet = new Set(selectedMedia)
+    return navList.filter((item) => {
+      const m = classifyMedia(item.name || item.key)
+      if (!mediaSet.has(m as MediaType)) return false
+      const pres = labelPresence[item.id] ?? { bbox: false, seg: false, text: false }
+      if (labelFilter.bbox === "has" && !pres.bbox) return false
+      if (labelFilter.bbox === "no" && pres.bbox) return false
+      if (labelFilter.seg === "has" && !pres.seg) return false
+      if (labelFilter.seg === "no" && pres.seg) return false
+      if (labelFilter.text === "has" && !pres.text) return false
+      if (labelFilter.text === "no" && pres.text) return false
+      return true
+    })
+  }, [navList, selectedMedia, labelPresence, labelFilter])
+
   const { prevItem, nextItem } = useMemo(() => {
-    if (!navList || navList.length === 0) return { prevItem: undefined, nextItem: undefined }
+    if (!filteredNavList || filteredNavList.length === 0) return { prevItem: undefined, nextItem: undefined }
     const fid = file?.id || fileId
     let idx = -1
     if (fid) {
-      idx = navList.findIndex((r) => r.id === fid)
+      idx = filteredNavList.findIndex((r) => r.id === fid)
     }
     if (idx === -1) {
       const k = file?.key || fallbackKey
-      if (k) idx = navList.findIndex((r) => r.key === k)
+      if (k) idx = filteredNavList.findIndex((r) => r.key === k)
     }
     if (idx === -1) {
       const n = file?.name || objectName
-      if (n) idx = navList.findIndex((r) => (r.name || r.key) === n)
+      if (n) idx = filteredNavList.findIndex((r) => (r.name || r.key) === n)
     }
-    const prevItem = idx > 0 ? navList[idx - 1] : undefined
-    const nextItem = idx >= 0 && idx < navList.length - 1 ? navList[idx + 1] : undefined
+    const prevItem = idx > 0 ? filteredNavList[idx - 1] : undefined
+    const nextItem = idx >= 0 && idx < filteredNavList.length - 1 ? filteredNavList[idx + 1] : undefined
     return { prevItem, nextItem }
-  }, [navList, file?.id, file?.key, file?.name, fileId, fallbackKey, objectName])
+  }, [filteredNavList, file?.id, file?.key, file?.name, fileId, fallbackKey, objectName])
 
   function makeHref(item: NavRow | undefined): string | null {
     if (!item) return null
@@ -208,7 +283,11 @@ export default function ClientObjectCardPage() {
     const nEnc = encodeBase64Utf8(item.name || item.key)
     const bEnc = encodeBase64Utf8(item.bucket)
     const kEnc = encodeBase64Utf8(item.key)
-    return `/dataset/opened-dataset/object-card?d=${dEnc}&id=${idEnc}&n=${nEnc}&b=${bEnc}&k=${kEnc}`
+    const m = encodeURIComponent(selectedMedia.join(","))
+    const lbp = encodeURIComponent(labelFilter.bbox)
+    const lsp = encodeURIComponent(labelFilter.seg)
+    const ltp = encodeURIComponent(labelFilter.text)
+    return `/dataset/opened-dataset/object-card?d=${dEnc}&id=${idEnc}&n=${nEnc}&b=${bEnc}&k=${kEnc}&m=${m}&lb=${lbp}&ls=${lsp}&lt=${ltp}`
   }
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)

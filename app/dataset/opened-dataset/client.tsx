@@ -13,6 +13,10 @@ import {
   Text,
   HStack,
   For,
+  Select,
+  createListCollection,
+  Grid,
+  GridItem,
   Link,
   Image,
   Skeleton,
@@ -25,7 +29,7 @@ import {
 } from "@chakra-ui/react"
 import { Badge } from "@chakra-ui/react"
 import { useSearchParams } from "next/navigation"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, Fragment } from "react"
 import { decodeBase64Utf8, encodeBase64Utf8 } from "@/components/utils/base64"
 import NextLink from "next/link"
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
@@ -135,6 +139,53 @@ export default function ClientOpenedDatasetPage() {
     }
   }
 
+  // Label Type filtering (include / exclude / any)
+  const LABEL_TYPES = useMemo(() => ["Bounding Box", "Segmentation", "Text"] as const, [])
+  type LabelType = (typeof LABEL_TYPES)[number]
+  type LabelMode = "any" | "has" | "no"
+  const [labelFilter, setLabelFilter] = useState<Record<LabelType, LabelMode>>({
+    "Bounding Box": "any",
+    "Segmentation": "any",
+    "Text": "any",
+  })
+
+  // Load per-file annotation categories to determine label presence
+  const { data: labelPresence = {} } = useQuery({
+    queryKey: ["dataset-label-presence", datasetName],
+    enabled: isSuccess && !!datasetName,
+    queryFn: async () => {
+      try {
+        const res = await surreal.query(
+          "SELECT file, array::distinct(category) AS cats FROM annotation WHERE dataset == $dataset GROUP BY file",
+          { dataset: datasetName }
+        )
+        const rows = extractRows<any>(res)
+        const map: Record<string, { bbox: boolean; seg: boolean; text: boolean }> = {}
+        for (const r of rows) {
+          const fid = thingToString(r?.file)
+          const cats = Array.isArray(r?.cats) ? r.cats.map((c: any) => String(c)) : []
+          const bbox = cats.some((c: string) => /bbox/i.test(c))
+          const seg = cats.some((c: string) => /(seg|mask)/i.test(c))
+          const text = cats.some((c: string) => /text/i.test(c))
+          map[fid] = { bbox, seg, text }
+        }
+        return map
+      } catch {
+        return {}
+      }
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 5_000,
+  })
+
+  const labelModeCollection = useMemo(() => createListCollection({
+    items: [
+      { label: "Any", value: "any" },
+      { label: "Has", value: "has" },
+      { label: "No", value: "no" },
+    ],
+  }), [])
+
   // Media type filtering
   const MEDIA_OPTIONS = useMemo(() => ["Video", "Image", "PointCloud", "ROSBag"] as const, [])
   type MediaType = (typeof MEDIA_OPTIONS)[number]
@@ -156,8 +207,22 @@ export default function ClientOpenedDatasetPage() {
   const visibleFiles = useMemo(() => {
     if (!files || selectedMedia.length === 0) return []
     const set = new Set(selectedMedia)
-    return files.filter((f) => set.has(classifyMedia(f) as MediaType))
-  }, [files, selectedMedia])
+    return files.filter((f) => {
+      if (!set.has(classifyMedia(f) as MediaType)) return false
+      const pres = labelPresence[f.id] ?? { bbox: false, seg: false, text: false }
+      // Apply include/exclude per label type (AND combination)
+      const checks: [LabelType, boolean][] = [
+        ["Bounding Box", pres.bbox],
+        ["Text", pres.text],
+      ]
+      for (const [lt, has] of checks) {
+        const mode = labelFilter[lt]
+        if (mode === "has" && !has) return false
+        if (mode === "no" && has) return false
+      }
+      return true
+    })
+  }, [files, selectedMedia, labelPresence, labelFilter])
 
   const sortedVisibleFiles = useMemo(() => {
     return [...visibleFiles].sort((a, b) => {
@@ -181,7 +246,7 @@ export default function ClientOpenedDatasetPage() {
   // Reset to first page when dataset or filters change
   useEffect(() => {
     setPage(0)
-  }, [datasetName, selectedMedia])
+  }, [datasetName, selectedMedia, labelFilter])
 
   useEffect(() => {
     // If there are no files, clear once if needed and exit without updating state repeatedly.
@@ -243,7 +308,7 @@ export default function ClientOpenedDatasetPage() {
               _focusVisible={{ outline: "none", boxShadow: "none" }}
               _active={{ outline: "none", boxShadow: "none" }}
             >
-              <NextLink href="/dataset">{t('dataset.breadcrumb','Datasets 📚')}</NextLink>
+              <NextLink href="/dataset">{t('dataset.breadcrumb', 'Datasets 📚')}</NextLink>
             </Link>
             {" / "}
             {datasetName || "(unknown)"}
@@ -297,17 +362,48 @@ export default function ClientOpenedDatasetPage() {
               <Text fontWeight="bold">Label Type</Text>
             </Fieldset.Legend>
             <Fieldset.Content>
-              <CheckboxGroup name="label" defaultValue={["Bounding Box"]}>
-                <For each={["Bounding Box", "Segmentation", "Text"]}>
-                  {(value) => (
-                    <Checkbox.Root key={value} value={value}>
-                      <Checkbox.HiddenInput />
-                      <Checkbox.Control />
-                      <Checkbox.Label>{value}</Checkbox.Label>
-                    </Checkbox.Root>
-                  )}
-                </For>
-              </CheckboxGroup>
+              <Grid templateColumns="1fr 150px" columnGap={3} rowGap={2} alignItems="center">
+                {LABEL_TYPES.map((lt) => (
+                  <Fragment key={lt}>
+                    <GridItem>
+                      <Text>{lt}</Text>
+                    </GridItem>
+                    <GridItem>
+                      <Select.Root
+                        collection={labelModeCollection as any}
+                        size="sm"
+                        value={labelFilter[lt as LabelType] ? [labelFilter[lt as LabelType]] : []}
+                        onValueChange={(details: any) => {
+                          const value = (details?.value?.[0] ?? "any") as LabelMode
+                          setLabelFilter((prev) => ({ ...prev, [lt as LabelType]: value }))
+                        }}
+                      >
+                        <Select.HiddenSelect />
+                        <Select.Control w="150px">
+                          <Select.Trigger>
+                            <Select.ValueText placeholder="Any" />
+                          </Select.Trigger>
+                          <Select.IndicatorGroup>
+                            <Select.Indicator />
+                          </Select.IndicatorGroup>
+                        </Select.Control>
+                        <Portal>
+                          <Select.Positioner>
+                            <Select.Content>
+                              {(labelModeCollection as any).items.map((item: any) => (
+                                <Select.Item item={item} key={item.value}>
+                                  {item.label}
+                                  <Select.ItemIndicator />
+                                </Select.Item>
+                              ))}
+                            </Select.Content>
+                          </Select.Positioner>
+                        </Portal>
+                      </Select.Root>
+                    </GridItem>
+                  </Fragment>
+                ))}
+              </Grid>
             </Fieldset.Content>
           </Fieldset.Root>
 
@@ -361,29 +457,33 @@ export default function ClientOpenedDatasetPage() {
               const isImage = (f.mime || "").startsWith("image/")
               const isVideoWithThumb = (f.mime || "").startsWith("video/") && !!f.thumbKey
               const url = (isImage || isVideoWithThumb) ? imgUrls[f.key] : undefined
-              const href = `/dataset/opened-dataset/object-card?d=${encodeBase64Utf8(datasetName)}&id=${encodeBase64Utf8(f.id)}&n=${encodeBase64Utf8(f.name || f.key)}&b=${encodeBase64Utf8(f.bucket)}&k=${encodeBase64Utf8(f.key)}`
+              const mParam = encodeURIComponent(selectedMedia.join(","))
+              const lb = encodeURIComponent(labelFilter["Bounding Box"]) // any|has|no
+              const ls = encodeURIComponent(labelFilter["Segmentation"]) // any|has|no
+              const lt = encodeURIComponent(labelFilter["Text"]) // any|has|no
+              const href = `/dataset/opened-dataset/object-card?d=${encodeBase64Utf8(datasetName)}&id=${encodeBase64Utf8(f.id)}&n=${encodeBase64Utf8(f.name || f.key)}&b=${encodeBase64Utf8(f.bucket)}&k=${encodeBase64Utf8(f.key)}&m=${mParam}&lb=${lb}&ls=${ls}&lt=${lt}`
               return (
                 <NextLink key={f.id} href={href}>
-                  <Box bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">
-                    <Box bg="bg.subtle" style={{ aspectRatio: 1 as any }} position="relative" aria-busy={!url} userSelect="none">
-                      {url && (
-                        <Image src={url} alt={f.name} objectFit="cover" w="100%" h="100%" />
-                      )}
-                      {!url && (
-                        <Box pos="absolute" inset="0" bg="bg/80">
-                          <Center h="full">
-                            <Spinner color="teal.500" />
-                          </Center>
-                        </Box>
-                      )}
+                    <Box bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">
+                      <Box bg="bg.subtle" style={{ aspectRatio: 1 as any }} position="relative" aria-busy={!url} userSelect="none">
+                        {url && (
+                          <Image src={url} alt={f.name} objectFit="cover" w="100%" h="100%" />
+                        )}
+                        {!url && (
+                          <Box pos="absolute" inset="0" bg="bg/80">
+                            <Center h="full">
+                              <Spinner color="teal.500" />
+                            </Center>
+                          </Box>
+                        )}
+                      </Box>
+                      <Box px="8px" pt="6px">
+                        <Text fontSize="sm" style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{f.name}</Text>
+                      </Box>
                     </Box>
-                    <Box px="8px" pt="6px">
-                      <Text fontSize="sm" style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{f.name}</Text>
-                    </Box>
-                  </Box>
-                </NextLink>
-              )
-            })
+                  </NextLink>
+                )
+              })
             )}
           </SimpleGrid>
 
