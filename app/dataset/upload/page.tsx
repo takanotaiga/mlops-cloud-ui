@@ -480,7 +480,7 @@ export default function Page() {
           <HStack w="95%" justify="space-between" pt="40px">
             <Box alignSelf="flex-start" ml="30px">
               <HStack alignSelf="flex-start">
-                <Heading size="2xl">Uploading</Heading>
+                <Heading size="2xl">Uploading ⏫</Heading>
               </HStack>
             </Box>
           </HStack>
@@ -526,7 +526,7 @@ export default function Page() {
                 <Icon color="green.500" boxSize={8}>
                   <LuPartyPopper />
                 </Icon>
-                <Heading size="2xl">Upload Complete</Heading>
+                <Heading size="2xl">Upload Complete 🎉</Heading>
                 <Icon color="purple.500" boxSize={7}>
                   <LuSparkles />
                 </Icon>
@@ -599,7 +599,8 @@ export default function Page() {
         <HStack w="95%" justify="space-between" pt="40px">
           <Box alignSelf="flex-start" ml="30px">
             <HStack alignSelf="flex-start">
-              <Heading size="2xl" >Upload</Heading>
+              <Heading size="2xl">Upload 📤</Heading>
+              <Text mt="1" textStyle="sm" color="gray.600">Drop files, we’ll handle the magic ✨</Text>
             </HStack>
           </Box>
         </HStack>

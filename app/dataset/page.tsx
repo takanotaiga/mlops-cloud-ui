@@ -12,6 +12,7 @@ import {
   Spacer,
   Skeleton,
   SkeletonText,
+  Badge,
 } from "@chakra-ui/react"
 
 import ImageCard from "@/components/image-card"
@@ -55,14 +56,15 @@ export default function Page() {
         <HStack w="95%" justify="space-between" pb="40px" pt="30px">
           <Box alignSelf="flex-start" ml="30px">
             <HStack alignSelf="flex-start">
-              <Heading size="2xl" >Datasets</Heading>
+              <Heading size="2xl">Datasets 📚</Heading>
+              <Badge rounded="full" variant="subtle" colorPalette="purple">Datasets</Badge>
               <NextLink href="/dataset/upload" passHref>
-                <Button variant="plain" rounded="full" w="10px" >
+                <Button variant="plain" rounded="full" w="10px" aria-label="Upload dataset">
                   <BsPlusCircleFill color="#8E8E93" />
                 </Button>
               </NextLink>
             </HStack>
-            <Text textAlign="left" w="100%" fontWeight="normal" textStyle="sm" color="gray.500">This is the text component</Text>
+            <Text textAlign="left" w="100%" fontWeight="normal" textStyle="sm" color="gray.600">Store, explore, and sparkle ✨</Text>
           </Box>
           <Box alignSelf="flex-start" ml="30px">
             <Spacer h="10px" />

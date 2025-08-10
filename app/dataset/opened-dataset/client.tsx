@@ -21,6 +21,7 @@ import {
   Portal,
   CloseButton,
 } from "@chakra-ui/react"
+import { Badge } from "@chakra-ui/react"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { decodeBase64Utf8, encodeBase64Utf8 } from "@/components/utils/base64"
@@ -228,20 +229,23 @@ export default function ClientOpenedDatasetPage() {
   return (
     <Box px="10%" py="20px">
       <HStack align="center" justify="space-between">
-        <Heading size="2xl" >
-          <Link
-            asChild
-            color="black"
-            textDecoration="none"
-            _hover={{ textDecoration: "none", color: "black" }}
-            _focusVisible={{ outline: "none", boxShadow: "none" }}
-            _active={{ outline: "none", boxShadow: "none" }}
-          >
-            <NextLink href="/dataset">Dataset</NextLink>
-          </Link>
-          {" / "}
-          {datasetName || "(unknown)"}
-        </Heading>
+        <HStack gap="3" align="center">
+          <Heading size="2xl" >
+            <Link
+              asChild
+              color="black"
+              textDecoration="none"
+              _hover={{ textDecoration: "none", color: "black" }}
+              _focusVisible={{ outline: "none", boxShadow: "none" }}
+              _active={{ outline: "none", boxShadow: "none" }}
+            >
+              <NextLink href="/dataset">Datasets 📚</NextLink>
+            </Link>
+            {" / "}
+            {datasetName || "(unknown)"}
+          </Heading>
+          <Badge rounded="full" variant="subtle" colorPalette="purple">Datasets</Badge>
+        </HStack>
 
         <Box mt={8} textAlign="right" pb="10px">
           <Button mr={4} size="sm" variant="outline" rounded="full">

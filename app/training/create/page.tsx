@@ -17,6 +17,7 @@ import {
   Skeleton,
   InputGroup,
   Slider,
+  Badge,
 } from "@chakra-ui/react"
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
@@ -204,11 +205,15 @@ export default function Page() {
       <VStack w="70%" align="stretch" gap="24px" py="24px">
         {/* Header */}
         <HStack justify="space-between">
-          <Heading size="2xl">Create Training Job</Heading>
+          <HStack gap="3" align="center">
+            <Heading size="2xl">Create Training Job 🎛️</Heading>
+            <Badge rounded="full" variant="subtle" colorPalette="orange">Training</Badge>
+          </HStack>
           <HStack gap="2">
             <Button size="sm" rounded="full" colorPalette="green" onClick={handleStart} disabled={locked || !canStart || !trimmedJobName || !taskType || !modelValue}>Start</Button>
           </HStack>
         </HStack>
+        <Text textStyle="sm" color="gray.600">Pick a task, choose a model, and let's train 🚀</Text>
 
         <HStack align="flex-start" justify="center" gap="24px">
           {/* Left: dataset selection */}

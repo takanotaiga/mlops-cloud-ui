@@ -96,13 +96,16 @@ export default function ClientOpenedInferenceJobPage() {
   return (
     <Box px="10%" py="20px">
       <HStack align="center" justify="space-between">
-        <Heading size="2xl">
-          <Link asChild color="black" _hover={{ textDecoration: "none", color: "black" }}>
-            <NextLink href="/inference">Inference</NextLink>
-          </Link>
-          {" / "}
-          {jobName || "(unknown)"}
-        </Heading>
+        <HStack gap="3" align="center">
+          <Heading size="2xl">
+            <Link asChild color="black" _hover={{ textDecoration: "none", color: "black" }}>
+              <NextLink href="/inference">Inference 🤖</NextLink>
+            </Link>
+            {" / "}
+            {jobName || "(unknown)"}
+          </Heading>
+          <Badge rounded="full" variant="subtle" colorPalette="teal">Inference</Badge>
+        </HStack>
         <HStack>
           {job?.status === 'ProcessWaiting' && (
             <Button size="sm" rounded="full" variant="outline" onClick={async () => {
@@ -206,4 +209,3 @@ export default function ClientOpenedInferenceJobPage() {
     </Box>
   )
 }
-

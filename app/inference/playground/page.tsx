@@ -31,11 +31,15 @@ export default function Page() {
     <HStack justify="center">
       <VStack w={{ base: "90%", md: "70%" }} align="stretch" gap="16px" py="24px">
         <HStack justify="space-between">
-          <Heading size="2xl">Quick Playground</Heading>
+          <HStack gap="3" align="center">
+            <Heading size="2xl">Quick Playground ⚡</Heading>
+            <Button size="xs" rounded="full" variant="subtle" colorPalette="teal">Inference</Button>
+          </HStack>
           <Button rounded="full" onClick={() => setRunning(true)} disabled={!taskType || running}>
             {running ? "Running..." : "Run"}
           </Button>
         </HStack>
+        <Text textStyle="sm" color="gray.600">Try tasks instantly — no setup, just vibes 🎈</Text>
 
         <VStack align="stretch" gap="16px">
           {/* Task */}

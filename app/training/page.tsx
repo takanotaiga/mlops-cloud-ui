@@ -74,11 +74,15 @@ function TrainingJobsPage() {
     <HStack justify="center">
       <VStack w="70%" align="stretch" py="24px" gap="16px">
         <HStack justify="space-between" pb="8px">
-          <Heading size="2xl">Training Jobs</Heading>
+          <HStack gap="3" align="center">
+            <Heading size="2xl">Training Jobs 🚀</Heading>
+            <Badge rounded="full" variant="subtle" colorPalette="orange">Training</Badge>
+          </HStack>
           <NextLink href="/training/create" passHref>
-            <Button rounded="full">Create new</Button>
+            <Button rounded="full">New Training</Button>
           </NextLink>
         </HStack>
+        <Text textStyle="sm" color="gray.600">Train models, chase SOTA, have fun 🎉</Text>
         <InputGroup
           flex="1"
           startElement={<LuSearch />}

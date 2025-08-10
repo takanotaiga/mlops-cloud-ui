@@ -141,13 +141,16 @@ export default function ClientOpenedJobPage() {
   return (
     <Box px="10%" py="20px">
       <HStack align="center" justify="space-between">
-        <Heading size="2xl">
-          <Link asChild color="black" _hover={{ textDecoration: "none", color: "black" }}>
-            <NextLink href="/training">Training</NextLink>
-          </Link>
-          {" / "}
-          {jobName || "(unknown)"}
-        </Heading>
+        <HStack gap="3" align="center">
+          <Heading size="2xl">
+            <Link asChild color="black" _hover={{ textDecoration: "none", color: "black" }}>
+              <NextLink href="/training">Training 🚀</NextLink>
+            </Link>
+            {" / "}
+            {jobName || "(unknown)"}
+          </Heading>
+          <Badge rounded="full" variant="subtle" colorPalette="orange">Training</Badge>
+        </HStack>
         <HStack>
           {job?.status === 'ProcessWaiting' && (
             <Button size="sm" rounded="full" variant="outline" onClick={async () => {

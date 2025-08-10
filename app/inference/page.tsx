@@ -74,16 +74,20 @@ function InferenceJobsPage() {
     <HStack justify="center">
       <VStack w="70%" align="stretch" py="24px" gap="16px">
         <HStack justify="space-between" pb="8px">
-          <Heading size="2xl">Inference Jobs</Heading>
+          <HStack gap="3" align="center">
+            <Heading size="2xl">Inference Jobs 🤖</Heading>
+            <Badge rounded="full" variant="subtle" colorPalette="teal">Inference</Badge>
+          </HStack>
           <HStack>
             <NextLink href="/inference/playground" passHref>
-              <Button rounded="full" variant="outline">Playground</Button>
+              <Button rounded="full" variant="outline">Playground ⚡</Button>
             </NextLink>
             <NextLink href="/inference/create" passHref>
-              <Button rounded="full">Create new</Button>
+              <Button rounded="full">New Inference</Button>
             </NextLink>
           </HStack>
         </HStack>
+        <Text textStyle="sm" color="gray.600">Run models on your data — fast and fun ✨</Text>
         <InputGroup
           flex="1"
           startElement={<LuSearch />}
