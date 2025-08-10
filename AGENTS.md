@@ -48,6 +48,12 @@
 - `components/surreal/SurrealProvider.tsx`: Wraps the app with a Surreal client; handles connect, signin, and `USE NS/DB` selection.
 - `components/status/connection-status.tsx`: Lightweight health indicator for SurrealDB and MinIO (HeadBucket check).
 - `app/dataset/upload/page.tsx`: Client-side multipart upload to MinIO, then metadata registration in SurrealDB.
+\n+### Training Jobs (SurrealDB)
+- Table: `training_job` — stores training job definitions and state.
+- Fields saved by UI: `name` (unique key), `status` (e.g. `ProcessWaiting`, `StopInterrept`), `taskType`, `model`, `datasets[]`, `labels[]`, `epochs`, `batchSize`, `splitTrain`, `splitTest`, `createdAt`, `updatedAt`.
+- Start flow: Upserts `training_job` with `status = ProcessWaiting` and the selected configuration.
+- Stop flow: Updates `status = StopInterrept` for the job by `name`.
+- Remove flow: Deletes the row(s) by `name`.
 
 ### Environment Variables
 - Prefer setting client-usable values via `NEXT_PUBLIC_*` in `.env.local` so they are available in the browser:
@@ -63,6 +69,10 @@
 ### Data Flow
 - Upload: User selects files → client uploads to MinIO (`S3MultipartUpload`) → upon success, the app writes metadata to SurrealDB with fields: `name`, `key`, `bucket`, `size`, `mime`, `dataset`, `encode`, `uploadedAt`.
 - Dataset Listing: Query SurrealDB for datasets grouped by name, e.g. `SELECT dataset FROM file GROUP BY dataset;`, then render dynamic dataset tiles using the existing thumbnail UI.
+\n+- Training: Create job at `/training/create` → user selects Task Type, Model, Datasets (multi-select), and optionally Labels (for Object Detection); sets Train/Test split and hyperparameters → Start writes/updates one row in `training_job` → auto-navigate to job detail `/training/opened-job?j=<b64(name)>`.
+  - While a job with `status = ProcessWaiting` exists for a given `name`, the Create UI locks configuration and dataset selection (viewable but not editable).
+  - Stop from detail view sets `status = StopInterrept`.
+  - Remove from detail view deletes the job and refreshes the list.
 
 ### Security Considerations
 - Do not commit real access keys or DB passwords. The values in `app/secrets/*` are placeholders for local development only.
@@ -86,6 +96,12 @@
 - `app/dataset/opened-dataset/page.tsx`: Dataset detail. Reads `?d=` from the query, decodes the dataset name, renders it in the heading, and provides a “Dataset” breadcrumb link back to `/dataset`.
 - `app/dataset/upload/page.tsx`: Upload UI. Client-side multipart upload to MinIO via AWS SDK v3, then registers metadata to SurrealDB. Shows progress and completion actions (Upload more, Explore datasets).
 - `app/dataset/upload/parameters.ts`: Tunables such as `FILE_UPLOAD_CONCURRENCY`.
+\n+**Training Pages**
+- `app/training/page.tsx`: Training Job list. Search by name/model/task, compact timestamp display, links each tile to the detail view; top-right “Create new” navigates to `/training/create`.
+- `app/training/create/page.tsx`: Create Training Job UI. Includes Job Name, Task Type (Object Detection, Image to Text, Text to Image), Model options that depend on Task Type, multi-select Datasets with search, Train/Test split slider (5–95 bounds), Epochs and Batch Size.
+  - Object Detection: loads and merges Labels across selected datasets; Start requires at least one Label selected.
+  - On Start: upserts `training_job` (`ProcessWaiting`) and redirects to `/training/opened-job?j=<b64(name)>`. When a job with the same name is in `ProcessWaiting`, inputs become read-only.
+- `app/training/opened-job/page.tsx` and `app/training/opened-job/client.tsx`: Job detail. Shows job configuration, datasets, labels, compact Created/Updated times; header actions: Stop (only if `ProcessWaiting`) and Remove Job (with confirm dialog). Also displays training charts (Loss/Accuracy/GPU) beside the info panel.
 
 **UI Components**
 - `components/header.tsx`: App header with navigation and connection status.
@@ -97,6 +113,7 @@
 - `components/surreal/SurrealProvider.tsx`: Context provider creating a `surrealdb` client; manages connect, signin, and `use ns/db`.
 - `components/surreal/normalize.ts`: Helpers to normalize SurrealDB responses (e.g., extract dataset names).
 - `components/utils/base64.ts`: UTF-8 safe base64 encode/decode utilities used to pass dataset names via query.
+  - Used for dataset names and job names passed via `?d=` and `?j=`.
 
 **Secrets & Config**
 - `app/secrets/minio-config.tsx`: `MINIO_CONFIG` for S3 client (endpoint, region, keys, bucket, path-style).
