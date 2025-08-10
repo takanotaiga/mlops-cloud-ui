@@ -1,7 +1,7 @@
 "use client"
 
 import { Box, HStack, VStack, Heading, Text, Button, Input, InputGroup, SimpleGrid, Badge, Skeleton, SkeletonText } from "@chakra-ui/react"
-import { useDeferredValue, useMemo, useState } from "react"
+import { Suspense, useDeferredValue, useMemo, useState } from "react"
 import NextLink from "next/link"
 import { LuSearch } from "react-icons/lu"
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
@@ -38,7 +38,7 @@ function formatTimestamp(ts?: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-export default function Page() {
+function TrainingJobsPage() {
   const surreal = useSurrealClient()
   const { isSuccess } = useSurreal()
   const [query, setQuery] = useState("")
@@ -134,8 +134,34 @@ export default function Page() {
           )}
         </SimpleGrid>
 
-        
+
       </VStack>
     </HStack>
+  )
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={
+      <HStack justify="center">
+        <VStack w="70%" align="stretch" py="24px" gap="16px">
+          <HStack justify="space-between" pb="8px">
+            <Heading size="2xl">Training Jobs</Heading>
+            <Button rounded="full" disabled>Loading...</Button>
+          </HStack>
+          <SimpleGrid columns={[1, 2, 3]} gap="16px">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Box key={i} rounded="md" borderWidth="1px" bg="white" p="12px">
+                <SkeletonText noOfLines={1} w="60%" />
+                <Skeleton mt="3" h="14px" w="40%" />
+                <Skeleton mt="2" h="14px" w="50%" />
+              </Box>
+            ))}
+          </SimpleGrid>
+        </VStack>
+      </HStack>
+    }>
+      <TrainingJobsPage />
+    </Suspense>
   )
 }
