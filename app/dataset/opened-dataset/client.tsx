@@ -140,12 +140,12 @@ export default function ClientOpenedDatasetPage() {
   }
 
   // Label Type filtering (include / exclude / any)
-  const LABEL_TYPES = useMemo(() => ["Bounding Box", "Segmentation", "Text"] as const, [])
+  const LABEL_TYPES = useMemo(() => ["Bounding Box", "OneShotBBox", "Text"] as const, [])
   type LabelType = (typeof LABEL_TYPES)[number]
   type LabelMode = "any" | "has" | "no"
   const [labelFilter, setLabelFilter] = useState<Record<LabelType, LabelMode>>({
     "Bounding Box": "any",
-    "Segmentation": "any",
+    "OneShotBBox": "any",
     "Text": "any",
   })
 
@@ -160,14 +160,14 @@ export default function ClientOpenedDatasetPage() {
           { dataset: datasetName }
         )
         const rows = extractRows<any>(res)
-        const map: Record<string, { bbox: boolean; seg: boolean; text: boolean }> = {}
+        const map: Record<string, { bbox: boolean; one: boolean; text: boolean }> = {}
         for (const r of rows) {
           const fid = thingToString(r?.file)
           const cats = Array.isArray(r?.cats) ? r.cats.map((c: any) => String(c)) : []
-          const bbox = cats.some((c: string) => /bbox/i.test(c))
-          const seg = cats.some((c: string) => /(seg|mask)/i.test(c))
+          const bbox = cats.some((c: string) => /\bimage_bbox\b/i.test(c) || /\bbbox\b/i.test(c))
+          const one = cats.some((c: string) => c === "sam2_key_bbox")
           const text = cats.some((c: string) => /text/i.test(c))
-          map[fid] = { bbox, seg, text }
+          map[fid] = { bbox, one, text }
         }
         return map
       } catch {
@@ -209,10 +209,11 @@ export default function ClientOpenedDatasetPage() {
     const set = new Set(selectedMedia)
     return files.filter((f) => {
       if (!set.has(classifyMedia(f) as MediaType)) return false
-      const pres = labelPresence[f.id] ?? { bbox: false, seg: false, text: false }
+      const pres = labelPresence[f.id] ?? { bbox: false, one: false, text: false }
       // Apply include/exclude per label type (AND combination)
       const checks: [LabelType, boolean][] = [
         ["Bounding Box", pres.bbox],
+        ["OneShotBBox", pres.one],
         ["Text", pres.text],
       ]
       for (const [lt, has] of checks) {
@@ -459,9 +460,9 @@ export default function ClientOpenedDatasetPage() {
               const url = (isImage || isVideoWithThumb) ? imgUrls[f.key] : undefined
               const mParam = encodeURIComponent(selectedMedia.join(","))
               const lb = encodeURIComponent(labelFilter["Bounding Box"]) // any|has|no
-              const ls = encodeURIComponent(labelFilter["Segmentation"]) // any|has|no
+              const lo = encodeURIComponent(labelFilter["OneShotBBox"]) // any|has|no
               const lt = encodeURIComponent(labelFilter["Text"]) // any|has|no
-              const href = `/dataset/opened-dataset/object-card?d=${encodeBase64Utf8(datasetName)}&id=${encodeBase64Utf8(f.id)}&n=${encodeBase64Utf8(f.name || f.key)}&b=${encodeBase64Utf8(f.bucket)}&k=${encodeBase64Utf8(f.key)}&m=${mParam}&lb=${lb}&ls=${ls}&lt=${lt}`
+              const href = `/dataset/opened-dataset/object-card?d=${encodeBase64Utf8(datasetName)}&id=${encodeBase64Utf8(f.id)}&n=${encodeBase64Utf8(f.name || f.key)}&b=${encodeBase64Utf8(f.bucket)}&k=${encodeBase64Utf8(f.key)}&m=${mParam}&lb=${lb}&lo=${lo}&lt=${lt}`
               return (
                 <NextLink key={f.id} href={href}>
                     <Box bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">
