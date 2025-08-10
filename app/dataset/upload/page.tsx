@@ -36,12 +36,13 @@ import { FILE_UPLOAD_CONCURRENCY } from "@/app/dataset/upload/parameters";
 type EncodeModeSelectProps = {
   value: string
   onChange: (value: string) => void
+  collection: any
 }
 
-const EncodeModeSelect = ({ value, onChange }: EncodeModeSelectProps) => {
+const EncodeModeSelect = ({ value, onChange, collection }: EncodeModeSelectProps) => {
   return (
     <Select.Root
-      collection={encodeModes}
+      collection={collection as any}
       size="sm"
       width="320px"
       value={value ? [value] : []}
@@ -59,7 +60,7 @@ const EncodeModeSelect = ({ value, onChange }: EncodeModeSelectProps) => {
       <Portal>
         <Select.Positioner>
           <Select.Content>
-            {encodeModes.items.map((item) => (
+            {(collection as any).items.map((item: any) => (
               <Select.Item item={item} key={item.value}>
                 {item.label}
                 <Select.ItemIndicator />
@@ -72,14 +73,15 @@ const EncodeModeSelect = ({ value, onChange }: EncodeModeSelectProps) => {
   )
 }
 
-const encodeModes = createListCollection({
-  items: [
-    { label: "JPEG", value: "jpeg" },
-    { label: "PNG", value: "png" },
-    { label: "WebP", value: "webp" },
-    { label: "AVIF", value: "avif" },
-  ],
-})
+const makeVideoEncodeModes = (hasLongVideo15: boolean, hasMultipleVideos: boolean) =>
+  createListCollection({
+    items: [
+      ...(hasMultipleVideos ? [{ label: "All Merge", value: "video-merge" }] : []),
+      ...(hasLongVideo15 ? [{ label: "TimeLaps(15min)", value: "video-timelaps-15" }] : []),
+      { label: "Convert To Image", value: "video-to-image" },
+      { label: "Do Nothing", value: "video-none" },
+    ],
+  })
 
 
 export default function Page() {
@@ -95,6 +97,7 @@ export default function Page() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [previewUrls, setPreviewUrls] = useState<string[]>([])
   const [videoThumbs, setVideoThumbs] = useState<(string | null)[]>([])
+  const [hasLongVideo15, setHasLongVideo15] = useState<boolean>(false)
   const [view, setView] = useState<"form" | "progress" | "done">("form")
   const [progress, setProgress] = useState<number[]>([])
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -122,7 +125,7 @@ export default function Page() {
   // Create image thumbnails for video files so we can show a static preview
   useEffect(() => {
     let cancelled = false
-    const makeThumb = async (_file: File, url: string): Promise<string | null> => {
+    const makeThumb = async (_file: File, url: string): Promise<{ thumb: string | null; durationSec: number }> => {
       return new Promise((resolve) => {
         try {
           const video = document.createElement('video')
@@ -158,10 +161,10 @@ export default function Page() {
                 ctx.drawImage(video, 0, 0, dw, dh)
                 const dataUrl = canvas.toDataURL('image/jpeg', 0.95)
                 cleanup()
-                resolve(dataUrl)
+                resolve({ thumb: dataUrl, durationSec: dur })
               } catch (e) {
                 cleanup()
-                resolve(null)
+                resolve({ thumb: null, durationSec: 0 })
               }
             }
             const onSeeked = () => capture()
@@ -172,32 +175,37 @@ export default function Page() {
           video.addEventListener('loadedmetadata', onLoaded, { once: true })
           video.addEventListener('error', () => {
             cleanup()
-            resolve(null)
+            resolve({ thumb: null, durationSec: 0 })
           }, { once: true })
         } catch {
-          resolve(null)
+          resolve({ thumb: null, durationSec: 0 })
         }
       })
     }
 
     const run = async () => {
       const results: (string | null)[] = []
+      let anyLong = false
       for (let i = 0; i < selectedFiles.length; i++) {
         const f = selectedFiles[i]
         const url = previewUrls[i]
         if (f && url && f.type.startsWith('video/')) {
-          const thumb = await makeThumb(f, url)
+          const { thumb, durationSec } = await makeThumb(f, url)
           results[i] = thumb
+          if (durationSec >= 900) anyLong = true
         } else {
           results[i] = null
         }
         if (cancelled) return
       }
-      if (!cancelled) setVideoThumbs(results)
+      if (!cancelled) {
+        setVideoThumbs(results)
+        setHasLongVideo15(anyLong)
+      }
     }
 
     if (selectedFiles.length > 0) run()
-    else setVideoThumbs([])
+    else { setVideoThumbs([]); setHasLongVideo15(false) }
 
     return () => { cancelled = true }
   }, [selectedFiles, previewUrls])
@@ -271,7 +279,7 @@ export default function Page() {
       setFilesInvalid(true)
       invalid = true
     }
-    if (!encodeMode) {
+    if (counts.videos > 0 && !encodeMode) {
       setEncodeInvalid(true)
       invalid = true
     }
@@ -413,7 +421,7 @@ export default function Page() {
                   size: file.size,
                   mime: file.type || "application/octet-stream",
                   dataset: title,
-                  encode: encodeMode,
+                  encode: counts.videos > 0 ? encodeMode : undefined,
                   now,
                   thumbKey,
                 },
@@ -511,7 +519,9 @@ export default function Page() {
 
             <HStack gap="24px" mb="16px">
               <Badge>Dataset: {title || "(no title)"}</Badge>
-              <Badge>Encode: {encodeMode || "(none)"}</Badge>
+              {counts.videos > 0 && (
+                <Badge>Encode: {encodeMode || "(none)"}</Badge>
+              )}
               <Badge>Files: {selectedFiles.length}</Badge>
             </HStack>
 
@@ -599,23 +609,26 @@ export default function Page() {
                 )}
               </Field.Root>
             </HStack>
-            <HStack alignSelf="flex-start" pb="30px">
-              <Text w="200px" ml="30px">Encode Mode</Text>
-              <Field.Root invalid={encodeInvalid}>
-                <Box ml="30px">
-                  <EncodeModeSelect
-                    value={encodeMode}
-                    onChange={(v) => {
-                      setEncodeMode(v)
-                      if (encodeInvalid && v) setEncodeInvalid(false)
-                    }}
-                  />
-                </Box>
-                {encodeInvalid && (
-                  <Field.ErrorText ml="30px">Please choose an encoding mode.</Field.ErrorText>
-                )}
-              </Field.Root>
-            </HStack>
+            {counts.videos > 0 && (
+              <HStack alignSelf="flex-start" pb="30px">
+                <Text w="200px" ml="30px">Video Encode mode</Text>
+                <Field.Root invalid={encodeInvalid}>
+                  <Box ml="30px">
+                    <EncodeModeSelect
+                      value={encodeMode}
+                      collection={makeVideoEncodeModes(hasLongVideo15, counts.videos > 1)}
+                      onChange={(v) => {
+                        setEncodeMode(v)
+                        if (encodeInvalid && v) setEncodeInvalid(false)
+                      }}
+                    />
+                  </Box>
+                  {encodeInvalid && (
+                    <Field.ErrorText ml="30px">Please choose an encoding mode.</Field.ErrorText>
+                  )}
+                </Field.Root>
+              </HStack>
+            )}
             <HStack alignSelf="flex-start" ml="30px" pt="8px">
               <Button variant="subtle" rounded="full" w="220px" onClick={handleUploadClick}>
                 <LuCloudUpload />
