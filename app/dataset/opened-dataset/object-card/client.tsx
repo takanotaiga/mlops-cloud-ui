@@ -861,6 +861,9 @@ function ImageAnnotator(props: {
       {/* Existing boxes */}
       {boxes?.map((b) => {
         const color = getBoxColor?.(b.label) || "#3182ce"
+        // Ensure smaller boxes stack above larger ones so their controls remain clickable
+        const area = Math.abs((b.x2 - b.x1) * (b.y2 - b.y1)) // 0..1 range
+        const z = 1000 + Math.max(0, Math.min(1000, Math.round((1 - area) * 1000)))
         return (
           <Box
             key={b.id}
@@ -869,9 +872,10 @@ function ImageAnnotator(props: {
             borderColor={color}
             bg="transparent"
             pointerEvents="auto"
+            zIndex={z}
             {...toCss(b)}
           >
-            <Box position="absolute" top="-22px" left={-0.5} bg={color} color="white" px={2} py={0.5} fontSize="xs" >
+            <Box position="absolute" top="-22px" left={-0.5} bg={color} color="white" px={2} py={0.5} fontSize="xs" zIndex={z + 1}>
               {labelFor?.(b.label) || b.label || "box"}
             </Box>
             <CloseButton
@@ -882,6 +886,8 @@ function ImageAnnotator(props: {
               right={-0.5}
               position="absolute"
               rounded="none"
+              zIndex={z + 2}
+              onMouseDown={(e) => { e.stopPropagation() }}
               onClick={(e) => { e.stopPropagation(); onRemoveBox(b.id) }}
             />
           </Box>
