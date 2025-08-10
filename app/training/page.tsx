@@ -122,7 +122,19 @@ function TrainingJobsPage() {
                 <Box rounded="md" borderWidth="1px" bg="white" p="12px" _hover={{ shadow: "md" }}>
                   <HStack justify="space-between" mb="1">
                     <Heading size="md">{j.name || "(no name)"}</Heading>
-                    <Badge colorPalette={j.status === 'ProcessWaiting' ? 'green' : j.status === 'StopInterrept' ? 'red' : 'gray'}>{j.status || 'Idle'}</Badge>
+                    <Badge
+                      colorPalette={
+                        j.status === 'ProcessWaiting'
+                          ? 'green'
+                          : j.status === 'StopInterrept'
+                            ? 'red'
+                            : (j.status === 'Complete' || j.status === 'Completed')
+                              ? 'blue'
+                              : 'gray'
+                      }
+                    >
+                      {j.status || 'Idle'}
+                    </Badge>
                   </HStack>
                   <Text textStyle="sm" color="gray.600">{j.taskType || "-"} • {j.model || "-"}</Text>
                   {j.updatedAt && (

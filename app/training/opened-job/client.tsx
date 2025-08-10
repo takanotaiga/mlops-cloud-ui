@@ -209,7 +209,19 @@ export default function ClientOpenedJobPage() {
               <HStack justify="space-between">
                 <HStack gap="3">
                   <Heading size="lg">{job.name}</Heading>
-                  <Badge colorPalette={job.status === 'ProcessWaiting' ? 'green' : job.status === 'StopInterrept' ? 'red' : 'gray'}>{job.status || 'Idle'}</Badge>
+                  <Badge
+                    colorPalette={
+                      job.status === 'ProcessWaiting'
+                        ? 'green'
+                        : job.status === 'StopInterrept'
+                        ? 'red'
+                        : (job.status === 'Complete' || job.status === 'Completed')
+                        ? 'blue'
+                        : 'gray'
+                    }
+                  >
+                    {job.status || 'Idle'}
+                  </Badge>
                 </HStack>
               </HStack>
               <Text textStyle="sm" color="gray.700">Task: {job.taskType || '-'}</Text>
