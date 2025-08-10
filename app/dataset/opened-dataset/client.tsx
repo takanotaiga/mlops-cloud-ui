@@ -17,6 +17,8 @@ import {
   Image,
   Skeleton,
   SkeletonText,
+  Center,
+  Spinner,
   Dialog,
   Portal,
   CloseButton,
@@ -363,17 +365,16 @@ export default function ClientOpenedDatasetPage() {
               return (
                 <NextLink key={f.id} href={href}>
                   <Box bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">
-                    <Box bg="bg.subtle" style={{ aspectRatio: 1 as any }}>
-                      {(url) ? (
+                    <Box bg="bg.subtle" style={{ aspectRatio: 1 as any }} position="relative" aria-busy={!url} userSelect="none">
+                      {url && (
                         <Image src={url} alt={f.name} objectFit="cover" w="100%" h="100%" />
-                      ) : (
-                        <Image
-                          src="/static/sample.jpg"
-                          alt={f.name}
-                          objectFit="cover"
-                          w="100%"
-                          h="100%"
-                        />
+                      )}
+                      {!url && (
+                        <Box pos="absolute" inset="0" bg="bg/80">
+                          <Center h="full">
+                            <Spinner color="teal.500" />
+                          </Center>
+                        </Box>
                       )}
                     </Box>
                     <Box px="8px" pt="6px">

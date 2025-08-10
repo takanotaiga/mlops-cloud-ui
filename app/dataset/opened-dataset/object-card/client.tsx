@@ -8,8 +8,9 @@ import {
   Text,
   VStack,
   Button,
-  Skeleton,
   SkeletonText,
+  Center,
+  Spinner,
   Dialog,
   Portal,
   CloseButton,
@@ -212,6 +213,7 @@ export default function ClientObjectCardPage() {
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewSize, setPreviewSize] = useState<number | undefined>(undefined)
+  const [previewLoading, setPreviewLoading] = useState<boolean>(false)
   const [removing, setRemoving] = useState(false)
   const [activeLabel, setActiveLabel] = useState<string>("")
   const [newLabelName, setNewLabelName] = useState<string>("")
@@ -379,23 +381,26 @@ export default function ClientObjectCardPage() {
     let cancelled = false
     let createdBlob: string | null = null
     const run = async () => {
+      setPreviewLoading(true)
       const bucket = file?.bucket || fallbackBucket
       const isVideo = (file?.mime || '').startsWith('video/')
       // If video without thumbnail, do not attempt to preview the video itself
-      if (isVideo && !file?.thumbKey) { setPreviewUrl(null); return }
+      if (isVideo && !file?.thumbKey) { setPreviewUrl(null); setPreviewLoading(false); return }
       // If this is a video and we have a stored thumbnail key, prefer that for preview
       const key = (isVideo && file?.thumbKey)
         ? file?.thumbKey
         : (file?.key || fallbackKey)
-      if (!bucket || !key) { setPreviewUrl(null); return }
+      if (!bucket || !key) { setPreviewUrl(null); setPreviewLoading(false); return }
       try {
         const { url, isBlob, sizeBytes } = await getObjectUrlPreferPresign(bucket, key)
         if (cancelled) return
         setPreviewUrl(url)
         setPreviewSize(sizeBytes)
         if (isBlob) createdBlob = url
+        setPreviewLoading(false)
       } catch {
         setPreviewUrl(null)
+        setPreviewLoading(false)
       }
     }
     run()
@@ -682,10 +687,8 @@ export default function ClientObjectCardPage() {
 
         {/* Right: Preview */}
         <Box>
-          <Box bg="bg.subtle" rounded="md" overflow="hidden" borderWidth="1px" minH="220px">
-            {isPending ? (
-              <Skeleton height="360px" />
-            ) : previewUrl ? (
+          <Box bg="bg.subtle" rounded="md" overflow="hidden" borderWidth="1px" minH="220px" position="relative" aria-busy={isPending || previewLoading} userSelect="none">
+            {!isPending && previewUrl && (
               <ImageAnnotator
                 src={previewUrl}
                 canAnnotate={isImageType || isVideoType}
@@ -701,7 +704,15 @@ export default function ClientObjectCardPage() {
                 hasActiveLabel={!!activeLabel}
                 missingLabelText="ラベルを選択してください"
               />
-            ) : (
+            )}
+            {(isPending || previewLoading) && (
+              <Box pos="absolute" inset="0" bg="bg/80">
+                <Center h="full">
+                  <Spinner color="teal.500" />
+                </Center>
+              </Box>
+            )}
+            {!isPending && !previewLoading && !previewUrl && (
               <Box p={6}>
                 <Text color="gray.500">プレビューを表示できません。</Text>
               </Box>
