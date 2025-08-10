@@ -849,7 +849,7 @@ function ImageAnnotator(props: {
               fontSize="xs"
               px={2}
               py={1}
-              rounded="sm"
+              rounded="full"
               pointerEvents="none"
               shadow="md"
             >
@@ -871,20 +871,19 @@ function ImageAnnotator(props: {
             pointerEvents="auto"
             {...toCss(b)}
           >
-            <Box position="absolute" top="-22px" left={0} bg={color} color="white" px={2} py={0.5} fontSize="xs" rounded="sm">
+            <Box position="absolute" top="-22px" left={-0.5} bg={color} color="white" px={2} py={0.5} fontSize="xs" >
               {labelFor?.(b.label) || b.label || "box"}
             </Box>
-            <Button
-              size="xs"
-              variant="solid"
+            <CloseButton
+              size="2xs"
+              variant="subtle"
               colorPalette="red"
+              top="-26px"
+              right={-0.5}
               position="absolute"
-              top={-22}
-              right={0}
+              rounded="none"
               onClick={(e) => { e.stopPropagation(); onRemoveBox(b.id) }}
-            >
-              x
-            </Button>
+            />
           </Box>
         )
       })}
@@ -894,11 +893,6 @@ function ImageAnnotator(props: {
           <Box width="8px" height="8px" bg="#3182ce" rounded="full" transform="translate(-50%, -50%)" />
         </Box>
       )}
-      {canAnnotate ? (
-        <Box position="absolute" bottom={2} left={2} bg="blackAlpha.600" color="white" px={2} py={1} fontSize="xs" rounded="sm">
-          {start ? "2点目をクリックして四角形を確定" : "画像上を2回クリックして四角形を作成"}
-        </Box>
-      ) : null}
     </Box>
   )
 }
