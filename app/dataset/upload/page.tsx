@@ -438,6 +438,7 @@ export default function Page() {
         try {
           // Register file metadata to SurrealDB after all uploads complete
           const now = new Date().toISOString()
+          const uploadedVideoNames: string[] = []
           for (let i = 0; i < selectedFiles.length; i++) {
             const file = selectedFiles[i]
             const key = `${title}/${file.name}`
@@ -459,8 +460,24 @@ export default function Page() {
                   thumbKey,
                 },
               )
+              if (file.type.startsWith('video/')) uploadedVideoNames.push(file.name)
             } catch (e) {
               console.error("Failed to register file in SurrealDB:", file.name, e)
+            }
+          }
+          // When encoding mode is All Merge, persist the ordered concatenation sequence
+          if (encodeMode === 'video-merge' && uploadedVideoNames.length > 0) {
+            try {
+              // Sort names naturally (video-001 < video-002 ...)
+              const members = [...uploadedVideoNames].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+              // Remove any existing merge record for this dataset/mode to keep single source of truth
+              await surreal.query("DELETE merge_group WHERE dataset == $dataset AND mode == 'all'", { dataset: title })
+              await surreal.query(
+                "CREATE merge_group CONTENT { dataset: $dataset, mode: 'all', members: $members, createdAt: time::now() }",
+                { dataset: title, members }
+              )
+            } catch (e) {
+              console.error('Failed to save merge_group sequence', e)
             }
           }
         } catch (e) {

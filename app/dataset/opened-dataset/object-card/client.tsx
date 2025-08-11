@@ -18,6 +18,8 @@ import {
   Textarea,
   Accordion,
   Span,
+  Drawer,
+  Timeline,
 } from "@chakra-ui/react"
 import NextLink from "next/link"
 import { useSearchParams } from "next/navigation"
@@ -38,6 +40,7 @@ type FileRow = {
   size?: number
   dataset?: string
   thumbKey?: string
+  encode?: string
 }
 
 // Normalize SurrealDB Thing (record id) to string for safe rendering
@@ -103,6 +106,28 @@ export default function ClientObjectCardPage() {
     },
     refetchOnWindowFocus: false,
     staleTime: 5_000,
+  })
+
+  // Load merge sequence for All Merge mode on this dataset
+  const { data: mergeInfo } = useQuery({
+    queryKey: ["merge-group", datasetName],
+    enabled: isSuccess && !!datasetName,
+    queryFn: async () => {
+      try {
+        const res = await surreal.query(
+          "SELECT * FROM merge_group WHERE dataset == $dataset AND mode == 'all' LIMIT 1",
+          { dataset: datasetName }
+        )
+        const rows = extractRows<any>(res)
+        const row = rows?.[0]
+        if (!row || !Array.isArray(row.members)) return null as any
+        return { members: row.members as string[] }
+      } catch {
+        return null as any
+      }
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 10_000,
   })
 
   // Parse incoming filters
@@ -539,6 +564,49 @@ export default function ClientObjectCardPage() {
           {objectName || file?.name || "Object"}
         </Heading>
         <HStack gap={2}>
+          {file?.encode === 'video-merge' && mergeInfo?.members?.length > 0 && (
+            <Drawer.Root>
+              <Drawer.Trigger asChild>
+                <Button variant="outline" size="sm" rounded="full">連番関係</Button>
+              </Drawer.Trigger>
+              <Portal>
+                <Drawer.Backdrop />
+                <Drawer.Positioner>
+                  <Drawer.Content>
+                    <Drawer.Header>
+                      <Drawer.Title>連結シーケンス</Drawer.Title>
+                    </Drawer.Header>
+                    <Drawer.Body>
+                      <Timeline.Root>
+                        {mergeInfo.members.map((n: string, idx: number) => (
+                          <Timeline.Item key={n + idx}>
+                            <Timeline.Connector>
+                              <Timeline.Separator />
+                              <Timeline.Indicator />
+                            </Timeline.Connector>
+                            <Timeline.Content>
+                              <Timeline.Title textStyle="sm">
+                                {n}
+                                {n === (file?.name || objectName) ? (
+                                  <Box as="span" ml={2} color="purple.600">(current)</Box>
+                                ) : null}
+                              </Timeline.Title>
+                            </Timeline.Content>
+                          </Timeline.Item>
+                        ))}
+                      </Timeline.Root>
+                    </Drawer.Body>
+                    <Drawer.Footer>
+                      <Button variant="outline">Close</Button>
+                    </Drawer.Footer>
+                    <Drawer.CloseTrigger asChild>
+                      <CloseButton size="sm" />
+                    </Drawer.CloseTrigger>
+                  </Drawer.Content>
+                </Drawer.Positioner>
+              </Portal>
+            </Drawer.Root>
+          )}
           <Button
             size="sm"
             variant="subtle"

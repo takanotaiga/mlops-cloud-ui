@@ -225,13 +225,41 @@ export default function ClientOpenedDatasetPage() {
     })
   }, [files, selectedMedia, labelPresence, labelFilter])
 
+  // Load merge group for this dataset when present to detect "All Merge" first item
+  const { data: mergeInfo } = useQuery({
+    queryKey: ["merge-group", datasetName],
+    enabled: isSuccess && !!datasetName,
+    queryFn: async () => {
+      try {
+        const res = await surreal.query("SELECT * FROM merge_group WHERE dataset == $dataset AND mode == 'all' LIMIT 1", { dataset: datasetName })
+        const rows = extractRows<any>(res)
+        const row = rows?.[0]
+        if (!row || !Array.isArray(row.members)) return null as any
+        const members: string[] = row.members.map((n: any) => String(n))
+        return { members, first: members[0] as string | undefined }
+      } catch {
+        return null as any
+      }
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 10_000,
+  })
+
   const sortedVisibleFiles = useMemo(() => {
-    return [...visibleFiles].sort((a, b) => {
+    // If dataset has an All Merge sequence, only show the first merged video
+    const onlyFirst = (f: FileRow) => {
+      if (!mergeInfo || !mergeInfo.first) return true
+      if ((f.encode || "") !== "video-merge") return true
+      // When encode mode is video-merge, show only the first name
+      return String(f.name || "") === String(mergeInfo.first || "")
+    }
+    const base = visibleFiles.filter(onlyFirst)
+    return [...base].sort((a, b) => {
       const an = (a.name || a.key || "").toString()
       const bn = (b.name || b.key || "").toString()
       return an.localeCompare(bn, undefined, { sensitivity: "base", numeric: true })
     })
-  }, [visibleFiles])
+  }, [visibleFiles, mergeInfo?.first])
 
   // Pagination (20 items per page)
   const PAGE_SIZE = 20
@@ -295,6 +323,8 @@ export default function ClientOpenedDatasetPage() {
       createdBlobs.forEach((u) => { try { URL.revokeObjectURL(u) } catch { } })
     }
   }, [pageFiles])
+
+  // mergeInfo defined above
 
   return (
     <Box px="10%" py="20px">
@@ -465,24 +495,29 @@ export default function ClientOpenedDatasetPage() {
               const href = `/dataset/opened-dataset/object-card?d=${encodeBase64Utf8(datasetName)}&id=${encodeBase64Utf8(f.id)}&n=${encodeBase64Utf8(f.name || f.key)}&b=${encodeBase64Utf8(f.bucket)}&k=${encodeBase64Utf8(f.key)}&m=${mParam}&lb=${lb}&lo=${lo}&lt=${lt}`
               return (
                 <NextLink key={f.id} href={href}>
-                    <Box bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">
-                      <Box bg="bg.subtle" style={{ aspectRatio: 1 as any }} position="relative" aria-busy={!url} userSelect="none">
-                        {url && (
-                          <Image src={url} alt={f.name} objectFit="cover" w="100%" h="100%" />
-                        )}
-                        {!url && (
-                          <Box pos="absolute" inset="0" bg="bg/80">
-                            <Center h="full">
-                              <Spinner color="teal.500" />
-                            </Center>
-                          </Box>
-                        )}
-                      </Box>
-                      <Box px="8px" pt="6px">
-                        <Text fontSize="sm" style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{f.name}</Text>
-                      </Box>
+                  <Box bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">
+                    <Box bg="bg.subtle" style={{ aspectRatio: 1 as any }} position="relative" aria-busy={!url} userSelect="none">
+                      {url && (
+                        <Image src={url} alt={f.name} objectFit="cover" w="100%" h="100%" />
+                      )}
+                      {!url && (
+                        <Box pos="absolute" inset="0" bg="bg/80">
+                          <Center h="full">
+                            <Spinner color="teal.500" />
+                          </Center>
+                        </Box>
+                      )}
+                      {(f.encode === 'video-merge') && (
+                        <Box position="absolute" top="6px" left="6px">
+                          <Badge size="sm" colorPalette="purple" variant="solid">連結</Badge>
+                        </Box>
+                      )}
                     </Box>
-                  </NextLink>
+                    <Box px="8px" pt="6px">
+                      <Text fontSize="sm" style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{f.name}</Text>
+                    </Box>
+                  </Box>
+                </NextLink>
                 )
               })
             )}
