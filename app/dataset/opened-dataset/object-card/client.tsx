@@ -22,6 +22,7 @@ import {
   Timeline,
 } from "@chakra-ui/react"
 import NextLink from "next/link"
+import { useI18n } from "@/components/i18n/LanguageProvider"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import { decodeBase64Utf8, encodeBase64Utf8 } from "@/components/utils/base64"
@@ -59,6 +60,7 @@ function thingToString(v: unknown): string {
 }
 
 export default function ClientObjectCardPage() {
+  const { t } = useI18n()
   const router = useRouter()
   const params = useSearchParams()
   const queryClient = useQueryClient()
@@ -188,6 +190,20 @@ export default function ClientObjectCardPage() {
     const n = (file?.name || fallbackKey || "").toLowerCase()
     return /\.(mp4|mov|mkv|avi|webm)$/.test(n)
   }, [file?.mime, file?.name, fallbackKey])
+
+  // Merged video annotation policy: only first segment is annotatable
+  const isMergedVideo = (file?.encode === 'video-merge') && isVideoType
+  const isHeadOfMerge = useMemo(() => {
+    if (!isMergedVideo) return false
+    const currentName = file?.name || objectName || ''
+    const first = mergeInfo?.members?.[0]
+    return !!first && currentName === first
+  }, [isMergedVideo, file?.name, objectName, mergeInfo?.members])
+  const canAnnotateCurrent = useMemo(() => {
+    if (isImageType) return true
+    if (isMergedVideo) return !!mergeInfo && isHeadOfMerge
+    return isVideoType
+  }, [isImageType, isMergedVideo, isHeadOfMerge, isVideoType, mergeInfo])
 
   // Dataset-level labels
   type LabelRow = { id: string; dataset: string; name: string }
@@ -567,14 +583,14 @@ export default function ClientObjectCardPage() {
           {file?.encode === 'video-merge' && mergeInfo?.members?.length > 0 && (
             <Drawer.Root>
               <Drawer.Trigger asChild>
-                <Button variant="outline" size="sm" rounded="full">連番関係</Button>
+                <Button variant="outline" size="sm" rounded="full">{t('merge.relation_button','Sequence')}</Button>
               </Drawer.Trigger>
               <Portal>
                 <Drawer.Backdrop />
                 <Drawer.Positioner>
                   <Drawer.Content>
                     <Drawer.Header>
-                      <Drawer.Title>連結シーケンス</Drawer.Title>
+                      <Drawer.Title>{t('merge.drawer_title','Merge Sequence')}</Drawer.Title>
                     </Drawer.Header>
                     <Drawer.Body>
                       <Timeline.Root>
@@ -588,7 +604,7 @@ export default function ClientObjectCardPage() {
                               <Timeline.Title textStyle="sm">
                                 {n}
                                 {n === (file?.name || objectName) ? (
-                                  <Box as="span" ml={2} color="purple.600">(current)</Box>
+                                  <Box as="span" ml={2} color="purple.600">{t('merge.current','(current)')}</Box>
                                 ) : null}
                               </Timeline.Title>
                             </Timeline.Content>
@@ -597,7 +613,7 @@ export default function ClientObjectCardPage() {
                       </Timeline.Root>
                     </Drawer.Body>
                     <Drawer.Footer>
-                      <Button variant="outline">Close</Button>
+                      <Button variant="outline">{t('common.close','Close')}</Button>
                     </Drawer.Footer>
                     <Drawer.CloseTrigger asChild>
                       <CloseButton size="sm" />
@@ -614,7 +630,7 @@ export default function ClientObjectCardPage() {
             onClick={() => { const href = makeHref(prevItem); if (href) router.push(href) }}
             disabled={!prevItem}
           >
-            Prev
+            {t('common.prev','Prev')}
           </Button>
 
           <Button
@@ -624,14 +640,14 @@ export default function ClientObjectCardPage() {
             onClick={() => { const href = makeHref(nextItem); if (href) router.push(href) }}
             disabled={!nextItem}
           >
-            Next
+            {t('common.next','Next')}
           </Button>
 
           <Box w="10px" />
           <Dialog.Root>
             <Dialog.Trigger asChild>
               <Button variant="outline" colorPalette="red" size="sm" rounded="full" disabled={removing || (!file && !fallbackBucket)}>
-                Remove
+                {t('common.remove','Remove')}
               </Button>
             </Dialog.Trigger>
             <Portal>
@@ -639,18 +655,18 @@ export default function ClientObjectCardPage() {
               <Dialog.Positioner>
                 <Dialog.Content>
                   <Dialog.Header>
-                    <Dialog.Title>Delete Object</Dialog.Title>
+                    <Dialog.Title>{t('object.delete_title','Delete Object')}</Dialog.Title>
                   </Dialog.Header>
                   <Dialog.Body>
-                    <Text>このオブジェクトを削除します。よろしいですか？</Text>
-                    <Text mt={2} color="gray.600">メタデータ（DB）削除後、MinIOの実体も削除します。</Text>
+                    <Text>{t('object.delete_confirm','This object will be deleted. Proceed?')}</Text>
+                    <Text mt={2} color="gray.600">{t('object.delete_note','Removes DB metadata first, then deletes MinIO object.')}</Text>
                   </Dialog.Body>
                   <Dialog.Footer>
                     <Dialog.ActionTrigger asChild>
-                      <Button variant="outline">Cancel</Button>
+                      <Button variant="outline">{t('common.cancel','Cancel')}</Button>
                     </Dialog.ActionTrigger>
                     <Button onClick={handleRemove} disabled={removing} colorPalette="red">
-                      {removing ? "Removing..." : "Delete"}
+                      {removing ? t('common.loading','Loading...') : t('common.remove','Remove')}
                     </Button>
                   </Dialog.Footer>
                   <Dialog.CloseTrigger asChild>
@@ -686,7 +702,7 @@ export default function ClientObjectCardPage() {
             {/* Info */}
             <Accordion.Item value="info">
               <Accordion.ItemTrigger>
-                <Span flex="1">Info</Span>
+                <Span flex="1">{t('object.info','Info')}</Span>
                 <Accordion.ItemIndicator />
               </Accordion.ItemTrigger>
               <Accordion.ItemContent>
@@ -709,7 +725,7 @@ export default function ClientObjectCardPage() {
             {/* Auto Annotation */}
             <Accordion.Item value="auto">
               <Accordion.ItemTrigger>
-                <Span flex="1">Auto Annotation</Span>
+                <Span flex="1">{t('object.auto_anno','Auto Annotation')}</Span>
                 <Accordion.ItemIndicator />
               </Accordion.ItemTrigger>
               <Accordion.ItemContent>
@@ -722,8 +738,8 @@ export default function ClientObjectCardPage() {
                       size="sm"
                     />
                     <HStack>
-                      <Button size="xs" rounded="full" variant={autoMode === "bbox" ? "solid" : "outline"} onClick={() => setAutoMode("bbox")}>Bounding Box</Button>
-                      <Button size="xs" rounded="full" variant={autoMode === "text" ? "solid" : "outline"} onClick={() => setAutoMode("text")}>Image to Text</Button>
+                      <Button size="xs" rounded="full" variant={autoMode === "bbox" ? "solid" : "outline"} onClick={() => setAutoMode("bbox")}>{t('object.mode_bbox','Bounding Box')}</Button>
+                      <Button size="xs" rounded="full" variant={autoMode === "text" ? "solid" : "outline"} onClick={() => setAutoMode("text")}>{t('object.mode_text','Image to Text')}</Button>
                     </HStack>
                     <HStack>
                       <Button
@@ -735,9 +751,9 @@ export default function ClientObjectCardPage() {
                           setAutoRunning(true)
                           try {
                             if (autoMode === "text") {
-                              setAutoMsg("テキスト自動生成は未実装です")
+                              setAutoMsg(t('object.auto_text_unimpl','Text auto-generation is not implemented'))
                             } else {
-                              setAutoMsg("BBox自動生成は未実装です")
+                              setAutoMsg(t('object.auto_bbox_unimpl','BBox auto-generation is not implemented'))
                             }
                           } finally {
                             setAutoRunning(false)
@@ -745,7 +761,7 @@ export default function ClientObjectCardPage() {
                         }}
                         disabled={autoRunning || !autoPrompt.trim()}
                       >
-                        {autoRunning ? "Running..." : "Generate🪄"}
+                        {autoRunning ? t('common.loading','Loading...') : t('object.generate','Generate🪄')}
                       </Button>
                       {autoMsg && <Text fontSize="xs" color="gray.600">{autoMsg}</Text>}
                     </HStack>
@@ -757,7 +773,7 @@ export default function ClientObjectCardPage() {
             {/* BBox Labels */}
             <Accordion.Item value="bbox">
               <Accordion.ItemTrigger>
-                <Span flex="1">BBox Labels</Span>
+                <Span flex="1">{t('object.bbox_labels','BBox Labels')}</Span>
                 <Accordion.ItemIndicator />
               </Accordion.ItemTrigger>
               <Accordion.ItemContent>
@@ -809,7 +825,7 @@ export default function ClientObjectCardPage() {
             {/* Text Label */}
             <Accordion.Item value="text">
               <Accordion.ItemTrigger>
-                <Span flex="1">Text Label</Span>
+                <Span flex="1">{t('object.text_label','Text Label')}</Span>
                 <Accordion.ItemIndicator />
               </Accordion.ItemTrigger>
               <Accordion.ItemContent>
@@ -823,7 +839,7 @@ export default function ClientObjectCardPage() {
                       size="sm"
                     />
                     <Text fontSize="xs" color={textSaving ? "gray.700" : "gray.500"}>
-                      {textSaving ? "Saving..." : "自動保存されます"}
+                      {textSaving ? t('common.loading','Loading...') : t('common.auto_saved','Auto-saved')}
                     </Text>
                   </VStack>
                 </Accordion.ItemBody>
@@ -838,7 +854,7 @@ export default function ClientObjectCardPage() {
             {!isPending && previewUrl && (
               <ImageAnnotator
                 src={previewUrl}
-                canAnnotate={isImageType || isVideoType}
+                canAnnotate={canAnnotateCurrent}
                 boxes={annotations}
                 onAddBox={async (b) => {
                   if (!activeLabel) return
@@ -852,6 +868,11 @@ export default function ClientObjectCardPage() {
                 missingLabelText="ラベルを選択してください"
               />
             )}
+            {isMergedVideo && !isHeadOfMerge && (
+              <Box pos="absolute" top="8px" right="8px" bg="bg.panel" px={2} py={1} rounded="md" borderWidth="1px" shadow="sm">
+                <Text fontSize="xs" color="gray.700">{t('merge.annotate_only_first','Annotations are allowed only on the first merged video.')}</Text>
+              </Box>
+            )}
             {(isPending || previewLoading) && (
               <Box pos="absolute" inset="0" bg="bg/80">
                 <Center h="full">
@@ -861,7 +882,7 @@ export default function ClientObjectCardPage() {
             )}
             {!isPending && !previewLoading && !previewUrl && (
               <Box p={6}>
-                <Text color="gray.500">プレビューを表示できません。</Text>
+                <Text color="gray.500">{t('object.preview_unavailable','Preview is not available.')}</Text>
               </Box>
             )}
           </Box>

@@ -101,6 +101,32 @@ const en: Dict = {
   "common.remove_job": "Remove Job",
   "common.cancel": "Cancel",
   "common.loading": "Loading...",
+  "common.prev": "Prev",
+  "common.next": "Next",
+  "common.close": "Close",
+  "common.auto_saved": "Auto-saved",
+
+  // Object
+  "object.delete_title": "Delete Object",
+  "object.delete_confirm": "This object will be deleted. Proceed?",
+  "object.delete_note": "Removes DB metadata first, then deletes MinIO object.",
+  "object.info": "Info",
+  "object.preview_unavailable": "Preview is not available.",
+  "object.auto_anno": "Auto Annotation",
+  "object.bbox_labels": "BBox Labels",
+  "object.text_label": "Text Label",
+  "object.mode_bbox": "Bounding Box",
+  "object.mode_text": "Image to Text",
+  "object.generate": "Generate🪄",
+  "object.auto_text_unimpl": "Text auto-generation is not implemented",
+  "object.auto_bbox_unimpl": "BBox auto-generation is not implemented",
+
+  // Merge
+  "merge.badge": "Merged",
+  "merge.relation_button": "Sequence",
+  "merge.drawer_title": "Merge Sequence",
+  "merge.current": "(current)",
+  "merge.annotate_only_first": "Annotations are allowed only on the first merged video.",
 }
 
 const ja: Dict = {
@@ -198,6 +224,32 @@ const ja: Dict = {
   "common.remove_job": "ジョブを削除",
   "common.cancel": "キャンセル",
   "common.loading": "読み込み中...",
+  "common.prev": "前へ",
+  "common.next": "次へ",
+  "common.close": "閉じる",
+  "common.auto_saved": "自動保存されます",
+
+  // Object
+  "object.delete_title": "オブジェクトを削除",
+  "object.delete_confirm": "このオブジェクトを削除します。よろしいですか？",
+  "object.delete_note": "メタデータ（DB）削除後、MinIOの実体も削除します。",
+  "object.info": "情報",
+  "object.preview_unavailable": "プレビューを表示できません。",
+  "object.auto_anno": "自動アノテーション",
+  "object.bbox_labels": "BBoxラベル",
+  "object.text_label": "テキストラベル",
+  "object.mode_bbox": "バウンディングボックス",
+  "object.mode_text": "画像→テキスト",
+  "object.generate": "生成🪄",
+  "object.auto_text_unimpl": "テキスト自動生成は未実装です",
+  "object.auto_bbox_unimpl": "BBox自動生成は未実装です",
+
+  // Merge
+  "merge.badge": "連結",
+  "merge.relation_button": "連番関係",
+  "merge.drawer_title": "連結シーケンス",
+  "merge.current": "(現在)",
+  "merge.annotate_only_first": "連結動画のアノテーションは先頭の動画のみ可能です。",
 }
 
 const DICTS: Record<Lang, Dict> = { en, ja }

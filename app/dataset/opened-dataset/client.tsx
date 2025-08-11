@@ -509,7 +509,7 @@ export default function ClientOpenedDatasetPage() {
                       )}
                       {(f.encode === 'video-merge') && (
                         <Box position="absolute" top="6px" left="6px">
-                          <Badge size="sm" colorPalette="purple" variant="solid">連結</Badge>
+                          <Badge size="sm" colorPalette="purple" variant="solid">{t('merge.badge','Merged')}</Badge>
                         </Box>
                       )}
                     </Box>
