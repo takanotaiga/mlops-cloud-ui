@@ -83,6 +83,13 @@ export default function ClientOpenedInferenceJobPage() {
     },
     refetchOnWindowFocus: false,
     staleTime: 2000,
+    // Poll every 3s until job reaches a terminal state
+    refetchInterval: (q: any) => {
+      const j = q?.state?.data as JobRow | null | undefined
+      const s = (j?.status || '').toLowerCase()
+      const isTerminal = s === 'complete' || s === 'completed' || s === 'failed' || s === 'faild'
+      return isTerminal ? false : 3000
+    },
   })
 
   // Query inference results for this job when completed and task matches (newest first)

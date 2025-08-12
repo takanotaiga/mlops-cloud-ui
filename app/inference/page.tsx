@@ -64,6 +64,16 @@ function InferenceJobsPage() {
     },
     staleTime: 5000,
     refetchOnWindowFocus: false,
+    // Poll every 3s while any job is not in a terminal state
+    refetchInterval: (q: any) => {
+      const data = q?.state?.data as JobRow[] | undefined
+      if (!data || data.length === 0) return 3000
+      const hasActive = data.some((j) => {
+        const s = (j?.status || '').toLowerCase()
+        return !(s === 'complete' || s === 'completed' || s === 'failed' || s === 'faild')
+      })
+      return hasActive ? 3000 : false
+    },
   })
 
   const filtered = useMemo(() => {
