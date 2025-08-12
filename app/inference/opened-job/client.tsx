@@ -1,6 +1,6 @@
 "use client"
 
-import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton } from "@chakra-ui/react"
+import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress } from "@chakra-ui/react"
 import NextLink from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { extractRows } from "@/components/surreal/normalize"
 import { useRouter } from "next/navigation"
 import { useI18n } from "@/components/i18n/LanguageProvider"
+import { getSignedObjectUrl } from "@/components/utils/minio"
 
 type JobRow = {
   id: string
@@ -20,6 +21,13 @@ type JobRow = {
   datasets?: string[]
   createdAt?: string
   updatedAt?: string
+}
+
+type InferenceResultRow = {
+  id: string
+  bucket: string
+  key: string
+  size?: number
 }
 
 function thingToString(v: unknown): string {
@@ -47,6 +55,10 @@ export default function ClientOpenedInferenceJobPage() {
   const surreal = useSurrealClient()
   const { isSuccess } = useSurreal()
   const [removing, setRemoving] = useState(false)
+  const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState<boolean>(false)
+  const [downloadPct, setDownloadPct] = useState<number>(0)
+  const [checkingLocal, setCheckingLocal] = useState<boolean>(false)
 
   const { data: job, isPending, isError, error, refetch } = useQuery({
     queryKey: ["inference-job-detail", jobName],
@@ -70,6 +82,102 @@ export default function ClientOpenedInferenceJobPage() {
     refetchOnWindowFocus: false,
     staleTime: 2000,
   })
+
+  // Query inference result for this job when completed and task matches
+  const { data: result } = useQuery({
+    queryKey: ["inference-result", job?.id],
+    enabled: isSuccess && !!job?.id && (job?.status === 'Complete' || job?.status === 'Completed') && job?.taskType === 'one-shot-object-detection',
+    queryFn: async (): Promise<InferenceResultRow | null> => {
+      if (!job?.id) return null
+      const res = await surreal.query("SELECT * FROM inference_result WHERE job == <record> $job ORDER BY createdAt DESC LIMIT 1", { job: job.id })
+      const rows = extractRows<any>(res)
+      const r = rows?.[0]
+      if (!r) return null
+      return { id: thingToString(r?.id), bucket: String(r?.bucket), key: String(r?.key), size: Number(r?.size ?? 0) }
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 5_000,
+  })
+
+  // OPFS helpers
+  async function getOpfsRoot(): Promise<any> {
+    const ns: any = (navigator as any).storage
+    if (!ns?.getDirectory) throw new Error('OPFS not supported')
+    return await ns.getDirectory()
+  }
+  async function ensurePath(root: any, path: string, create: boolean): Promise<{ dir: any; name: string }> {
+    const parts = path.split('/').filter(Boolean)
+    const name = parts.pop() || ''
+    let dir = root
+    for (const p of parts) {
+      dir = await dir.getDirectoryHandle(p, { create })
+    }
+    return { dir, name }
+  }
+  async function opfsFileExists(path: string): Promise<boolean> {
+    try {
+      const root = await getOpfsRoot()
+      const { dir, name } = await ensurePath(root, path, false)
+      await dir.getFileHandle(name, { create: false })
+      return true
+    } catch { return false }
+  }
+  async function getOpfsFileUrl(path: string): Promise<string> {
+    const root = await getOpfsRoot()
+    const { dir, name } = await ensurePath(root, path, false)
+    const fh = await dir.getFileHandle(name, { create: false })
+    const file = await fh.getFile()
+    return URL.createObjectURL(file)
+  }
+  async function downloadToOpfsWithProgress(bucket: string, key: string, expectedSize?: number) {
+    setDownloading(true)
+    setDownloadPct(0)
+    try {
+      const url = await getSignedObjectUrl(bucket, key, 60 * 30)
+      const resp = await fetch(url)
+      if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`)
+      const total = expectedSize && expectedSize > 0 ? expectedSize : Number(resp.headers.get('Content-Length') || 0)
+      const reader = resp.body.getReader()
+      const root = await getOpfsRoot()
+      const { dir, name } = await ensurePath(root, key, true)
+      const fh = await dir.getFileHandle(name, { create: true })
+      const writable = await (fh as any).createWritable()
+      let downloaded = 0
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (value) {
+          await writable.write(value)
+          downloaded += value.length || value.byteLength || 0
+          if (total > 0) setDownloadPct(Math.min(100, Math.round((downloaded / total) * 100)))
+        }
+      }
+      await writable.close()
+      const fileUrl = await getOpfsFileUrl(key)
+      setVideoUrl((prev) => { if (prev && prev.startsWith('blob:')) { try { URL.revokeObjectURL(prev) } catch { } } return fileUrl })
+      setDownloadPct(100)
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  // On load, if result exists in OPFS already, open it immediately and hide download button
+  useMemo(() => {
+    (async () => {
+      if (!result?.key || !(job && (job.status === 'Complete' || job.status === 'Completed') && job.taskType === 'one-shot-object-detection')) return
+      setCheckingLocal(true)
+      try {
+        const exists = await opfsFileExists(result.key)
+        if (exists) {
+          const url = await getOpfsFileUrl(result.key)
+          setVideoUrl((prev) => { if (prev && prev.startsWith('blob:')) { try { URL.revokeObjectURL(prev) } catch { } } return url })
+        }
+      } catch { /* ignore */ }
+      finally {
+        setCheckingLocal(false)
+      }
+    })()
+  }, [result?.key, job?.status, job?.taskType])
 
   function formatTimestamp(ts?: string): string {
     if (!ts) return ""
@@ -216,8 +324,47 @@ export default function ClientOpenedInferenceJobPage() {
           )}
         </Box>
 
-        <Box flex="1" rounded="md" borderWidth="1px" bg="bg.panel" p="16px" minH="200px">
-          <Text color="gray.500">Inference charts / logs can appear here.</Text>
+        <Box flex="1" rounded="md" borderWidth="1px" bg="bg.panel" p="16px" minH="240px">
+          {job && (job.status === 'Complete' || job.status === 'Completed') && job.taskType === 'one-shot-object-detection' ? (
+            <VStack align="stretch" gap={3}>
+              {!result ? (
+                <Text color="gray.600">Result not ready yet.</Text>
+              ) : (
+                <>
+                  {videoUrl ? (
+                    <video controls style={{ width: '100%', maxHeight: '70vh' }} src={videoUrl} />
+                  ) : (
+                    <>
+                      <Text textStyle="sm" color="gray.700">Result video: {result.key.split('/').pop()}</Text>
+                      {checkingLocal ? (
+                        <Text textStyle="sm" color="gray.600">Checking local cache...</Text>
+                      ) : (
+                        <HStack>
+                          <Button size="sm" rounded="full" onClick={async () => {
+                            await downloadToOpfsWithProgress(result.bucket, result.key, result.size)
+                          }} disabled={downloading}>
+                            {downloading ? 'Downloading...' : 'Download and Open (local)'}
+                          </Button>
+                        </HStack>
+                      )}
+                      {downloading && (
+                        <Box maxW="360px">
+                          <Progress.Root value={downloadPct}>
+                            <Progress.Track>
+                              <Progress.Range />
+                            </Progress.Track>
+                          </Progress.Root>
+                          <Text textStyle="xs" color="gray.600" mt={1}>{downloadPct}%</Text>
+                        </Box>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+            </VStack>
+          ) : (
+            <Text color="gray.500">Inference charts / logs can appear here.</Text>
+          )}
         </Box>
       </HStack>
     </Box>
