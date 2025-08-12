@@ -3,8 +3,9 @@
 import React, { useEffect, useMemo, useState } from "react"
 import { Status, Text, Tooltip, Box } from "@chakra-ui/react"
 import { useSurreal } from "@/components/surreal/SurrealProvider"
-import { S3Client, HeadBucketCommand } from "@aws-sdk/client-s3"
+import { S3Client } from "@aws-sdk/client-s3"
 import { MINIO_CONFIG } from "@/app/secrets/minio-config"
+import { ensureBucketExists } from "@/components/minio/ensure-bucket"
 
 type MinioState = { ok: boolean; loading: boolean; message?: string }
 
@@ -29,7 +30,7 @@ export default function ConnectionStatus() {
     const check = async () => {
       setMinio((s) => ({ ...s, loading: true }))
       try {
-        await s3.send(new HeadBucketCommand({ Bucket: MINIO_CONFIG.bucket }))
+        await ensureBucketExists(s3, MINIO_CONFIG.bucket, MINIO_CONFIG.region)
         if (!cancelled) setMinio({ ok: true, loading: false })
       } catch (e: any) {
         const msg = e?.name || e?.code || e?.message || "MinIO error"

@@ -6,8 +6,7 @@ export const MINIO_CONFIG = {
   region: "us-east-1",               // MinIO commonly uses us-east-1
   accessKeyId: "minioadmin",    // replace with your access key
   secretAccessKey: "minioadmin", // replace with your secret
-  bucket: "horus-bucket",               // target bucket name
+  bucket: "mlops-datasets",             // target bucket name (lowercase, DNS-safe)
   // Force path-style for MinIO (http://endpoint/bucket/key)
   forcePathStyle: true as const,
 }
-

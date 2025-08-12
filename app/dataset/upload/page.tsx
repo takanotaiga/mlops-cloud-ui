@@ -28,6 +28,7 @@ import { LuCloudUpload, LuPartyPopper, LuSparkles, LuCheck } from "react-icons/l
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Upload as S3MultipartUpload } from "@aws-sdk/lib-storage";
 import { MINIO_CONFIG } from "@/app/secrets/minio-config";
+import { ensureBucketExists } from "@/components/minio/ensure-bucket";
 import { useState, useCallback, useRef, useEffect } from "react";
 import NextLink from "next/link"
 import { useI18n } from "@/components/i18n/LanguageProvider"
@@ -312,7 +313,7 @@ export default function Page() {
     }
   }, [fileKey])
 
-  const handleUploadClick = useCallback(() => {
+  const handleUploadClick = useCallback(async () => {
     let invalid = false
     if (!title.trim()) {
       setTitleInvalid(true)
@@ -340,6 +341,14 @@ export default function Page() {
         secretAccessKey: MINIO_CONFIG.secretAccessKey,
       },
     })
+
+    try {
+      await ensureBucketExists(client, MINIO_CONFIG.bucket, MINIO_CONFIG.region)
+    } catch (e: any) {
+      setError(`Failed to ensure bucket: ${e?.message || String(e)}`)
+      setView("form")
+      return
+    }
 
     const toUint8Array = (dataUrl: string): Uint8Array => {
       // data:[<mediatype>][;base64],<data>
