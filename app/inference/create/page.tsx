@@ -32,6 +32,10 @@ const INTERNET_MODELS_BY_TASK: Record<string, { label: string; value: string }[]
     { label: "YOLOv8 (internet)", value: "yolov8" },
     { label: "YOLOv9 (internet)", value: "yolov9" },
   ],
+  "one-shot-object-detection": [
+    { label: "SAM2 (internet)", value: "sam2" },
+    { label: "SAMURAI ULR (internet)", value: "samurai-ulr" },
+  ],
   "image-to-text": [
     { label: "BLIP-2 (internet)", value: "blip2" },
     { label: "ViT-GPT2 (internet)", value: "vit-gpt2" },
@@ -45,6 +49,7 @@ const INTERNET_MODELS_BY_TASK: Record<string, { label: string; value: string }[]
 const taskOptions = createListCollection({
   items: [
     { label: "Object Detection", value: "object-detection" },
+    { label: "One Shot Object Detection", value: "one-shot-object-detection" },
     { label: "Image to Text", value: "image-to-text" },
     { label: "Text to Image", value: "text-to-image" },
   ],

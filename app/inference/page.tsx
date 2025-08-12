@@ -77,15 +77,15 @@ function InferenceJobsPage() {
       <VStack w="70%" align="stretch" py="24px" gap="16px">
         <HStack justify="space-between" pb="8px">
           <HStack gap="3" align="center">
-            <Heading size="2xl">{t('inference.title','Inference Jobs 🤖')}</Heading>
-            <Badge rounded="full" variant="subtle" colorPalette="teal">{t('inference.badge','Inference')}</Badge>
+            <Heading size="2xl">{t('inference.title', 'Inference Jobs 🤖')}</Heading>
+            <Badge rounded="full" variant="subtle" colorPalette="teal">{t('inference.badge', 'Inference')}</Badge>
           </HStack>
           <HStack>
             <NextLink href="/inference/playground" passHref>
-              <Button rounded="full" variant="outline">{t('nav.playground','Playground')} ⚡</Button>
+              <Button rounded="full" variant="outline">{t('nav.playground', 'Playground')} ⚡</Button>
             </NextLink>
             <NextLink href="/inference/create" passHref>
-              <Button rounded="full">{t('inference.new','New Inference')}</Button>
+              <Button rounded="full">{t('inference.new', 'New Inference')}</Button>
             </NextLink>
           </HStack>
         </HStack>
@@ -95,12 +95,12 @@ function InferenceJobsPage() {
           startElement={<LuSearch />}
           endElement={
             query ? (
-              <Button size="xs" variant="ghost" onClick={() => setQuery("")}>{t('common.clear','Clear')}</Button>
+              <Button size="xs" variant="ghost" onClick={() => setQuery("")}>{t('common.clear', 'Clear')}</Button>
             ) : undefined
           }
         >
           <Input
-            placeholder={t('training.search.placeholder','Search jobs by name, model, task')}
+            placeholder={t('training.search.placeholder', 'Search jobs by name, model, task')}
             size="sm"
             variant="flushed"
             aria-label="Search jobs"
@@ -112,7 +112,7 @@ function InferenceJobsPage() {
         {isError && (
           <HStack color="red.500" justify="space-between">
             <Box>Failed to load jobs: {String((error as any)?.message ?? error)}</Box>
-            <Button size="xs" variant="outline" onClick={() => refetch()}>{t('common.retry','Retry')}</Button>
+            <Button size="xs" variant="outline" onClick={() => refetch()}>{t('common.retry', 'Retry')}</Button>
           </HStack>
         )}
 
@@ -126,7 +126,7 @@ function InferenceJobsPage() {
               </Box>
             ))
           ) : filtered.length === 0 ? (
-            <Text color="gray.500">{t('training.empty','No jobs found')}</Text>
+            <Text color="gray.500">{t('training.empty', 'No jobs found')}</Text>
           ) : (
             filtered.map((j) => (
               <NextLink key={j.id} href={`/inference/opened-job?j=${encodeBase64Utf8(j.name)}`}>
@@ -137,11 +137,11 @@ function InferenceJobsPage() {
                       colorPalette={
                         j.status === 'ProcessWaiting'
                           ? 'green'
-                          : j.status === 'StopInterrept'
-                          ? 'red'
-                          : (j.status === 'Complete' || j.status === 'Completed')
-                          ? 'blue'
-                          : 'gray'
+                          : (j.status === 'StopInterrept' || j.status === 'Failed')
+                            ? 'red'
+                            : (j.status === 'Complete' || j.status === 'Completed')
+                              ? 'blue'
+                              : 'gray'
                       }
                     >
                       {j.status || 'Idle'}

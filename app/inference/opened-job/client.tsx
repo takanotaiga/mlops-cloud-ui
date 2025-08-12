@@ -101,12 +101,12 @@ export default function ClientOpenedInferenceJobPage() {
         <HStack gap="3" align="center">
           <Heading size="2xl">
             <Link asChild color="black" _hover={{ textDecoration: "none", color: "black" }}>
-              <NextLink href="/inference">{t('inference.detail.breadcrumb','Inference 🤖')}</NextLink>
+              <NextLink href="/inference">{t('inference.detail.breadcrumb', 'Inference 🤖')}</NextLink>
             </Link>
             {" / "}
             {jobName || "(unknown)"}
           </Heading>
-          <Badge rounded="full" variant="subtle" colorPalette="teal">{t('inference.badge','Inference')}</Badge>
+          <Badge rounded="full" variant="subtle" colorPalette="teal">{t('inference.badge', 'Inference')}</Badge>
         </HStack>
         <HStack>
           {job?.status === 'ProcessWaiting' && (
@@ -116,12 +116,24 @@ export default function ClientOpenedInferenceJobPage() {
                 await surreal.query("UPDATE inference_job SET status = 'StopInterrept', updatedAt = time::now() WHERE name == $name", { name: jobName })
                 queryClient.invalidateQueries({ queryKey: ["inference-jobs"] })
                 refetch()
-              } catch {}
-            }}>{t('common.stop','Stop')}</Button>
+              } catch { }
+            }}>{t('common.stop', 'Stop')}</Button>
           )}
+          {job && job.status !== 'ProcessWaiting' && (
+            (job.status === 'StopInterrept' || job.status === 'Complete' || job.status === 'Completed' || job.status === 'Failed' || job.status === 'Error')
+          ) && (
+              <Button size="sm" rounded="full" variant="outline" onClick={async () => {
+                if (!jobName) return
+                try {
+                  await surreal.query("UPDATE inference_job SET status = 'ProcessWaiting', updatedAt = time::now() WHERE name == $name", { name: jobName })
+                  queryClient.invalidateQueries({ queryKey: ["inference-jobs"] })
+                  refetch()
+                } catch { }
+              }}>{t('common.rerun_job', 'Rerun job')}</Button>
+            )}
           <Dialog.Root>
             <Dialog.Trigger asChild>
-              <Button size="sm" rounded="full" colorPalette="red" disabled={removing}>{t('common.remove_job','Remove Job')}</Button>
+              <Button size="sm" rounded="full" colorPalette="red" disabled={removing}>{t('common.remove_job', 'Remove Job')}</Button>
             </Dialog.Trigger>
             <Portal>
               <Dialog.Backdrop />
@@ -135,9 +147,9 @@ export default function ClientOpenedInferenceJobPage() {
                   </Dialog.Body>
                   <Dialog.Footer>
                     <Dialog.ActionTrigger asChild>
-                      <Button variant="outline">{t('common.cancel','Cancel')}</Button>
+                      <Button variant="outline">{t('common.cancel', 'Cancel')}</Button>
                     </Dialog.ActionTrigger>
-                    <Button colorPalette="red" onClick={handleRemove} disabled={removing}>{t('common.remove','Remove')}</Button>
+                    <Button colorPalette="red" onClick={handleRemove} disabled={removing}>{t('common.remove', 'Remove')}</Button>
                   </Dialog.Footer>
                   <Dialog.CloseTrigger asChild>
                     <CloseButton size="sm" />
@@ -173,11 +185,11 @@ export default function ClientOpenedInferenceJobPage() {
                     colorPalette={
                       job.status === 'ProcessWaiting'
                         ? 'green'
-                        : job.status === 'StopInterrept'
-                        ? 'red'
-                        : (job.status === 'Complete' || job.status === 'Completed')
-                        ? 'blue'
-                        : 'gray'
+                        : (job.status === 'StopInterrept' || job.status === 'Failed')
+                          ? 'red'
+                          : (job.status === 'Complete' || job.status === 'Completed')
+                            ? 'blue'
+                            : 'gray'
                     }
                   >
                     {job.status || 'Idle'}
