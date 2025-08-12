@@ -459,14 +459,22 @@ export default function ClientObjectCardPage() {
     setRemoving(true)
     try {
       await withTimeout((async () => {
-        // 1) Delete from SurrealDB
+        // 1) Delete related rows in SurrealDB that reference this file
+        const idForRefs = file?.id || fileId
+        if (idForRefs) {
+          try { await surreal.query("DELETE annotation WHERE file == <record> $id", { id: idForRefs }) } catch { /* ignore */ }
+          try { await surreal.query("DELETE encode_job WHERE file == <record> $id", { id: idForRefs }) } catch { /* ignore */ }
+          try { await surreal.query("DELETE encoded_segment WHERE file == <record> $id", { id: idForRefs }) } catch { /* ignore */ }
+        }
+
+        // 2) Delete file row in SurrealDB
         if (file?.id) {
           await surreal.query("DELETE file WHERE id = <record> $id", { id: file.id })
         } else if (datasetName && (file?.key || fallbackKey)) {
           await surreal.query("DELETE file WHERE dataset = $dataset AND key = $key", { dataset: datasetName, key: file?.key || fallbackKey })
         }
 
-        // 2) Delete from MinIO (object and its thumbnail if present)
+        // 3) Delete from MinIO (object and its thumbnail if present)
         const bucket = file?.bucket || fallbackBucket
         const key = file?.key || fallbackKey
         const thumbKey = file?.thumbKey

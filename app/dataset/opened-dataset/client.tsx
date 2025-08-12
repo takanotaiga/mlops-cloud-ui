@@ -118,9 +118,15 @@ export default function ClientOpenedDatasetPage() {
     setRemoving(true)
     try {
       await withTimeout((async () => {
-        // 1) Delete all metadata rows for this dataset
+        // 1) Delete dataset-scoped related rows first (annotations, encode jobs, segments, labels, merge groups)
+        try { await surreal.query("DELETE annotation WHERE file.dataset == $dataset", { dataset: datasetName }) } catch { /* ignore */ }
+        try { await surreal.query("DELETE encode_job WHERE file.dataset == $dataset", { dataset: datasetName }) } catch { /* ignore */ }
+        try { await surreal.query("DELETE encoded_segment WHERE file.dataset == $dataset", { dataset: datasetName }) } catch { /* ignore */ }
+        try { await surreal.query("DELETE label WHERE dataset == $dataset", { dataset: datasetName }) } catch { /* ignore */ }
+        try { await surreal.query("DELETE merge_group WHERE dataset == $dataset", { dataset: datasetName }) } catch { /* ignore */ }
+        // 2) Delete all file rows for this dataset
         await surreal.query("DELETE file WHERE dataset = $dataset", { dataset: datasetName })
-        // 2) Delete all objects from S3 (best-effort)
+        // 3) Delete all objects from S3 (best-effort)
         for (const f of files) {
           try { await deleteObjectFromS3(f.bucket, f.key) } catch { /* ignore */ }
           if (f.thumbKey) {
