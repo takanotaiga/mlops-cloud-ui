@@ -118,3 +118,19 @@
 **Secrets & Config**
 - `app/secrets/minio-config.tsx`: `MINIO_CONFIG` for S3 client (endpoint, region, keys, bucket, path-style).
 - `app/secrets/surreal-config.ts`: `SURREAL_CONFIG` for SurrealDB client (URL, ns, db, user, pass).
+
+## Refactor Summary (2025-08)
+
+- Home
+  - `app/page.tsx` now composes `components/home/hero` and `components/home/features`.
+- Datasets
+  - `app/dataset/page.tsx` is a thin wrapper; main implementation moved to `components/dataset/dataset-list-page.tsx`.
+- Training
+  - `app/training/page.tsx` is a thin wrapper; list implementation moved to `components/training/training-jobs-page.tsx`.
+- Inference
+  - `app/inference/page.tsx` is a thin wrapper; list implementation moved to `components/inference/inference-jobs-page.tsx`.
+
+Planned next steps
+- Extract `app/dataset/opened-dataset/client.tsx` into `components/dataset/opened/*`.
+- Extract `app/dataset/upload/page.tsx` into `components/dataset/upload/*`.
+- Extract `app/training/opened-job/client.tsx` into `components/training/opened/*`.
