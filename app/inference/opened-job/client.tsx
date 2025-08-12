@@ -1,9 +1,9 @@
 "use client"
 
-import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress } from "@chakra-ui/react"
+import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination } from "@chakra-ui/react"
 import NextLink from "next/link"
 import { useSearchParams } from "next/navigation"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { decodeBase64Utf8 } from "@/components/utils/base64"
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -11,6 +11,7 @@ import { extractRows } from "@/components/surreal/normalize"
 import { useRouter } from "next/navigation"
 import { useI18n } from "@/components/i18n/LanguageProvider"
 import { getSignedObjectUrl } from "@/components/utils/minio"
+import { LuChevronLeft, LuChevronRight } from "react-icons/lu"
 
 type JobRow = {
   id: string
@@ -28,6 +29,7 @@ type InferenceResultRow = {
   bucket: string
   key: string
   size?: number
+  createdAt?: string
 }
 
 function thingToString(v: unknown): string {
@@ -83,21 +85,30 @@ export default function ClientOpenedInferenceJobPage() {
     staleTime: 2000,
   })
 
-  // Query inference result for this job when completed and task matches
-  const { data: result } = useQuery({
+  // Query inference results for this job when completed and task matches (newest first)
+  const { data: results = [] } = useQuery({
     queryKey: ["inference-result", job?.id],
     enabled: isSuccess && !!job?.id && (job?.status === 'Complete' || job?.status === 'Completed') && job?.taskType === 'one-shot-object-detection',
-    queryFn: async (): Promise<InferenceResultRow | null> => {
-      if (!job?.id) return null
-      const res = await surreal.query("SELECT * FROM inference_result WHERE job == <record> $job ORDER BY createdAt DESC LIMIT 1", { job: job.id })
+    queryFn: async (): Promise<InferenceResultRow[]> => {
+      if (!job?.id) return []
+      const res = await surreal.query("SELECT * FROM inference_result WHERE job == <record> $job ORDER BY createdAt DESC", { job: job.id })
       const rows = extractRows<any>(res)
-      const r = rows?.[0]
-      if (!r) return null
-      return { id: thingToString(r?.id), bucket: String(r?.bucket), key: String(r?.key), size: Number(r?.size ?? 0) }
+      return rows.map((r: any) => ({
+        id: thingToString(r?.id),
+        bucket: String(r?.bucket),
+        key: String(r?.key),
+        size: Number(r?.size ?? 0),
+        createdAt: r?.createdAt,
+      })) as InferenceResultRow[]
     },
     refetchOnWindowFocus: false,
     staleTime: 5_000,
   })
+
+  // Pagination state: 1-based page index
+  const [page, setPage] = useState<number>(1)
+  useEffect(() => { setPage(1); setVideoUrl(null) }, [results.length])
+  const current = useMemo(() => (results && results.length > 0 ? results[Math.min(results.length, Math.max(1, page)) - 1] : undefined), [results, page])
 
   // OPFS helpers
   async function getOpfsRoot(): Promise<any> {
@@ -161,23 +172,29 @@ export default function ClientOpenedInferenceJobPage() {
     }
   }
 
-  // On load, if result exists in OPFS already, open it immediately and hide download button
-  useMemo(() => {
-    (async () => {
-      if (!result?.key || !(job && (job.status === 'Complete' || job.status === 'Completed') && job.taskType === 'one-shot-object-detection')) return
+  // On page/result change, if exists in OPFS already, open it immediately and hide download button
+  useEffect(() => {
+    let cancelled = false
+    async function run() {
+      if (!current?.key || !(job && (job.status === 'Complete' || job.status === 'Completed') && job.taskType === 'one-shot-object-detection')) return
       setCheckingLocal(true)
       try {
-        const exists = await opfsFileExists(result.key)
+        const exists = await opfsFileExists(current.key)
         if (exists) {
-          const url = await getOpfsFileUrl(result.key)
-          setVideoUrl((prev) => { if (prev && prev.startsWith('blob:')) { try { URL.revokeObjectURL(prev) } catch { } } return url })
+          const url = await getOpfsFileUrl(current.key)
+          if (!cancelled) setVideoUrl((prev) => { if (prev && prev.startsWith('blob:')) { try { URL.revokeObjectURL(prev) } catch { } } return url })
+        } else {
+          if (!cancelled) setVideoUrl(null)
         }
-      } catch { /* ignore */ }
-      finally {
-        setCheckingLocal(false)
+      } catch {
+        if (!cancelled) setVideoUrl(null)
+      } finally {
+        if (!cancelled) setCheckingLocal(false)
       }
-    })()
-  }, [result?.key, job?.status, job?.taskType])
+    }
+    run()
+    return () => { cancelled = true }
+  }, [current?.key, job?.status, job?.taskType])
 
   function formatTimestamp(ts?: string): string {
     if (!ts) return ""
@@ -327,21 +344,51 @@ export default function ClientOpenedInferenceJobPage() {
         <Box flex="1" rounded="md" borderWidth="1px" bg="bg.panel" p="16px" minH="240px">
           {job && (job.status === 'Complete' || job.status === 'Completed') && job.taskType === 'one-shot-object-detection' ? (
             <VStack align="stretch" gap={3}>
-              {!result ? (
+              {(!results || results.length === 0) ? (
                 <Text color="gray.600">Result not ready yet.</Text>
               ) : (
                 <>
+                  {/* Pagination Controls */}
+                  <Pagination.Root count={results.length} pageSize={1} page={page} onPageChange={(e: any) => setPage(e.page)}>
+                    <ButtonGroup variant="ghost" size="sm">
+                      <Pagination.PrevTrigger asChild>
+                        <IconButton aria-label="Prev result">
+                          <LuChevronLeft />
+                        </IconButton>
+                      </Pagination.PrevTrigger>
+
+                      <Pagination.Items
+                        render={(p: any) => (
+                          <IconButton aria-label={`Go to result ${p.value}`} variant={{ base: "ghost", _selected: "outline" }}>
+                            {p.value}
+                          </IconButton>
+                        )}
+                      />
+
+                      <Pagination.NextTrigger asChild>
+                        <IconButton aria-label="Next result">
+                          <LuChevronRight />
+                        </IconButton>
+                      </Pagination.NextTrigger>
+                    </ButtonGroup>
+                  </Pagination.Root>
+
+                  {/* Current Result */}
                   {videoUrl ? (
-                    <video controls style={{ width: '100%', maxHeight: '70vh' }} src={videoUrl} />
+                    <>
+                      <Text textStyle="sm" color="gray.700">{current?.key.split('/').pop()} — {formatTimestamp(current?.createdAt)}</Text>
+                      <video controls style={{ width: '100%', maxHeight: '70vh' }} src={videoUrl} />
+                    </>
                   ) : (
                     <>
-                      <Text textStyle="sm" color="gray.700">Result video: {result.key.split('/').pop()}</Text>
+                      <Text textStyle="sm" color="gray.700">Result video: {current?.key.split('/').pop()} — {formatTimestamp(current?.createdAt)}</Text>
                       {checkingLocal ? (
                         <Text textStyle="sm" color="gray.600">Checking local cache...</Text>
                       ) : (
                         <HStack>
                           <Button size="sm" rounded="full" onClick={async () => {
-                            await downloadToOpfsWithProgress(result.bucket, result.key, result.size)
+                            if (!current) return
+                            await downloadToOpfsWithProgress(current.bucket, current.key, current.size)
                           }} disabled={downloading}>
                             {downloading ? 'Downloading...' : 'Download and Open (local)'}
                           </Button>
