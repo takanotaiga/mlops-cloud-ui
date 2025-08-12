@@ -137,7 +137,7 @@ function InferenceJobsPage() {
                       colorPalette={
                         j.status === 'ProcessWaiting'
                           ? 'green'
-                          : (j.status === 'StopInterrept' || j.status === 'Failed')
+                          : (j.status === 'StopInterrept' || j.status === 'Failed' || j.status === 'Faild')
                             ? 'red'
                             : (j.status === 'Complete' || j.status === 'Completed')
                               ? 'blue'

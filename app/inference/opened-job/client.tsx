@@ -120,7 +120,7 @@ export default function ClientOpenedInferenceJobPage() {
             }}>{t('common.stop', 'Stop')}</Button>
           )}
           {job && job.status !== 'ProcessWaiting' && (
-            (job.status === 'StopInterrept' || job.status === 'Complete' || job.status === 'Completed' || job.status === 'Failed' || job.status === 'Error')
+            (job.status === 'StopInterrept' || job.status === 'Complete' || job.status === 'Completed' || job.status === 'Failed' || job.status === 'Faild' || job.status === 'Error')
           ) && (
               <Button size="sm" rounded="full" variant="outline" onClick={async () => {
                 if (!jobName) return
@@ -185,7 +185,7 @@ export default function ClientOpenedInferenceJobPage() {
                     colorPalette={
                       job.status === 'ProcessWaiting'
                         ? 'green'
-                        : (job.status === 'StopInterrept' || job.status === 'Failed')
+                        : (job.status === 'StopInterrept' || job.status === 'Failed' || job.status === 'Faild')
                           ? 'red'
                           : (job.status === 'Complete' || job.status === 'Completed')
                             ? 'blue'

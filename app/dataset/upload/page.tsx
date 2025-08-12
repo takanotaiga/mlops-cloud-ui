@@ -143,42 +143,52 @@ export default function Page() {
             video.src = ''
             video.remove()
           }
-          const onLoaded = () => {
-            // Seek a little into the video to avoid black frames
-            const dur = Number.isFinite(video.duration) ? video.duration : 0
-            const targetTime = Math.min(Math.max(1.0, dur * 0.15), Math.max(0, dur - 0.5))
-            const capture = () => {
-              try {
-                const w = video.videoWidth || 320
-                const h = video.videoHeight || 180
-                const canvas = document.createElement('canvas')
-                // Keep aspect ratio and cap the longer side for a sharper image
-                const MAX_DIM = 1280
-                const scale = Math.min(MAX_DIM / Math.max(w, h), 1)
-                const dw = Math.max(1, Math.round(w * scale))
-                const dh = Math.max(1, Math.round(h * scale))
-                canvas.width = dw
-                canvas.height = dh
-                const ctx = canvas.getContext('2d')
-                if (!ctx) throw new Error('no ctx')
-                ctx.imageSmoothingEnabled = true
-                // high-quality resampling where supported
-                ;(ctx as any).imageSmoothingQuality = 'high'
-                ctx.drawImage(video, 0, 0, dw, dh)
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.95)
-                cleanup()
-                resolve({ thumb: dataUrl, durationSec: dur })
-              } catch (e) {
-                cleanup()
-                resolve({ thumb: null, durationSec: 0 })
-              }
+          // Always capture the very first frame (t = 0)
+          const captureFirstFrame = () => {
+            try {
+              const dur = Number.isFinite(video.duration) ? video.duration : 0
+              const w = video.videoWidth || 320
+              const h = video.videoHeight || 180
+              const canvas = document.createElement('canvas')
+              const MAX_DIM = 1280
+              const scale = Math.min(MAX_DIM / Math.max(w, h), 1)
+              const dw = Math.max(1, Math.round(w * scale))
+              const dh = Math.max(1, Math.round(h * scale))
+              canvas.width = dw
+              canvas.height = dh
+              const ctx = canvas.getContext('2d')
+              if (!ctx) throw new Error('no ctx')
+              ctx.imageSmoothingEnabled = true
+              ;(ctx as any).imageSmoothingQuality = 'high'
+              ctx.drawImage(video, 0, 0, dw, dh)
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.95)
+              cleanup()
+              resolve({ thumb: dataUrl, durationSec: dur })
+            } catch (e) {
+              cleanup()
+              resolve({ thumb: null, durationSec: 0 })
             }
-            const onSeeked = () => capture()
-            video.currentTime = targetTime > 0 ? targetTime : 0
-            video.addEventListener('seeked', onSeeked, { once: true })
           }
-          // Use loadedmetadata to get dimensions/duration quickly; then seek to capture
-          video.addEventListener('loadedmetadata', onLoaded, { once: true })
+
+          // Ensure we capture at time 0 exactly.
+          // Some browsers need an explicit seek to 0 after metadata is ready.
+          const onMeta = () => {
+            try { video.currentTime = 0 } catch {}
+            // Prefer requestVideoFrameCallback to ensure frame is actually rendered
+            const anyVideo: any = video as any
+            if (typeof anyVideo.requestVideoFrameCallback === 'function') {
+              anyVideo.requestVideoFrameCallback((_frame: any) => {
+                // We expect mediaTime to be 0 for the first frame
+                captureFirstFrame()
+              })
+            } else {
+              // Fallbacks: capture when data for the first frame is available or after seek
+              video.addEventListener('loadeddata', captureFirstFrame, { once: true })
+              video.addEventListener('canplay', captureFirstFrame, { once: true })
+              video.addEventListener('seeked', captureFirstFrame, { once: true })
+            }
+          }
+          video.addEventListener('loadedmetadata', onMeta, { once: true })
           video.addEventListener('error', () => {
             cleanup()
             resolve({ thumb: null, durationSec: 0 })
