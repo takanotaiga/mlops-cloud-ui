@@ -1,6 +1,6 @@
 "use client"
 
-import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination } from "@chakra-ui/react"
+import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table } from "@chakra-ui/react"
 import NextLink from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState, type ReactNode } from "react"
@@ -140,6 +140,13 @@ export default function ClientOpenedInferenceJobPage() {
     if (m === "application/json" || m.endsWith("+json")) return true
     const ext = getExt(r.key)
     return ext === "json"
+  }
+  function isParquetResult(r?: InferenceResultRow): boolean {
+    if (!r) return false
+    const m = (r.mime || "").toLowerCase()
+    if (m === "application/parquet" || m === "application/x-parquet") return true
+    const ext = getExt(r.key)
+    return ext === "parquet"
   }
 
   // OPFS helpers (used for videos only)
@@ -309,6 +316,86 @@ export default function ClientOpenedInferenceJobPage() {
     if (lastIndex < text.length) nodes.push(text.slice(lastIndex))
     return nodes
   }
+
+  // Parquet table state and loader (via duckdb-wasm from CDN)
+  const PAGE_SIZE = 50
+  const [tablePage, setTablePage] = useState<number>(1)
+  useEffect(() => { setTablePage(1) }, [current?.id])
+  const [pqCols, setPqCols] = useState<string[]>([])
+  const [pqRows, setPqRows] = useState<any[]>([])
+  const [pqTotal, setPqTotal] = useState<number>(0)
+  const [pqLoading, setPqLoading] = useState<boolean>(false)
+  const [pqError, setPqError] = useState<string | null>(null)
+
+  async function queryParquetPage(url: string, page: number) {
+    setPqLoading(true)
+    setPqError(null)
+    try {
+      // dynamic import duckdb-wasm from jsDelivr
+      const importer = new Function("u", "return import(u)") as (u: string) => Promise<any>
+      let mod: any
+      try {
+        mod = await importer("https://esm.sh/@duckdb/duckdb-wasm@1.28.0/dist/duckdb-browser.mjs")
+      } catch {
+        mod = await importer("https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/dist/duckdb-browser.mjs")
+      }
+      const bundles = mod.getJsDelivrBundles()
+      // Prefer the MVP (single-thread) bundle to avoid COOP/COEP and pthread issues
+      const bundle = (bundles && (bundles.mvp || bundles.standalone || bundles['mvp'])) || (await mod.selectBundle(bundles))
+      const workerUrl = bundle.mainWorker || bundle.worker
+      let worker: Worker
+      try {
+        // Try same-origin blob worker by fetching the script and creating a blob URL
+        const resp = await fetch(workerUrl, { mode: 'cors' })
+        const scriptText = await resp.text()
+        const blobUrl = URL.createObjectURL(new Blob([scriptText], { type: 'text/javascript' }))
+        worker = new Worker(blobUrl)
+      } catch {
+        // Fallback to direct URL (may fail due to cross-origin restrictions)
+        worker = new Worker(workerUrl)
+      }
+      const logger = new mod.ConsoleLogger()
+      const db = new mod.AsyncDuckDB(logger, worker)
+      await db.instantiate(bundle.mainModule, bundle.pthreadWorker)
+      const conn = await db.connect()
+      // Register parquet file from fetched bytes to avoid httpfs requirement
+      const fileResp = await fetch(url)
+      const fileBuf = new Uint8Array(await fileResp.arrayBuffer())
+      await db.registerFileBuffer('current.parquet', fileBuf)
+      const offset = (page - 1) * PAGE_SIZE
+      const countRes: any = await conn.query("SELECT COUNT(*) AS c FROM read_parquet('current.parquet')")
+      const total = Number((countRes as any)?.toArray?.()[0]?.c ?? 0)
+      setPqTotal(total)
+      const res: any = await conn.query(`SELECT * FROM read_parquet('current.parquet') LIMIT ${PAGE_SIZE} OFFSET ${offset}`)
+      // Extract columns and rows
+      const rows: any[] = (res as any)?.toArray?.() ?? []
+      const cols: string[] = (res as any)?.schema?.fields?.map((f: any) => String(f.name)) ?? (rows[0] ? Object.keys(rows[0]) : [])
+      setPqCols(cols)
+      setPqRows(rows)
+      await conn.close()
+      await db.terminate()
+    } catch (e: any) {
+      const msg = (e && (e.message || (typeof e === 'string' ? e : e?.toString?.()))) || String(e)
+      setPqError(String(msg))
+    } finally {
+      setPqLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    async function run() {
+      if (!current || !isParquetResult(current)) return
+      try {
+        const url = await getSignedObjectUrl(current.bucket, current.key, 60 * 10)
+        if (!cancelled) await queryParquetPage(url, tablePage)
+      } catch (e: any) {
+        if (!cancelled) setPqError(String(e?.message || e))
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [current?.id, tablePage])
 
   return (
     <Box px="10%" py="20px">
@@ -527,6 +614,76 @@ export default function ClientOpenedInferenceJobPage() {
                         }}>Copy JSON</Button>
                         <Button size="sm" rounded="full" variant="outline" onClick={() => downloadDirect(current.bucket, current.key)}>Download JSON</Button>
                       </HStack>
+                    </>
+                  ) : current && isParquetResult(current) ? (
+                    <>
+                      <Text textStyle="sm" color="gray.700">Result table (Parquet): {current.key.split('/').pop()} — {formatTimestamp(current.createdAt)}</Text>
+                      {pqError ? (
+                        <HStack color="red.500" justify="space-between">
+                          <Box>Failed to load table: {pqError}</Box>
+                          <Button size="xs" variant="outline" onClick={async () => {
+                            if (!current) return
+                            try {
+                              const url = await getSignedObjectUrl(current.bucket, current.key, 60 * 10)
+                              await queryParquetPage(url, tablePage)
+                            } catch { }
+                          }}>Retry</Button>
+                        </HStack>
+                      ) : pqLoading ? (
+                        <Text textStyle="sm" color="gray.600">Loading table...</Text>
+                      ) : (
+                        <>
+                          <Box overflowX="auto" borderWidth="1px" rounded="md">
+                            <Table.Root size="sm" variant="outline" striped>
+                              <Table.Header>
+                                <Table.Row>
+                                  {pqCols.map((c) => (
+                                    <Table.ColumnHeader key={c}>{c}</Table.ColumnHeader>
+                                  ))}
+                                </Table.Row>
+                              </Table.Header>
+                              <Table.Body>
+                                {pqRows.map((row, idx) => (
+                                  <Table.Row key={idx}>
+                                    {pqCols.map((c) => (
+                                      <Table.Cell key={c}>{String(row?.[c] ?? '')}</Table.Cell>
+                                    ))}
+                                  </Table.Row>
+                                ))}
+                              </Table.Body>
+                            </Table.Root>
+                          </Box>
+                          <Pagination.Root
+                            count={pqTotal}
+                            pageSize={PAGE_SIZE}
+                            page={tablePage}
+                            onPageChange={(e: any) => setTablePage(e.page)}
+                          >
+                            <ButtonGroup variant="ghost" size="sm" wrap="wrap">
+                              <Pagination.PrevTrigger asChild>
+                                <IconButton aria-label="Prev page">
+                                  <LuChevronLeft />
+                                </IconButton>
+                              </Pagination.PrevTrigger>
+                              <Pagination.Items
+                                render={(p: any) => (
+                                  <IconButton aria-label={`Go to page ${p.value}`} variant={{ base: "ghost", _selected: "outline" }}>
+                                    {p.value}
+                                  </IconButton>
+                                )}
+                              />
+                              <Pagination.NextTrigger asChild>
+                                <IconButton aria-label="Next page">
+                                  <LuChevronRight />
+                                </IconButton>
+                              </Pagination.NextTrigger>
+                            </ButtonGroup>
+                          </Pagination.Root>
+                          <HStack>
+                            <Button size="sm" rounded="full" variant="outline" onClick={() => downloadDirect(current.bucket, current.key)}>Download Parquet</Button>
+                          </HStack>
+                        </>
+                      )}
                     </>
                   ) : (
                     <>
