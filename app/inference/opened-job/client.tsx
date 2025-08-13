@@ -3,7 +3,7 @@
 import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination } from "@chakra-ui/react"
 import NextLink from "next/link"
 import { useSearchParams } from "next/navigation"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { decodeBase64Utf8 } from "@/components/utils/base64"
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -30,6 +30,8 @@ type InferenceResultRow = {
   key: string
   size?: number
   createdAt?: string
+  mime?: string
+  meta?: any
 }
 
 function thingToString(v: unknown): string {
@@ -106,6 +108,8 @@ export default function ClientOpenedInferenceJobPage() {
         key: String(r?.key),
         size: Number(r?.size ?? 0),
         createdAt: r?.createdAt,
+        mime: r?.mime ? String(r.mime) : undefined,
+        meta: r?.meta,
       })) as InferenceResultRow[]
     },
     refetchOnWindowFocus: false,
@@ -117,7 +121,28 @@ export default function ClientOpenedInferenceJobPage() {
   useEffect(() => { setPage(1); setVideoUrl(null) }, [results.length])
   const current = useMemo(() => (results && results.length > 0 ? results[Math.min(results.length, Math.max(1, page)) - 1] : undefined), [results, page])
 
-  // OPFS helpers
+  // Classification helpers
+  function getExt(name?: string) {
+    if (!name) return ""
+    const i = name.lastIndexOf(".")
+    return i >= 0 ? name.slice(i + 1).toLowerCase() : ""
+  }
+  function isVideoResult(r?: InferenceResultRow): boolean {
+    if (!r) return false
+    const m = (r.mime || "").toLowerCase()
+    if (m.startsWith("video/")) return true
+    const ext = getExt(r.key)
+    return /^(mp4|mov|mkv|avi|webm)$/i.test(ext)
+  }
+  function isJsonResult(r?: InferenceResultRow): boolean {
+    if (!r) return false
+    const m = (r.mime || "").toLowerCase()
+    if (m === "application/json" || m.endsWith("+json")) return true
+    const ext = getExt(r.key)
+    return ext === "json"
+  }
+
+  // OPFS helpers (used for videos only)
   async function getOpfsRoot(): Promise<any> {
     const ns: any = (navigator as any).storage
     if (!ns?.getDirectory) throw new Error('OPFS not supported')
@@ -179,11 +204,12 @@ export default function ClientOpenedInferenceJobPage() {
     }
   }
 
-  // On page/result change, if exists in OPFS already, open it immediately and hide download button
+  // On page/result change, if exists in OPFS already (videos), open it immediately and hide download button
   useEffect(() => {
     let cancelled = false
     async function run() {
       if (!current?.key || !(job && (job.status === 'Complete' || job.status === 'Completed') && job.taskType === 'one-shot-object-detection')) return
+      if (!isVideoResult(current)) return
       setCheckingLocal(true)
       try {
         const exists = await opfsFileExists(current.key)
@@ -225,6 +251,63 @@ export default function ClientOpenedInferenceJobPage() {
     } finally {
       setRemoving(false)
     }
+  }
+
+  // JSON loader for current item
+  const { data: jsonData, isPending: jsonLoading, isError: jsonError, refetch: refetchJson } = useQuery({
+    queryKey: ["inference-result-json", current?.id],
+    enabled: !!current && isJsonResult(current),
+    queryFn: async (): Promise<any> => {
+      if (!current) return null
+      const url = await getSignedObjectUrl(current.bucket, current.key, 60 * 10)
+      const resp = await fetch(url)
+      const text = await resp.text()
+      try { return JSON.parse(text) } catch { return { _raw: text } }
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 10_000,
+  })
+
+  // Generic direct download
+  async function downloadDirect(bucket: string, key: string) {
+    const url = await getSignedObjectUrl(bucket, key, 60 * 10)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = key.split('/').pop() || 'download'
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  }
+
+  // JSON syntax highlighting (lightweight)
+  function highlightJsonToNodes(text: string): ReactNode[] {
+    const nodes: ReactNode[] = []
+    const regex = /(\"(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\\"])*\"\s*:)|(\"(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\\"])*\")|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?/g
+    let lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = regex.exec(text)) !== null) {
+      const i = m.index
+      const match = m[0]
+      if (i > lastIndex) nodes.push(text.slice(lastIndex, i))
+      let color = "#2D3748" // gray.700
+      if (m[1]) {
+        // Key (string followed by colon)
+        color = "#3182CE" // blue.600
+      } else if (m[2]) {
+        // String value
+        color = "#38A169" // green.500
+      } else if (m[3]) {
+        // true/false/null
+        color = "#DD6B20" // orange.500
+      } else if (/^-?\d/.test(match)) {
+        color = "#805AD5" // purple.500
+      }
+      nodes.push(<span style={{ color }} key={`tok-${i}`}>{match}</span>)
+      lastIndex = i + match.length
+    }
+    if (lastIndex < text.length) nodes.push(text.slice(lastIndex))
+    return nodes
   }
 
   return (
@@ -381,36 +464,76 @@ export default function ClientOpenedInferenceJobPage() {
                   </Pagination.Root>
 
                   {/* Current Result */}
-                  {videoUrl ? (
+                  {current && isVideoResult(current) ? (
+                    videoUrl ? (
+                      <>
+                        <Text textStyle="sm" color="gray.700">{current.key.split('/').pop()} — {formatTimestamp(current.createdAt)}</Text>
+                        <video controls style={{ width: '100%', maxHeight: '70vh' }} src={videoUrl} />
+                      </>
+                    ) : (
+                      <>
+                        <Text textStyle="sm" color="gray.700">Result video: {current.key.split('/').pop()} — {formatTimestamp(current.createdAt)}</Text>
+                        {checkingLocal ? (
+                          <Text textStyle="sm" color="gray.600">Checking local cache...</Text>
+                        ) : (
+                          <HStack>
+                            <Button size="sm" rounded="full" onClick={async () => {
+                              await downloadToOpfsWithProgress(current.bucket, current.key, current.size)
+                            }} disabled={downloading}>
+                              {downloading ? 'Downloading...' : 'Download and Open (local)'}
+                            </Button>
+                          </HStack>
+                        )}
+                        {downloading && (
+                          <Box maxW="360px">
+                            <Progress.Root value={downloadPct}>
+                              <Progress.Track>
+                                <Progress.Range />
+                              </Progress.Track>
+                            </Progress.Root>
+                            <Text textStyle="xs" color="gray.600" mt={1}>{downloadPct}%</Text>
+                          </Box>
+                        )}
+                      </>
+                    )
+                  ) : current && isJsonResult(current) ? (
                     <>
-                      <Text textStyle="sm" color="gray.700">{current?.key.split('/').pop()} — {formatTimestamp(current?.createdAt)}</Text>
-                      <video controls style={{ width: '100%', maxHeight: '70vh' }} src={videoUrl} />
+                      <Text textStyle="sm" color="gray.700">Result JSON: {current.key.split('/').pop()} — {formatTimestamp(current.createdAt)}</Text>
+                      {jsonLoading ? (
+                        <Text textStyle="sm" color="gray.600">Loading JSON...</Text>
+                      ) : jsonError ? (
+                        <HStack color="red.500" justify="space-between">
+                          <Box>Failed to load JSON</Box>
+                          <Button size="xs" variant="outline" onClick={() => refetchJson()}>Retry</Button>
+                        </HStack>
+                      ) : (
+                        <Box as="pre" p="12px" bg="gray.50" borderWidth="1px" rounded="md" overflow="auto" maxH="70vh">
+                          {(() => {
+                            try {
+                              const text = jsonData && jsonData._raw ? String(jsonData._raw) : JSON.stringify(jsonData, null, 2)
+                              return highlightJsonToNodes(text)
+                            } catch {
+                              return String(jsonData)
+                            }
+                          })()}
+                        </Box>
+                      )}
+                      <HStack>
+                        <Button size="sm" rounded="full" onClick={async () => {
+                          try {
+                            const toCopy = jsonData && jsonData._raw ? String(jsonData._raw) : JSON.stringify(jsonData, null, 2)
+                            await navigator.clipboard.writeText(toCopy)
+                          } catch { }
+                        }}>Copy JSON</Button>
+                        <Button size="sm" rounded="full" variant="outline" onClick={() => downloadDirect(current.bucket, current.key)}>Download JSON</Button>
+                      </HStack>
                     </>
                   ) : (
                     <>
-                      <Text textStyle="sm" color="gray.700">Result video: {current?.key.split('/').pop()} — {formatTimestamp(current?.createdAt)}</Text>
-                      {checkingLocal ? (
-                        <Text textStyle="sm" color="gray.600">Checking local cache...</Text>
-                      ) : (
-                        <HStack>
-                          <Button size="sm" rounded="full" onClick={async () => {
-                            if (!current) return
-                            await downloadToOpfsWithProgress(current.bucket, current.key, current.size)
-                          }} disabled={downloading}>
-                            {downloading ? 'Downloading...' : 'Download and Open (local)'}
-                          </Button>
-                        </HStack>
-                      )}
-                      {downloading && (
-                        <Box maxW="360px">
-                          <Progress.Root value={downloadPct}>
-                            <Progress.Track>
-                              <Progress.Range />
-                            </Progress.Track>
-                          </Progress.Root>
-                          <Text textStyle="xs" color="gray.600" mt={1}>{downloadPct}%</Text>
-                        </Box>
-                      )}
+                      <Text textStyle="sm" color="gray.700">Result file: {current?.key.split('/').pop()} — {formatTimestamp(current?.createdAt)}</Text>
+                      <HStack>
+                        <Button size="sm" rounded="full" onClick={() => current && downloadDirect(current.bucket, current.key)}>Download</Button>
+                      </HStack>
                     </>
                   )}
                 </>
