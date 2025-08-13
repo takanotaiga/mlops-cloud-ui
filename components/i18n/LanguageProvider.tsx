@@ -91,6 +91,7 @@ const en: Dict = {
   "inference.select_completed_job": "Select completed job",
   "inference.no_completed_jobs": "No completed jobs",
   "inference.datasets": "Datasets",
+  "inference.detailed_analysis": "Detailed Analysis",
 
   // Common
   "common.clear": "Clear",
@@ -214,6 +215,7 @@ const ja: Dict = {
   "inference.select_completed_job": "完了ジョブを選択",
   "inference.no_completed_jobs": "完了ジョブがありません",
   "inference.datasets": "データセット",
+  "inference.detailed_analysis": "詳細分析",
 
   // Common
   "common.clear": "クリア",

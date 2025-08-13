@@ -785,6 +785,27 @@ export default function ClientOpenedInferenceJobPage() {
                               <Text textStyle="xs" color="gray.600" mt={1}>{downloadPct}%</Text>
                             </Box>
                           )}
+                          <HStack justify="flex-end" mb="8px">
+                            <Button
+                              size="sm"
+                              rounded="full"
+                              onClick={() => {
+                                if (!current) return
+                                try {
+                                  const j = params.get('j') || ''
+                                  const enc = (s: string) => {
+                                    try { return btoa(unescape(encodeURIComponent(s))) } catch { return '' }
+                                  }
+                                  const qb = enc(current.bucket)
+                                  const qk = enc(current.key)
+                                  const url = `/inference/opened-job/analysis?j=${encodeURIComponent(j)}&b=${encodeURIComponent(qb)}&k=${encodeURIComponent(qk)}`
+                                  router.push(url)
+                                } catch { }
+                              }}
+                            >
+                              {t('inference.detailed_analysis', 'Detailed Analysis')}
+                            </Button>
+                          </HStack>
                           <Box overflowX="auto" borderWidth="1px" rounded="md">
                             <Table.Root size="sm" variant="outline" striped>
                               <Table.Header>
