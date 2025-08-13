@@ -63,6 +63,7 @@ export default function ClientOpenedInferenceJobPage() {
   const [downloading, setDownloading] = useState<boolean>(false)
   const [downloadPct, setDownloadPct] = useState<number>(0)
   const [checkingLocal, setCheckingLocal] = useState<boolean>(false)
+  const [checkingParquetLocal, setCheckingParquetLocal] = useState<boolean>(false)
 
   const { data: job, isPending, isError, error, refetch } = useQuery({
     queryKey: ["inference-job-detail", jobName],
@@ -213,6 +214,14 @@ export default function ClientOpenedInferenceJobPage() {
     const file = await fh.getFile()
     return URL.createObjectURL(file)
   }
+  async function readOpfsFileBytes(path: string): Promise<Uint8Array> {
+    const root = await getOpfsRoot()
+    const { dir, name } = await ensurePath(root, path, false)
+    const fh = await dir.getFileHandle(name, { create: false })
+    const file = await fh.getFile()
+    const ab = await file.arrayBuffer()
+    return new Uint8Array(ab)
+  }
   async function downloadToOpfsWithProgress(bucket: string, key: string, expectedSize?: number) {
     setDownloading(true)
     setDownloadPct(0)
@@ -244,6 +253,35 @@ export default function ClientOpenedInferenceJobPage() {
       setDownloading(false)
     }
   }
+  async function downloadFileToOpfsWithProgress(bucket: string, key: string, expectedSize?: number) {
+    setDownloading(true)
+    setDownloadPct(0)
+    try {
+      const url = await getSignedObjectUrl(bucket, key, 60 * 30)
+      const resp = await fetch(url)
+      if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`)
+      const total = expectedSize && expectedSize > 0 ? expectedSize : Number(resp.headers.get('Content-Length') || 0)
+      const reader = resp.body.getReader()
+      const root = await getOpfsRoot()
+      const { dir, name } = await ensurePath(root, key, true)
+      const fh = await dir.getFileHandle(name, { create: true })
+      const writable = await (fh as any).createWritable()
+      let downloaded = 0
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (value) {
+          await writable.write(value)
+          downloaded += value.length || value.byteLength || 0
+          if (total > 0) setDownloadPct(Math.min(100, Math.round((downloaded / total) * 100)))
+        }
+      }
+      await writable.close()
+      setDownloadPct(100)
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   // On page/result change, if exists in OPFS already (videos), open it immediately and hide download button
   useEffect(() => {
@@ -259,11 +297,42 @@ export default function ClientOpenedInferenceJobPage() {
           if (!cancelled) setVideoUrl((prev) => { if (prev && prev.startsWith('blob:')) { try { URL.revokeObjectURL(prev) } catch { } } return url })
         } else {
           if (!cancelled) setVideoUrl(null)
+          // Auto-download video to OPFS for local cache
+          if (!downloading) {
+            try {
+              await downloadToOpfsWithProgress(current.bucket, current.key, current.size)
+            } catch { /* ignore */ }
+          }
         }
       } catch {
         if (!cancelled) setVideoUrl(null)
       } finally {
         if (!cancelled) setCheckingLocal(false)
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [current?.key, job?.status, job?.taskType])
+
+  // For parquet: check OPFS cache presence when selected and auto-download if missing
+  useEffect(() => {
+    let cancelled = false
+    async function run() {
+      if (!current?.key || !(job && (job.status === 'Complete' || job.status === 'Completed') && job.taskType === 'one-shot-object-detection')) return
+      if (!isParquetResult(current)) return
+      setCheckingParquetLocal(true)
+      try {
+        const exists = await opfsFileExists(current.key)
+        // no UI indicator; just proceed
+        if (!exists && !downloading) {
+          try {
+            await downloadFileToOpfsWithProgress(current.bucket, current.key, current.size)
+          } catch { /* ignore */ }
+        }
+      } catch {
+        // ignore
+      } finally {
+        if (!cancelled) setCheckingParquetLocal(false)
       }
     }
     run()
@@ -369,7 +438,7 @@ export default function ClientOpenedInferenceJobPage() {
   const [pqLoading, setPqLoading] = useState<boolean>(false)
   const [pqError, setPqError] = useState<string | null>(null)
 
-  async function queryParquetPage(url: string, page: number) {
+  async function queryParquetPage(url: string, page: number, useOpfsIfAvailable: boolean = true, keyForOpfs?: string) {
     setPqLoading(true)
     setPqError(null)
     try {
@@ -400,9 +469,24 @@ export default function ClientOpenedInferenceJobPage() {
       const db = new mod.AsyncDuckDB(logger, worker)
       await db.instantiate(bundle.mainModule, bundle.pthreadWorker)
       const conn = await db.connect()
-      // Register parquet file from fetched bytes to avoid httpfs requirement
-      const fileResp = await fetch(url)
-      const fileBuf = new Uint8Array(await fileResp.arrayBuffer())
+      // Acquire parquet bytes either from OPFS (if present) or fetch
+      let fileBuf: Uint8Array
+      if (useOpfsIfAvailable && keyForOpfs) {
+        try {
+          if (await opfsFileExists(keyForOpfs)) {
+            fileBuf = await readOpfsFileBytes(keyForOpfs)
+          } else {
+            const fileResp = await fetch(url)
+            fileBuf = new Uint8Array(await fileResp.arrayBuffer())
+          }
+        } catch {
+          const fileResp = await fetch(url)
+          fileBuf = new Uint8Array(await fileResp.arrayBuffer())
+        }
+      } else {
+        const fileResp = await fetch(url)
+        fileBuf = new Uint8Array(await fileResp.arrayBuffer())
+      }
       await db.registerFileBuffer('current.parquet', fileBuf)
       const offset = (page - 1) * PAGE_SIZE
       const countRes: any = await conn.query("SELECT COUNT(*) AS c FROM read_parquet('current.parquet')")
@@ -430,7 +514,7 @@ export default function ClientOpenedInferenceJobPage() {
       if (!current || !isParquetResult(current)) return
       try {
         const url = await getSignedObjectUrl(current.bucket, current.key, 60 * 10)
-        if (!cancelled) await queryParquetPage(url, tablePage)
+        if (!cancelled) await queryParquetPage(url, tablePage, true, current.key)
       } catch (e: any) {
         if (!cancelled) setPqError(String(e?.message || e))
       }
@@ -621,23 +705,13 @@ export default function ClientOpenedInferenceJobPage() {
                   {current && isVideoResult(current) ? (
                     videoUrl ? (
                       <>
-                        <Text textStyle="sm" color="gray.700">{current.key.split('/').pop()} — {formatTimestamp(current.createdAt)}</Text>
                         <video controls style={{ width: '100%', maxHeight: '70vh' }} src={videoUrl} />
                       </>
                     ) : (
                       <>
-                        <Text textStyle="sm" color="gray.700">Result video: {current.key.split('/').pop()} — {formatTimestamp(current.createdAt)}</Text>
                         {checkingLocal ? (
                           <Text textStyle="sm" color="gray.600">Checking local cache...</Text>
-                        ) : (
-                          <HStack>
-                            <Button size="sm" rounded="full" onClick={async () => {
-                              await downloadToOpfsWithProgress(current.bucket, current.key, current.size)
-                            }} disabled={downloading}>
-                              {downloading ? 'Downloading...' : 'Download and Open (local)'}
-                            </Button>
-                          </HStack>
-                        )}
+                        ) : null}
                         {downloading && (
                           <Box maxW="360px">
                             <Progress.Root value={downloadPct}>
@@ -652,7 +726,6 @@ export default function ClientOpenedInferenceJobPage() {
                     )
                   ) : current && isJsonResult(current) ? (
                     <>
-                      <Text textStyle="sm" color="gray.700">Result JSON: {current.key.split('/').pop()} — {formatTimestamp(current.createdAt)}</Text>
                       {jsonLoading ? (
                         <Text textStyle="sm" color="gray.600">Loading JSON...</Text>
                       ) : jsonError ? (
@@ -684,7 +757,6 @@ export default function ClientOpenedInferenceJobPage() {
                     </>
                   ) : current && isParquetResult(current) ? (
                     <>
-                      <Text textStyle="sm" color="gray.700">Result table (Parquet): {current.key.split('/').pop()} — {formatTimestamp(current.createdAt)}</Text>
                       {pqError ? (
                         <HStack color="red.500" justify="space-between">
                           <Box>Failed to load table: {pqError}</Box>
@@ -692,7 +764,7 @@ export default function ClientOpenedInferenceJobPage() {
                             if (!current) return
                             try {
                               const url = await getSignedObjectUrl(current.bucket, current.key, 60 * 10)
-                              await queryParquetPage(url, tablePage)
+                              await queryParquetPage(url, tablePage, true, current.key)
                             } catch { }
                           }}>Retry</Button>
                         </HStack>
@@ -700,6 +772,19 @@ export default function ClientOpenedInferenceJobPage() {
                         <Text textStyle="sm" color="gray.600">Loading table...</Text>
                       ) : (
                         <>
+                          {checkingParquetLocal ? (
+                            <Text textStyle="xs" color="gray.600">Checking local cache...</Text>
+                          ) : null}
+                          {downloading && (
+                            <Box maxW="360px">
+                              <Progress.Root value={downloadPct}>
+                                <Progress.Track>
+                                  <Progress.Range />
+                                </Progress.Track>
+                              </Progress.Root>
+                              <Text textStyle="xs" color="gray.600" mt={1}>{downloadPct}%</Text>
+                            </Box>
+                          )}
                           <Box overflowX="auto" borderWidth="1px" rounded="md">
                             <Table.Root size="sm" variant="outline" striped>
                               <Table.Header>
@@ -746,15 +831,11 @@ export default function ClientOpenedInferenceJobPage() {
                               </Pagination.NextTrigger>
                             </ButtonGroup>
                           </Pagination.Root>
-                          <HStack>
-                            <Button size="sm" rounded="full" variant="outline" onClick={() => downloadDirect(current.bucket, current.key)}>Download Parquet</Button>
-                          </HStack>
                         </>
                       )}
                     </>
                   ) : (
                     <>
-                      <Text textStyle="sm" color="gray.700">Result file: {current?.key.split('/').pop()} — {formatTimestamp(current?.createdAt)}</Text>
                       <HStack>
                         <Button size="sm" rounded="full" onClick={() => current && downloadDirect(current.bucket, current.key)}>Download</Button>
                       </HStack>
