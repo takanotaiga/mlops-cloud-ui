@@ -1,6 +1,6 @@
 "use client"
 
-import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table } from "@chakra-ui/react"
+import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table, Separator } from "@chakra-ui/react"
 import NextLink from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState, type ReactNode } from "react"
@@ -116,10 +116,13 @@ export default function ClientOpenedInferenceJobPage() {
     staleTime: 5_000,
   })
 
-  // Pagination state: 1-based page index
-  const [page, setPage] = useState<number>(1)
-  useEffect(() => { setPage(1); setVideoUrl(null) }, [results.length])
-  const current = useMemo(() => (results && results.length > 0 ? results[Math.min(results.length, Math.max(1, page)) - 1] : undefined), [results, page])
+  // Selection state for results
+  const [selectedIndex, setSelectedIndex] = useState<number>(0)
+  useEffect(() => {
+    setSelectedIndex(0)
+    setVideoUrl(null)
+  }, [results.length])
+  const current = useMemo(() => (results && results.length > 0 ? results[Math.min(results.length - 1, Math.max(0, selectedIndex))] : undefined), [results, selectedIndex])
 
   // Classification helpers
   function getExt(name?: string) {
@@ -514,6 +517,42 @@ export default function ClientOpenedInferenceJobPage() {
               </Box>
               <Text textStyle="xs" color="gray.500">Created: {formatTimestamp(job.createdAt)}</Text>
               <Text textStyle="xs" color="gray.500">Updated: {formatTimestamp(job.updatedAt)}</Text>
+
+              {/* Results list */}
+              {(job.status === 'Complete' || job.status === 'Completed') && job.taskType === 'one-shot-object-detection' && (
+                <VStack align="stretch" gap="8px" mt="8px">
+                  <Separator />
+                  <Heading size="sm">Results</Heading>
+                  {(!results || results.length === 0) ? (
+                    <Text textStyle="sm" color="gray.600">Result not ready yet.</Text>
+                  ) : (
+                    <VStack align="stretch" gap="4px" maxH="360px" overflowY="auto">
+                      {results.map((r, idx) => {
+                        const name = r.key.split('/').pop() || r.key
+                        const type = isVideoResult(r) ? 'Video' : isJsonResult(r) ? 'JSON' : isParquetResult(r) ? 'Parquet' : 'File'
+                        const selected = idx === selectedIndex
+                        return (
+                          <Button key={r.id}
+                            variant={selected ? 'solid' : 'outline'}
+                            colorPalette={selected ? 'teal' : 'gray'}
+                            justifyContent="space-between"
+                            size="sm"
+                            onClick={() => { setSelectedIndex(idx); setVideoUrl(null); setTablePage(1) }}
+                          >
+                            <HStack justify="space-between" w="full">
+                              <Text textStyle="sm" maxW="70%" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</Text>
+                              <HStack gap="2">
+                                <Badge rounded="full" variant="subtle">{type}</Badge>
+                                <Text textStyle="xs" color="gray.600">{formatTimestamp(r.createdAt)}</Text>
+                              </HStack>
+                            </HStack>
+                          </Button>
+                        )
+                      })}
+                    </VStack>
+                  )}
+                </VStack>
+              )}
             </VStack>
           )}
         </Box>
@@ -525,31 +564,6 @@ export default function ClientOpenedInferenceJobPage() {
                 <Text color="gray.600">Result not ready yet.</Text>
               ) : (
                 <>
-                  {/* Pagination Controls */}
-                  <Pagination.Root count={results.length} pageSize={1} page={page} onPageChange={(e: any) => setPage(e.page)}>
-                    <ButtonGroup variant="ghost" size="sm">
-                      <Pagination.PrevTrigger asChild>
-                        <IconButton aria-label="Prev result">
-                          <LuChevronLeft />
-                        </IconButton>
-                      </Pagination.PrevTrigger>
-
-                      <Pagination.Items
-                        render={(p: any) => (
-                          <IconButton aria-label={`Go to result ${p.value}`} variant={{ base: "ghost", _selected: "outline" }}>
-                            {p.value}
-                          </IconButton>
-                        )}
-                      />
-
-                      <Pagination.NextTrigger asChild>
-                        <IconButton aria-label="Next result">
-                          <LuChevronRight />
-                        </IconButton>
-                      </Pagination.NextTrigger>
-                    </ButtonGroup>
-                  </Pagination.Root>
-
                   {/* Current Result */}
                   {current && isVideoResult(current) ? (
                     videoUrl ? (
