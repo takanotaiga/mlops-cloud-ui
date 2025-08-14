@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import {
   Text,
@@ -19,19 +19,17 @@ import {
   Image,
   SimpleGrid,
   CloseButton,
-} from "@chakra-ui/react"
+ FileUpload, Icon } from "@chakra-ui/react";
 
-import { FileUpload, Icon } from "@chakra-ui/react"
-import { LuUpload } from "react-icons/lu"
+import { LuUpload , LuCloudUpload, LuPartyPopper, LuSparkles, LuCheck } from "react-icons/lu";
 
-import { LuCloudUpload, LuPartyPopper, LuSparkles, LuCheck } from "react-icons/lu";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Upload as S3MultipartUpload } from "@aws-sdk/lib-storage";
 import { MINIO_CONFIG } from "@/app/secrets/minio-config";
 import { ensureBucketExists } from "@/components/minio/ensure-bucket";
 import { useState, useCallback, useRef, useEffect } from "react";
-import NextLink from "next/link"
-import { useI18n } from "@/components/i18n/LanguageProvider"
+import NextLink from "next/link";
+import { useI18n } from "@/components/i18n/LanguageProvider";
 import { useSurrealClient } from "@/components/surreal/SurrealProvider";
 import { FILE_UPLOAD_CONCURRENCY } from "@/app/dataset/upload/parameters";
 
@@ -72,8 +70,8 @@ const EncodeModeSelect = ({ value, onChange, collection }: EncodeModeSelectProps
         </Select.Positioner>
       </Portal>
     </Select.Root>
-  )
-}
+  );
+};
 
 const makeVideoEncodeModes = (hasLongVideo15: boolean, hasMultipleVideos: boolean) =>
   createListCollection({
@@ -83,255 +81,255 @@ const makeVideoEncodeModes = (hasLongVideo15: boolean, hasMultipleVideos: boolea
       { label: "Convert To Image", value: "video-to-image" },
       { label: "Do Nothing", value: "video-none" },
     ],
-  })
+  });
 
 
 export default function Page() {
-  const { t } = useI18n()
-  const surreal = useSurrealClient()
-  const [error, setError] = useState<string | null>(null)
-  const MAX_FILE_SIZE = 50 * 1024 * 1024 * 1024 // 50GB
-  const [counts, setCounts] = useState<{ images: number; videos: number }>({ images: 0, videos: 0 })
-  const [title, setTitle] = useState<string>("")
-  const [titleInvalid, setTitleInvalid] = useState<boolean>(false)
-  const [filesInvalid, setFilesInvalid] = useState<boolean>(false)
-  const [encodeMode, setEncodeMode] = useState<string>("")
-  const [encodeInvalid, setEncodeInvalid] = useState<boolean>(false)
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
-  const [previewUrls, setPreviewUrls] = useState<string[]>([])
-  const [videoThumbs, setVideoThumbs] = useState<(string | null)[]>([])
-  const [hasLongVideo15, setHasLongVideo15] = useState<boolean>(false)
-  const [view, setView] = useState<"form" | "progress" | "done">("form")
-  const [progress, setProgress] = useState<number[]>([])
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const { t } = useI18n();
+  const surreal = useSurrealClient();
+  const [error, setError] = useState<string | null>(null);
+  const MAX_FILE_SIZE = 50 * 1024 * 1024 * 1024; // 50GB
+  const [counts, setCounts] = useState<{ images: number; videos: number }>({ images: 0, videos: 0 });
+  const [title, setTitle] = useState<string>("");
+  const [titleInvalid, setTitleInvalid] = useState<boolean>(false);
+  const [filesInvalid, setFilesInvalid] = useState<boolean>(false);
+  const [encodeMode, setEncodeMode] = useState<string>("");
+  const [encodeInvalid, setEncodeInvalid] = useState<boolean>(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+  const [videoThumbs, setVideoThumbs] = useState<(string | null)[]>([]);
+  const [hasLongVideo15, setHasLongVideo15] = useState<boolean>(false);
+  const [view, setView] = useState<"form" | "progress" | "done">("form");
+  const [progress, setProgress] = useState<number[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   // Track explicitly removed files and generate deterministic keys for dedupe
-  const removedKeysRef = useRef<Set<string>>(new Set())
-  const fileKey = useCallback((f: File) => `${f.name}__${f.size}__${f.lastModified}__${f.type}`, [])
+  const removedKeysRef = useRef<Set<string>>(new Set());
+  const fileKey = useCallback((f: File) => `${f.name}__${f.size}__${f.lastModified}__${f.type}`, []);
 
   const resetFileSelection = useCallback(() => {
-    setSelectedFiles([])
-    setCounts({ images: 0, videos: 0 })
-    setFilesInvalid(false)
-    setError(null)
-    setProgress([])
-    removedKeysRef.current.clear()
+    setSelectedFiles([]);
+    setCounts({ images: 0, videos: 0 });
+    setFilesInvalid(false);
+    setError(null);
+    setProgress([]);
+    removedKeysRef.current.clear();
     if (fileInputRef.current) {
-      try { fileInputRef.current.value = "" } catch { }
+      try { fileInputRef.current.value = ""; } catch { }
     }
-  }, [])
+  }, []);
 
   // Generate/revoke object URLs for previews
   useEffect(() => {
-    const urls = selectedFiles.map((f) => URL.createObjectURL(f))
-    setPreviewUrls(urls)
+    const urls = selectedFiles.map((f) => URL.createObjectURL(f));
+    setPreviewUrls(urls);
     return () => {
-      urls.forEach((u) => URL.revokeObjectURL(u))
-    }
-  }, [selectedFiles])
+      urls.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [selectedFiles]);
 
   // Create image thumbnails for video files so we can show a static preview
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
     const makeThumb = async (_file: File, url: string): Promise<{ thumb: string | null; durationSec: number }> => {
       return new Promise((resolve) => {
         try {
-          const video = document.createElement('video')
-          video.src = url
-          video.muted = true
-          video.playsInline = true
-          video.preload = 'metadata'
+          const video = document.createElement("video");
+          video.src = url;
+          video.muted = true;
+          video.playsInline = true;
+          video.preload = "metadata";
           const cleanup = () => {
-            video.src = ''
-            video.remove()
-          }
+            video.src = "";
+            video.remove();
+          };
           // Always capture the very first frame (t = 0)
           const captureFirstFrame = () => {
             try {
-              const dur = Number.isFinite(video.duration) ? video.duration : 0
-              const w = video.videoWidth || 320
-              const h = video.videoHeight || 180
-              const canvas = document.createElement('canvas')
-              const MAX_DIM = 1280
-              const scale = Math.min(MAX_DIM / Math.max(w, h), 1)
-              const dw = Math.max(1, Math.round(w * scale))
-              const dh = Math.max(1, Math.round(h * scale))
-              canvas.width = dw
-              canvas.height = dh
-              const ctx = canvas.getContext('2d')
-              if (!ctx) throw new Error('no ctx')
+              const dur = Number.isFinite(video.duration) ? video.duration : 0;
+              const w = video.videoWidth || 320;
+              const h = video.videoHeight || 180;
+              const canvas = document.createElement("canvas");
+              const MAX_DIM = 1280;
+              const scale = Math.min(MAX_DIM / Math.max(w, h), 1);
+              const dw = Math.max(1, Math.round(w * scale));
+              const dh = Math.max(1, Math.round(h * scale));
+              canvas.width = dw;
+              canvas.height = dh;
+              const ctx = canvas.getContext("2d");
+              if (!ctx) throw new Error("no ctx");
               ctx.imageSmoothingEnabled = true
-              ;(ctx as any).imageSmoothingQuality = 'high'
-              ctx.drawImage(video, 0, 0, dw, dh)
-              const dataUrl = canvas.toDataURL('image/jpeg', 0.95)
-              cleanup()
-              resolve({ thumb: dataUrl, durationSec: dur })
+              ;(ctx as any).imageSmoothingQuality = "high";
+              ctx.drawImage(video, 0, 0, dw, dh);
+              const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+              cleanup();
+              resolve({ thumb: dataUrl, durationSec: dur });
             } catch (e) {
-              cleanup()
-              resolve({ thumb: null, durationSec: 0 })
+              cleanup();
+              resolve({ thumb: null, durationSec: 0 });
             }
-          }
+          };
 
           // Ensure we capture at time 0 exactly.
           // Some browsers need an explicit seek to 0 after metadata is ready.
           const onMeta = () => {
-            try { video.currentTime = 0 } catch {}
+            try { video.currentTime = 0; } catch {}
             // Prefer requestVideoFrameCallback to ensure frame is actually rendered
-            const anyVideo: any = video as any
-            if (typeof anyVideo.requestVideoFrameCallback === 'function') {
+            const anyVideo: any = video as any;
+            if (typeof anyVideo.requestVideoFrameCallback === "function") {
               anyVideo.requestVideoFrameCallback((_frame: any) => {
                 // We expect mediaTime to be 0 for the first frame
-                captureFirstFrame()
-              })
+                captureFirstFrame();
+              });
             } else {
               // Fallbacks: capture when data for the first frame is available or after seek
-              video.addEventListener('loadeddata', captureFirstFrame, { once: true })
-              video.addEventListener('canplay', captureFirstFrame, { once: true })
-              video.addEventListener('seeked', captureFirstFrame, { once: true })
+              video.addEventListener("loadeddata", captureFirstFrame, { once: true });
+              video.addEventListener("canplay", captureFirstFrame, { once: true });
+              video.addEventListener("seeked", captureFirstFrame, { once: true });
             }
-          }
-          video.addEventListener('loadedmetadata', onMeta, { once: true })
-          video.addEventListener('error', () => {
-            cleanup()
-            resolve({ thumb: null, durationSec: 0 })
-          }, { once: true })
+          };
+          video.addEventListener("loadedmetadata", onMeta, { once: true });
+          video.addEventListener("error", () => {
+            cleanup();
+            resolve({ thumb: null, durationSec: 0 });
+          }, { once: true });
         } catch {
-          resolve({ thumb: null, durationSec: 0 })
+          resolve({ thumb: null, durationSec: 0 });
         }
-      })
-    }
+      });
+    };
 
     const run = async () => {
-      const results: (string | null)[] = []
-      let anyLong = false
+      const results: (string | null)[] = [];
+      let anyLong = false;
       for (let i = 0; i < selectedFiles.length; i++) {
-        const f = selectedFiles[i]
-        const url = previewUrls[i]
-        if (f && url && f.type.startsWith('video/')) {
-          const { thumb, durationSec } = await makeThumb(f, url)
-          results[i] = thumb
-          if (durationSec >= 900) anyLong = true
+        const f = selectedFiles[i];
+        const url = previewUrls[i];
+        if (f && url && f.type.startsWith("video/")) {
+          const { thumb, durationSec } = await makeThumb(f, url);
+          results[i] = thumb;
+          if (durationSec >= 900) anyLong = true;
         } else {
-          results[i] = null
+          results[i] = null;
         }
-        if (cancelled) return
+        if (cancelled) return;
       }
       if (!cancelled) {
-        setVideoThumbs(results)
-        setHasLongVideo15(anyLong)
+        setVideoThumbs(results);
+        setHasLongVideo15(anyLong);
       }
-    }
+    };
 
-    if (selectedFiles.length > 0) run()
-    else { setVideoThumbs([]); setHasLongVideo15(false) }
+    if (selectedFiles.length > 0) run();
+    else { setVideoThumbs([]); setHasLongVideo15(false); }
 
-    return () => { cancelled = true }
-  }, [selectedFiles, previewUrls])
+    return () => { cancelled = true; };
+  }, [selectedFiles, previewUrls]);
   // uploading state omitted; we infer from view/progress
 
   const handleFileChange = useCallback<React.ChangeEventHandler<HTMLInputElement>>(
     (e) => {
-      const pickedRaw = e.target.files ? Array.from(e.target.files) : []
+      const pickedRaw = e.target.files ? Array.from(e.target.files) : [];
       if (pickedRaw.length === 0) {
-        try { e.target.value = "" } catch {}
-        return
+        try { e.target.value = ""; } catch {}
+        return;
       }
       // Validate and normalize picked files
       for (const f of pickedRaw) {
-        const isImage = f.type.startsWith("image/")
-        const isVideo = f.type.startsWith("video/")
+        const isImage = f.type.startsWith("image/");
+        const isVideo = f.type.startsWith("video/");
         if (!isImage && !isVideo) {
-          setError("画像または動画のみアップロードできます")
-          try { e.target.value = "" } catch {}
-          return
+          setError("画像または動画のみアップロードできます");
+          try { e.target.value = ""; } catch {}
+          return;
         }
         if (f.size > MAX_FILE_SIZE) {
-          setError("1ファイルあたり最大50GBまでです")
-          try { e.target.value = "" } catch {}
-          return
+          setError("1ファイルあたり最大50GBまでです");
+          try { e.target.value = ""; } catch {}
+          return;
         }
       }
       // Unique within the picked batch
-      const picked: File[] = []
-      const pickedKeys = new Set<string>()
+      const picked: File[] = [];
+      const pickedKeys = new Set<string>();
       for (const f of pickedRaw) {
-        const k = fileKey(f)
-        if (pickedKeys.has(k)) continue
-        pickedKeys.add(k)
-        picked.push(f)
+        const k = fileKey(f);
+        if (pickedKeys.has(k)) continue;
+        pickedKeys.add(k);
+        picked.push(f);
       }
 
-      setError(null)
-      setFilesInvalid(false)
+      setError(null);
+      setFilesInvalid(false);
       setSelectedFiles((prev) => {
         // Build next map from current selection (excluding any historically removed keys)
-        const map = new Map<string, File>()
+        const map = new Map<string, File>();
         for (const f of prev) {
-          const k = fileKey(f)
-          if (!removedKeysRef.current.has(k)) map.set(k, f)
+          const k = fileKey(f);
+          if (!removedKeysRef.current.has(k)) map.set(k, f);
         }
         // Add new unique picked files if not removed and not already chosen
         for (const f of picked) {
-          const k = fileKey(f)
-          if (removedKeysRef.current.has(k)) continue
-          if (map.has(k)) continue
-          map.set(k, f)
+          const k = fileKey(f);
+          if (removedKeysRef.current.has(k)) continue;
+          if (map.has(k)) continue;
+          map.set(k, f);
         }
-        const next = Array.from(map.values())
+        const next = Array.from(map.values());
         // Update counts based on final next
-        let images = 0, videos = 0
+        let images = 0, videos = 0;
         for (const f of next) {
-          if (f.type.startsWith("image/")) images++
-          else if (f.type.startsWith("video/")) videos++
+          if (f.type.startsWith("image/")) images++;
+          else if (f.type.startsWith("video/")) videos++;
         }
-        setCounts({ images, videos })
-        return next
-      })
+        setCounts({ images, videos });
+        return next;
+      });
       // Clear input value to avoid stale selections
-      try { e.target.value = "" } catch {}
+      try { e.target.value = ""; } catch {}
     },
     [MAX_FILE_SIZE, fileKey]
-  )
+  );
 
   const removeFileAt = useCallback((index: number) => {
     setSelectedFiles((prev) => {
-      const target = prev[index]
-      const next = prev.filter((_, i) => i !== index)
-      if (target) removedKeysRef.current.add(fileKey(target))
-      let images = 0
-      let videos = 0
+      const target = prev[index];
+      const next = prev.filter((_, i) => i !== index);
+      if (target) removedKeysRef.current.add(fileKey(target));
+      let images = 0;
+      let videos = 0;
       for (const file of next) {
-        if (file.type.startsWith("image/")) images += 1
-        else if (file.type.startsWith("video/")) videos += 1
+        if (file.type.startsWith("image/")) images += 1;
+        else if (file.type.startsWith("video/")) videos += 1;
       }
-      setCounts({ images, videos })
-      if (next.length === 0) setFilesInvalid(false)
-      return next
-    })
+      setCounts({ images, videos });
+      if (next.length === 0) setFilesInvalid(false);
+      return next;
+    });
     // Also clear the input value so removed files can't resurface
     if (fileInputRef.current) {
-      try { fileInputRef.current.value = "" } catch {}
+      try { fileInputRef.current.value = ""; } catch {}
     }
-  }, [fileKey])
+  }, [fileKey]);
 
   const handleUploadClick = useCallback(async () => {
-    let invalid = false
+    let invalid = false;
     if (!title.trim()) {
-      setTitleInvalid(true)
-      invalid = true
+      setTitleInvalid(true);
+      invalid = true;
     }
     if (counts.images + counts.videos === 0) {
-      setFilesInvalid(true)
-      invalid = true
+      setFilesInvalid(true);
+      invalid = true;
     }
     if (counts.videos > 0 && !encodeMode) {
-      setEncodeInvalid(true)
-      invalid = true
+      setEncodeInvalid(true);
+      invalid = true;
     }
-    if (invalid) return
-    setTitleInvalid(false)
+    if (invalid) return;
+    setTitleInvalid(false);
     // Start real upload to MinIO (URL unchanged)
-    setProgress(new Array(selectedFiles.length).fill(0))
-    setView("progress")
+    setProgress(new Array(selectedFiles.length).fill(0));
+    setView("progress");
     const client = new S3Client({
       region: MINIO_CONFIG.region,
       endpoint: MINIO_CONFIG.endpoint,
@@ -340,33 +338,33 @@ export default function Page() {
         accessKeyId: MINIO_CONFIG.accessKeyId,
         secretAccessKey: MINIO_CONFIG.secretAccessKey,
       },
-    })
+    });
 
     try {
-      await ensureBucketExists(client, MINIO_CONFIG.bucket, MINIO_CONFIG.region)
+      await ensureBucketExists(client, MINIO_CONFIG.bucket, MINIO_CONFIG.region);
     } catch (e: any) {
-      setError(`Failed to ensure bucket: ${e?.message || String(e)}`)
-      setView("form")
-      return
+      setError(`Failed to ensure bucket: ${e?.message || String(e)}`);
+      setView("form");
+      return;
     }
 
     const toUint8Array = (dataUrl: string): Uint8Array => {
       // data:[<mediatype>][;base64],<data>
-      const parts = dataUrl.split(',')
-      const b64 = parts[1] || ''
-      const bin = atob(b64)
-      const bytes = new Uint8Array(bin.length)
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-      return bytes
-    }
+      const parts = dataUrl.split(",");
+      const b64 = parts[1] || "";
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    };
 
     const getThumbKeyFor = (dataset: string, name: string) => {
-      const base = name.replace(/\/+$/, '')
-      return `${dataset}/.thumbs/${base}.jpg`
-    }
+      const base = name.replace(/\/+$/, "");
+      return `${dataset}/.thumbs/${base}.jpg`;
+    };
 
     const tasks = selectedFiles.map((file, idx) => () => {
-      const Key = `${title}/${file.name}`
+      const Key = `${title}/${file.name}`;
       const uploader = new S3MultipartUpload({
         client,
         params: {
@@ -378,92 +376,92 @@ export default function Page() {
         queueSize: 3,
         partSize: 100 * 1024 * 1024,
         leavePartsOnError: false,
-      })
+      });
 
       uploader.on("httpUploadProgress", (evt: any) => {
-        const loaded = evt.loaded ?? 0
-        const total = evt.total ?? file.size
-        const pct = total ? Math.min(100, Math.round((loaded / total) * 100)) : 0
+        const loaded = evt.loaded ?? 0;
+        const total = evt.total ?? file.size;
+        const pct = total ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
         setProgress((prev) => {
-          const next = [...prev]
-          next[idx] = Math.max(next[idx] ?? 0, pct)
-          return next
-        })
-      })
+          const next = [...prev];
+          next[idx] = Math.max(next[idx] ?? 0, pct);
+          return next;
+        });
+      });
 
       return uploader.done().then(async () => {
         // If this is a video and we have a generated thumbnail, upload it too
-        if (file.type.startsWith('video/')) {
-          const thumbDataUrl = videoThumbs[idx]
+        if (file.type.startsWith("video/")) {
+          const thumbDataUrl = videoThumbs[idx];
           if (thumbDataUrl) {
             try {
-              const Body = toUint8Array(thumbDataUrl)
-              const ThumbKey = getThumbKeyFor(title, file.name)
+              const Body = toUint8Array(thumbDataUrl);
+              const ThumbKey = getThumbKeyFor(title, file.name);
               await client.send(new PutObjectCommand({
                 Bucket: MINIO_CONFIG.bucket,
                 Key: ThumbKey,
                 Body,
-                ContentType: 'image/jpeg',
-              }))
+                ContentType: "image/jpeg",
+              }));
             } catch (e) {
               // Non-fatal: continue even if thumbnail upload fails
-              console.warn('Thumbnail upload failed for', file.name, e)
+              console.warn("Thumbnail upload failed for", file.name, e);
             }
           }
         }
         setProgress((prev) => {
-          const next = [...prev]
-          next[idx] = 100
-          return next
-        })
-      })
-    })
+          const next = [...prev];
+          next[idx] = 100;
+          return next;
+        });
+      });
+    });
 
     const runWithConcurrency = async <T,>(jobFns: Array<() => Promise<T>>, limit: number) => {
-      const results: T[] = []
-      let i = 0
-      let active = 0
-      let rejected = false
+      const results: T[] = [];
+      let i = 0;
+      let active = 0;
+      let rejected = false;
       return new Promise<T[]>((resolve, reject) => {
         const runNext = () => {
-          if (rejected) return
+          if (rejected) return;
           if (i >= jobFns.length && active === 0) {
-            resolve(results)
-            return
+            resolve(results);
+            return;
           }
           while (active < Math.max(1, limit) && i < jobFns.length) {
-            const idxJob = i++
-            active++
+            const idxJob = i++;
+            active++;
             jobFns[idxJob]()
               .then((res) => {
-                results[idxJob] = res as T
+                results[idxJob] = res as T;
               })
               .catch((err) => {
-                rejected = true
-                reject(err)
+                rejected = true;
+                reject(err);
               })
               .finally(() => {
-                active--
-                if (!rejected) runNext()
-              })
+                active--;
+                if (!rejected) runNext();
+              });
           }
-        }
-        runNext()
-      })
-    }
+        };
+        runNext();
+      });
+    };
 
     runWithConcurrency(tasks, FILE_UPLOAD_CONCURRENCY)
       .then(async () => {
         try {
           // Register file metadata to SurrealDB after all uploads complete
-          const now = new Date().toISOString()
-          const uploadedVideoNames: string[] = []
+          const now = new Date().toISOString();
+          const uploadedVideoNames: string[] = [];
           for (let i = 0; i < selectedFiles.length; i++) {
-            const file = selectedFiles[i]
-            const key = `${title}/${file.name}`
-            const thumbKey = file.type.startsWith('video/') && videoThumbs[i]
+            const file = selectedFiles[i];
+            const key = `${title}/${file.name}`;
+            const thumbKey = file.type.startsWith("video/") && videoThumbs[i]
               ? `${title}/.thumbs/${file.name}.jpg`
-              : undefined
+              : undefined;
             try {
               await surreal.query(
                 "CREATE file SET name = $name, key = $key, bucket = $bucket, size = $size, mime = $mime, dataset = $dataset, encode = $encode, uploadedAt = time::now(), thumbKey = $thumbKey",
@@ -478,39 +476,39 @@ export default function Page() {
                   now,
                   thumbKey,
                 },
-              )
-              if (file.type.startsWith('video/')) uploadedVideoNames.push(file.name)
+              );
+              if (file.type.startsWith("video/")) uploadedVideoNames.push(file.name);
             } catch (e) {
-              console.error("Failed to register file in SurrealDB:", file.name, e)
+              console.error("Failed to register file in SurrealDB:", file.name, e);
             }
           }
           // When encoding mode is All Merge, persist the ordered concatenation sequence
-          if (encodeMode === 'video-merge' && uploadedVideoNames.length > 0) {
+          if (encodeMode === "video-merge" && uploadedVideoNames.length > 0) {
             try {
               // Sort names naturally (video-001 < video-002 ...)
-              const members = [...uploadedVideoNames].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+              const members = [...uploadedVideoNames].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
               // Remove any existing merge record for this dataset/mode to keep single source of truth
-              await surreal.query("DELETE merge_group WHERE dataset == $dataset AND mode == 'all'", { dataset: title })
+              await surreal.query("DELETE merge_group WHERE dataset == $dataset AND mode == 'all'", { dataset: title });
               await surreal.query(
                 "CREATE merge_group CONTENT { dataset: $dataset, mode: 'all', members: $members, createdAt: time::now() }",
                 { dataset: title, members }
-              )
+              );
             } catch (e) {
-              console.error('Failed to save merge_group sequence', e)
+              console.error("Failed to save merge_group sequence", e);
             }
           }
         } catch (e) {
-          console.error("SurrealDB registration error:", e)
+          console.error("SurrealDB registration error:", e);
         } finally {
-          setView("done")
+          setView("done");
         }
       })
       .catch((err) => {
-        console.error("Upload failed", err)
-        setError("アップロードに失敗しました。設定やネットワークを確認してください。")
-        setView("form")
-      })
-  }, [title, counts, encodeMode, selectedFiles.length])
+        console.error("Upload failed", err);
+        setError("アップロードに失敗しました。設定やネットワークを確認してください。");
+        setView("form");
+      });
+  }, [title, counts, encodeMode, selectedFiles.length]);
   if (view === "progress") {
     return (
       <HStack justify="center">
@@ -518,7 +516,7 @@ export default function Page() {
           <HStack w="95%" justify="space-between" pt="40px">
             <Box alignSelf="flex-start" ml="30px">
               <HStack alignSelf="flex-start">
-                <Heading size="2xl">{t('upload.uploading','Uploading ⏫')}</Heading>
+                <Heading size="2xl">{t("upload.uploading","Uploading ⏫")}</Heading>
               </HStack>
             </Box>
           </HStack>
@@ -551,7 +549,7 @@ export default function Page() {
           </Box>
         </VStack>
       </HStack>
-    )
+    );
   }
 
   if (view === "done") {
@@ -564,7 +562,7 @@ export default function Page() {
                 <Icon color="green.500" boxSize={8}>
                   <LuPartyPopper />
                 </Icon>
-                <Heading size="2xl">{t('upload.complete','Upload Complete 🎉')}</Heading>
+                <Heading size="2xl">{t("upload.complete","Upload Complete 🎉")}</Heading>
                 <Icon color="purple.500" boxSize={7}>
                   <LuSparkles />
                 </Icon>
@@ -619,15 +617,15 @@ export default function Page() {
             </Table.Root>
 
             <HStack mt="16px" gap="12px">
-              <Button rounded="full" onClick={() => { resetFileSelection(); setView("form") }}>Upload more</Button>
+              <Button rounded="full" onClick={() => { resetFileSelection(); setView("form"); }}>Upload more</Button>
               <NextLink href="/dataset" passHref>
-                <Button rounded="full" variant="outline">{t('upload.explore','Explore datasets')}</Button>
+                <Button rounded="full" variant="outline">{t("upload.explore","Explore datasets")}</Button>
               </NextLink>
             </HStack>
           </Box>
         </VStack>
       </HStack>
-    )
+    );
   }
 
   return (
@@ -637,8 +635,8 @@ export default function Page() {
         <HStack w="95%" justify="space-between" pt="40px">
           <Box alignSelf="flex-start" ml="30px">
             <HStack alignSelf="flex-start">
-              <Heading size="2xl">{t('upload.title','Upload 📤')}</Heading>
-              <Text mt="1" textStyle="sm" color="gray.600">{t('upload.subtitle','Drop files, we’ll handle the magic ✨')}</Text>
+              <Heading size="2xl">{t("upload.title","Upload 📤")}</Heading>
+              <Text mt="1" textStyle="sm" color="gray.600">{t("upload.subtitle","Drop files, we’ll handle the magic ✨")}</Text>
             </HStack>
           </Box>
         </HStack>
@@ -670,8 +668,8 @@ export default function Page() {
                   variant="flushed"
                   value={title}
                   onChange={(e) => {
-                    setTitle(e.target.value)
-                    if (titleInvalid && e.target.value.trim()) setTitleInvalid(false)
+                    setTitle(e.target.value);
+                    if (titleInvalid && e.target.value.trim()) setTitleInvalid(false);
                   }}
                 />
                 {titleInvalid && (
@@ -688,8 +686,8 @@ export default function Page() {
                       value={encodeMode}
                       collection={makeVideoEncodeModes(hasLongVideo15, counts.videos > 1)}
                       onChange={(v) => {
-                        setEncodeMode(v)
-                        if (encodeInvalid && v) setEncodeInvalid(false)
+                        setEncodeMode(v);
+                        if (encodeInvalid && v) setEncodeInvalid(false);
                       }}
                     />
                   </Box>
@@ -713,7 +711,7 @@ export default function Page() {
                   accept="image/*,video/*"
                   multiple
                   onChange={handleFileChange}
-                  ref={(el) => { fileInputRef.current = el as unknown as HTMLInputElement | null }}
+                  ref={(el) => { fileInputRef.current = el as unknown as HTMLInputElement | null; }}
                 />
                 <VStack alignItems="stretch" gap="3">
                   <Button onClick={() => fileInputRef.current?.click()} variant="surface" rounded="md">
@@ -740,9 +738,9 @@ export default function Page() {
                 <Text mb="2" color="fg.muted">選択済み: {selectedFiles.length} ファイル</Text>
                 <SimpleGrid columns={{ base: 2, md: 3 }} gap="3">
                   {selectedFiles.map((file, i) => {
-                    const isImage = file.type.startsWith("image/")
-                    const isVideo = file.type.startsWith("video/")
-                    const url = previewUrls[i]
+                    const isImage = file.type.startsWith("image/");
+                    const isVideo = file.type.startsWith("video/");
+                    const url = previewUrls[i];
                     return (
                       <Box key={file.name + i} borderWidth="1px" rounded="md" overflow="hidden" bg="bg.panel" position="relative">
                         <Box position="absolute" top="1" right="1" zIndex={1}>
@@ -764,7 +762,7 @@ export default function Page() {
                           <Text fontSize="sm" style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{file.name}</Text>
                         </Box>
                       </Box>
-                    )
+                    );
                   })}
                 </SimpleGrid>
               </Box>
@@ -773,5 +771,5 @@ export default function Page() {
         </HStack>
       </VStack>
     </HStack>
-  )
+  );
 }

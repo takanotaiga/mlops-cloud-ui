@@ -9,4 +9,4 @@ export const SURREAL_CONFIG = {
   // Basic auth (optional depending on server config)
   username: process.env.NEXT_PUBLIC_SURREAL_USER ?? "root",
   password: process.env.NEXT_PUBLIC_SURREAL_PASS ?? "root",
-} as const
+} as const;

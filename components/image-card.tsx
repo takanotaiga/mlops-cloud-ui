@@ -1,5 +1,5 @@
-import React, { memo } from "react"
-import { Box, Heading, Text, Image, VStack, LinkOverlay, LinkBox } from "@chakra-ui/react"
+import React, { memo } from "react";
+import { Box, Heading, Text, Image, VStack, LinkOverlay, LinkBox } from "@chakra-ui/react";
 
 type ImageCardProps = {
   title?: string
@@ -29,7 +29,7 @@ function ImageCardBase({ title, href = "/dataset/opened-dataset" }: ImageCardPro
         </Box>
       </LinkOverlay>
     </LinkBox>
-  )
+  );
 }
 
-export default memo(ImageCardBase)
+export default memo(ImageCardBase);

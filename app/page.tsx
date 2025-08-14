@@ -1,6 +1,6 @@
-import { Suspense } from "react"
-import { HomeHero } from "@/components/home/hero"
-import { HomeFeatures } from "@/components/home/features"
+import { Suspense } from "react";
+import { HomeHero } from "@/components/home/hero";
+import { HomeFeatures } from "@/components/home/features";
 
 export default function Page() {
   return (
@@ -8,5 +8,5 @@ export default function Page() {
       <HomeHero />
       <HomeFeatures />
     </Suspense>
-  )
+  );
 }

@@ -1,2 +1,2 @@
-export const FILE_UPLOAD_CONCURRENCY = 2
+export const FILE_UPLOAD_CONCURRENCY = 2;
 

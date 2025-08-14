@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import {
   Box,
@@ -26,37 +26,35 @@ import {
   Dialog,
   Portal,
   CloseButton,
-} from "@chakra-ui/react"
-import { Badge } from "@chakra-ui/react"
-import { useSearchParams } from "next/navigation"
-import { useEffect, useMemo, useState, Fragment } from "react"
-import { decodeBase64Utf8, encodeBase64Utf8 } from "@/components/utils/base64"
-import NextLink from "next/link"
-import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { extractRows } from "@/components/surreal/normalize"
-import { getObjectUrlPreferPresign, deleteObjectFromS3 } from "@/components/utils/minio"
-import { useRouter } from "next/navigation"
-import { useI18n } from "@/components/i18n/LanguageProvider"
+ Badge } from "@chakra-ui/react";
+import { useSearchParams , useRouter } from "next/navigation";
+import { useEffect, useMemo, useState, Fragment } from "react";
+import { decodeBase64Utf8, encodeBase64Utf8 } from "@/components/utils/base64";
+import NextLink from "next/link";
+import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { extractRows } from "@/components/surreal/normalize";
+import { getObjectUrlPreferPresign, deleteObjectFromS3 } from "@/components/utils/minio";
+import { useI18n } from "@/components/i18n/LanguageProvider";
 
 export default function ClientOpenedDatasetPage() {
-  const { t } = useI18n()
-  const router = useRouter()
-  const params = useSearchParams()
-  const queryClient = useQueryClient()
+  const { t } = useI18n();
+  const router = useRouter();
+  const params = useSearchParams();
+  const queryClient = useQueryClient();
   const datasetName = useMemo(() => {
-    const d = params.get("d")
-    if (!d) return ""
+    const d = params.get("d");
+    if (!d) return "";
     try {
-      return decodeBase64Utf8(d)
+      return decodeBase64Utf8(d);
     } catch {
-      return ""
+      return "";
     }
-  }, [params])
-  const refreshToken = useMemo(() => params.get("r") || "", [params])
+  }, [params]);
+  const refreshToken = useMemo(() => params.get("r") || "", [params]);
 
-  const surreal = useSurrealClient()
-  const { isSuccess } = useSurreal()
+  const surreal = useSurrealClient();
+  const { isSuccess } = useSurreal();
 
   type FileRow = {
     bucket: string
@@ -74,86 +72,86 @@ export default function ClientOpenedDatasetPage() {
   // Normalize SurrealDB Thing values (e.g., id) to strings for safe usage
   type ThingLike = { tb: string; id: unknown }
   function thingToString(v: unknown): string {
-    if (v == null) return ""
-    if (typeof v === "string") return v
+    if (v == null) return "";
+    if (typeof v === "string") return v;
     if (typeof v === "object" && v !== null && "tb" in (v as any) && "id" in (v as any)) {
-      const t = v as ThingLike
+      const t = v as ThingLike;
       const id = typeof t.id === "object" && t.id !== null
         ? ((t.id as any).toString?.() ?? JSON.stringify(t.id))
-        : String(t.id)
-      return `${t.tb}:${id}`
+        : String(t.id);
+      return `${t.tb}:${id}`;
     }
-    return String(v)
+    return String(v);
   }
 
   const { data: files = [], isPending, isError, error, refetch } = useQuery({
     queryKey: ["dataset-files", datasetName, refreshToken],
     enabled: isSuccess && !!datasetName,
     queryFn: async () => {
-      const res = await surreal.query("SELECT * FROM file WHERE dataset == $dataset ORDER BY name ASC", { dataset: datasetName })
-      const rows = extractRows<any>(res)
+      const res = await surreal.query("SELECT * FROM file WHERE dataset == $dataset ORDER BY name ASC", { dataset: datasetName });
+      const rows = extractRows<any>(res);
       // Ensure id (and dataset if needed) are strings
       return rows.map((r: any) => ({
         ...r,
         id: thingToString(r?.id),
-        dataset: typeof r?.dataset === 'string' ? r.dataset : thingToString(r?.dataset),
-      })) as FileRow[]
+        dataset: typeof r?.dataset === "string" ? r.dataset : thingToString(r?.dataset),
+      })) as FileRow[];
     },
     refetchOnWindowFocus: false,
     staleTime: 5_000,
-  })
+  });
 
-  const [imgUrls, setImgUrls] = useState<Record<string, string>>({})
-  const [removing, setRemoving] = useState(false)
+  const [imgUrls, setImgUrls] = useState<Record<string, string>>({});
+  const [removing, setRemoving] = useState(false);
 
   function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error("Timeout")), ms)
-      p.then((v) => { clearTimeout(t); resolve(v) }).catch((e) => { clearTimeout(t); reject(e) })
-    })
+      const t = setTimeout(() => reject(new Error("Timeout")), ms);
+      p.then((v) => { clearTimeout(t); resolve(v); }).catch((e) => { clearTimeout(t); reject(e); });
+    });
   }
 
   async function handleRemoveDataset() {
-    if (!datasetName || removing) return
-    setRemoving(true)
+    if (!datasetName || removing) return;
+    setRemoving(true);
     try {
       await withTimeout((async () => {
         // 1) Delete dataset-scoped related rows first (annotations, encode jobs, segments, labels, merge groups)
-        try { await surreal.query("DELETE annotation WHERE file.dataset == $dataset", { dataset: datasetName }) } catch { /* ignore */ }
-        try { await surreal.query("DELETE encode_job WHERE file.dataset == $dataset", { dataset: datasetName }) } catch { /* ignore */ }
-        try { await surreal.query("DELETE encoded_segment WHERE file.dataset == $dataset", { dataset: datasetName }) } catch { /* ignore */ }
-        try { await surreal.query("DELETE label WHERE dataset == $dataset", { dataset: datasetName }) } catch { /* ignore */ }
-        try { await surreal.query("DELETE merge_group WHERE dataset == $dataset", { dataset: datasetName }) } catch { /* ignore */ }
+        try { await surreal.query("DELETE annotation WHERE file.dataset == $dataset", { dataset: datasetName }); } catch { /* ignore */ }
+        try { await surreal.query("DELETE encode_job WHERE file.dataset == $dataset", { dataset: datasetName }); } catch { /* ignore */ }
+        try { await surreal.query("DELETE encoded_segment WHERE file.dataset == $dataset", { dataset: datasetName }); } catch { /* ignore */ }
+        try { await surreal.query("DELETE label WHERE dataset == $dataset", { dataset: datasetName }); } catch { /* ignore */ }
+        try { await surreal.query("DELETE merge_group WHERE dataset == $dataset", { dataset: datasetName }); } catch { /* ignore */ }
         // 2) Delete all file rows for this dataset
-        await surreal.query("DELETE file WHERE dataset = $dataset", { dataset: datasetName })
+        await surreal.query("DELETE file WHERE dataset = $dataset", { dataset: datasetName });
         // 3) Delete all objects from S3 (best-effort)
         for (const f of files) {
-          try { await deleteObjectFromS3(f.bucket, f.key) } catch { /* ignore */ }
+          try { await deleteObjectFromS3(f.bucket, f.key); } catch { /* ignore */ }
           if (f.thumbKey) {
-            try { await deleteObjectFromS3(f.bucket, f.thumbKey) } catch { /* ignore */ }
+            try { await deleteObjectFromS3(f.bucket, f.thumbKey); } catch { /* ignore */ }
           }
         }
-      })(), 3000)
+      })(), 3000);
     } catch {
       // timeout or error: continue navigation without blocking the user
     } finally {
       // Invalidate caches and navigate back to dataset list with refresh token
-      queryClient.invalidateQueries({ queryKey: ["datasets"] })
-      const r = Date.now().toString()
-      router.push(`/dataset?r=${encodeURIComponent(r)}`)
-      setRemoving(false)
+      queryClient.invalidateQueries({ queryKey: ["datasets"] });
+      const r = Date.now().toString();
+      router.push(`/dataset?r=${encodeURIComponent(r)}`);
+      setRemoving(false);
     }
   }
 
   // Label Type filtering (include / exclude / any)
-  const LABEL_TYPES = useMemo(() => ["Bounding Box", "OneShotBBox", "Text"] as const, [])
+  const LABEL_TYPES = useMemo(() => ["Bounding Box", "OneShotBBox", "Text"] as const, []);
   type LabelType = (typeof LABEL_TYPES)[number]
   type LabelMode = "any" | "has" | "no"
   const [labelFilter, setLabelFilter] = useState<Record<LabelType, LabelMode>>({
     "Bounding Box": "any",
     "OneShotBBox": "any",
     "Text": "any",
-  })
+  });
 
   // Load per-file annotation categories to determine label presence
   const { data: labelPresence = {} } = useQuery({
@@ -164,25 +162,25 @@ export default function ClientOpenedDatasetPage() {
         const res = await surreal.query(
           "SELECT file, array::distinct(category) AS cats FROM annotation WHERE dataset == $dataset GROUP BY file",
           { dataset: datasetName }
-        )
-        const rows = extractRows<any>(res)
-        const map: Record<string, { bbox: boolean; one: boolean; text: boolean }> = {}
+        );
+        const rows = extractRows<any>(res);
+        const map: Record<string, { bbox: boolean; one: boolean; text: boolean }> = {};
         for (const r of rows) {
-          const fid = thingToString(r?.file)
-          const cats = Array.isArray(r?.cats) ? r.cats.map((c: any) => String(c)) : []
-          const bbox = cats.some((c: string) => /\bimage_bbox\b/i.test(c) || /\bbbox\b/i.test(c))
-          const one = cats.some((c: string) => c === "sam2_key_bbox")
-          const text = cats.some((c: string) => /text/i.test(c))
-          map[fid] = { bbox, one, text }
+          const fid = thingToString(r?.file);
+          const cats = Array.isArray(r?.cats) ? r.cats.map((c: any) => String(c)) : [];
+          const bbox = cats.some((c: string) => /\bimage_bbox\b/i.test(c) || /\bbbox\b/i.test(c));
+          const one = cats.some((c: string) => c === "sam2_key_bbox");
+          const text = cats.some((c: string) => /text/i.test(c));
+          map[fid] = { bbox, one, text };
         }
-        return map
+        return map;
       } catch {
-        return {}
+        return {};
       }
     },
     refetchOnWindowFocus: false,
     staleTime: 5_000,
-  })
+  });
 
   const labelModeCollection = useMemo(() => createListCollection({
     items: [
@@ -190,46 +188,46 @@ export default function ClientOpenedDatasetPage() {
       { label: "Has", value: "has" },
       { label: "No", value: "no" },
     ],
-  }), [])
+  }), []);
 
   // Media type filtering
-  const MEDIA_OPTIONS = useMemo(() => ["Video", "Image", "PointCloud", "ROSBag"] as const, [])
+  const MEDIA_OPTIONS = useMemo(() => ["Video", "Image", "PointCloud", "ROSBag"] as const, []);
   type MediaType = (typeof MEDIA_OPTIONS)[number]
-  const [selectedMedia, setSelectedMedia] = useState<MediaType[]>([...MEDIA_OPTIONS])
+  const [selectedMedia, setSelectedMedia] = useState<MediaType[]>([...MEDIA_OPTIONS]);
 
   const classifyMedia = (f: FileRow): MediaType | "Other" => {
-    const mime = (f.mime || "").toLowerCase()
-    if (mime.startsWith("image/")) return "Image"
-    if (mime.startsWith("video/")) return "Video"
+    const mime = (f.mime || "").toLowerCase();
+    if (mime.startsWith("image/")) return "Image";
+    if (mime.startsWith("video/")) return "Video";
     // Extension fallback
-    const key = (f.name || f.key || "").toLowerCase()
-    if (key.endsWith(".jpg") || key.endsWith(".jpeg") || key.endsWith(".png") || key.endsWith(".webp") || key.endsWith(".gif") || key.endsWith(".avif")) return "Image"
-    if (key.endsWith(".mp4") || key.endsWith(".mov") || key.endsWith(".mkv") || key.endsWith(".avi") || key.endsWith(".webm")) return "Video"
-    if (key.endsWith(".pcd") || key.endsWith(".ply") || key.endsWith(".las") || key.endsWith(".laz") || key.endsWith(".bin")) return "PointCloud"
-    if (key.endsWith(".bag") || key.endsWith(".mcap")) return "ROSBag"
-    return "Other"
-  }
+    const key = (f.name || f.key || "").toLowerCase();
+    if (key.endsWith(".jpg") || key.endsWith(".jpeg") || key.endsWith(".png") || key.endsWith(".webp") || key.endsWith(".gif") || key.endsWith(".avif")) return "Image";
+    if (key.endsWith(".mp4") || key.endsWith(".mov") || key.endsWith(".mkv") || key.endsWith(".avi") || key.endsWith(".webm")) return "Video";
+    if (key.endsWith(".pcd") || key.endsWith(".ply") || key.endsWith(".las") || key.endsWith(".laz") || key.endsWith(".bin")) return "PointCloud";
+    if (key.endsWith(".bag") || key.endsWith(".mcap")) return "ROSBag";
+    return "Other";
+  };
 
   const visibleFiles = useMemo(() => {
-    if (!files || selectedMedia.length === 0) return []
-    const set = new Set(selectedMedia)
+    if (!files || selectedMedia.length === 0) return [];
+    const set = new Set(selectedMedia);
     return files.filter((f) => {
-      if (!set.has(classifyMedia(f) as MediaType)) return false
-      const pres = labelPresence[f.id] ?? { bbox: false, one: false, text: false }
+      if (!set.has(classifyMedia(f) as MediaType)) return false;
+      const pres = labelPresence[f.id] ?? { bbox: false, one: false, text: false };
       // Apply include/exclude per label type (AND combination)
       const checks: [LabelType, boolean][] = [
         ["Bounding Box", pres.bbox],
         ["OneShotBBox", pres.one],
         ["Text", pres.text],
-      ]
+      ];
       for (const [lt, has] of checks) {
-        const mode = labelFilter[lt]
-        if (mode === "has" && !has) return false
-        if (mode === "no" && has) return false
+        const mode = labelFilter[lt];
+        if (mode === "has" && !has) return false;
+        if (mode === "no" && has) return false;
       }
-      return true
-    })
-  }, [files, selectedMedia, labelPresence, labelFilter])
+      return true;
+    });
+  }, [files, selectedMedia, labelPresence, labelFilter]);
 
   // Load merge group for this dataset when present to detect "All Merge" first item
   const { data: mergeInfo } = useQuery({
@@ -237,98 +235,98 @@ export default function ClientOpenedDatasetPage() {
     enabled: isSuccess && !!datasetName,
     queryFn: async () => {
       try {
-        const res = await surreal.query("SELECT * FROM merge_group WHERE dataset == $dataset AND mode == 'all' LIMIT 1", { dataset: datasetName })
-        const rows = extractRows<any>(res)
-        const row = rows?.[0]
-        if (!row || !Array.isArray(row.members)) return null as any
-        const members: string[] = row.members.map((n: any) => String(n))
-        return { members, first: members[0] as string | undefined }
+        const res = await surreal.query("SELECT * FROM merge_group WHERE dataset == $dataset AND mode == 'all' LIMIT 1", { dataset: datasetName });
+        const rows = extractRows<any>(res);
+        const row = rows?.[0];
+        if (!row || !Array.isArray(row.members)) return null as any;
+        const members: string[] = row.members.map((n: any) => String(n));
+        return { members, first: members[0] as string | undefined };
       } catch {
-        return null as any
+        return null as any;
       }
     },
     refetchOnWindowFocus: false,
     staleTime: 10_000,
-  })
+  });
 
   const sortedVisibleFiles = useMemo(() => {
     // If dataset has an All Merge sequence, only show the first merged video
     const onlyFirst = (f: FileRow) => {
-      if (!mergeInfo || !mergeInfo.first) return true
-      if ((f.encode || "") !== "video-merge") return true
+      if (!mergeInfo || !mergeInfo.first) return true;
+      if ((f.encode || "") !== "video-merge") return true;
       // When encode mode is video-merge, show only the first name
-      return String(f.name || "") === String(mergeInfo.first || "")
-    }
-    const base = visibleFiles.filter(onlyFirst)
+      return String(f.name || "") === String(mergeInfo.first || "");
+    };
+    const base = visibleFiles.filter(onlyFirst);
     return [...base].sort((a, b) => {
-      const an = (a.name || a.key || "").toString()
-      const bn = (b.name || b.key || "").toString()
-      return an.localeCompare(bn, undefined, { sensitivity: "base", numeric: true })
-    })
-  }, [visibleFiles, mergeInfo?.first])
+      const an = (a.name || a.key || "").toString();
+      const bn = (b.name || b.key || "").toString();
+      return an.localeCompare(bn, undefined, { sensitivity: "base", numeric: true });
+    });
+  }, [visibleFiles, mergeInfo?.first]);
 
   // Pagination (20 items per page)
-  const PAGE_SIZE = 20
-  const [page, setPage] = useState(0)
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(sortedVisibleFiles.length / PAGE_SIZE)), [sortedVisibleFiles.length])
-  const clampedPage = Math.min(page, totalPages - 1)
+  const PAGE_SIZE = 20;
+  const [page, setPage] = useState(0);
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(sortedVisibleFiles.length / PAGE_SIZE)), [sortedVisibleFiles.length]);
+  const clampedPage = Math.min(page, totalPages - 1);
   const pageFiles = useMemo(() => {
-    const start = clampedPage * PAGE_SIZE
-    const end = start + PAGE_SIZE
-    return sortedVisibleFiles.slice(start, end)
-  }, [sortedVisibleFiles, clampedPage])
+    const start = clampedPage * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    return sortedVisibleFiles.slice(start, end);
+  }, [sortedVisibleFiles, clampedPage]);
 
   // Reset to first page when dataset or filters change
   useEffect(() => {
-    setPage(0)
-  }, [datasetName, selectedMedia, labelFilter])
+    setPage(0);
+  }, [datasetName, selectedMedia, labelFilter]);
 
   useEffect(() => {
     // If there are no files, clear once if needed and exit without updating state repeatedly.
     if (!pageFiles || pageFiles.length === 0) {
       setImgUrls((prev) => {
-        if (Object.keys(prev).length === 0) return prev
-        Object.values(prev).forEach((u) => { if (u.startsWith("blob:")) URL.revokeObjectURL(u) })
-        return {}
-      })
-      return
+        if (Object.keys(prev).length === 0) return prev;
+        Object.values(prev).forEach((u) => { if (u.startsWith("blob:")) URL.revokeObjectURL(u); });
+        return {};
+      });
+      return;
     }
 
-    let cancelled = false
-    const createdBlobs: string[] = []
+    let cancelled = false;
+    const createdBlobs: string[] = [];
     const run = async () => {
-      const next: Record<string, string> = {}
+      const next: Record<string, string> = {};
       for (const f of pageFiles) {
-        const isImage = (f.mime || "").startsWith("image/")
-        const isVideoWithThumb = (f.mime || "").startsWith("video/") && !!f.thumbKey
+        const isImage = (f.mime || "").startsWith("image/");
+        const isVideoWithThumb = (f.mime || "").startsWith("video/") && !!f.thumbKey;
         if (isImage || isVideoWithThumb) {
           try {
-            const keyToFetch = isImage ? f.key : (f.thumbKey as string)
-            const { url, isBlob } = await getObjectUrlPreferPresign(f.bucket, keyToFetch)
-            if (cancelled) return
-            next[f.key] = url // map by file key for rendering lookup
-            if (isBlob) createdBlobs.push(url)
+            const keyToFetch = isImage ? f.key : (f.thumbKey as string);
+            const { url, isBlob } = await getObjectUrlPreferPresign(f.bucket, keyToFetch);
+            if (cancelled) return;
+            next[f.key] = url; // map by file key for rendering lookup
+            if (isBlob) createdBlobs.push(url);
           } catch {
             // ignore errors for individual objects
           }
         }
       }
-      if (cancelled) return
+      if (cancelled) return;
       setImgUrls((prev) => {
-        const prevKeys = Object.keys(prev)
-        const nextKeys = Object.keys(next)
+        const prevKeys = Object.keys(prev);
+        const nextKeys = Object.keys(next);
         if (prevKeys.length === nextKeys.length && nextKeys.every((k) => prev[k] === next[k])) {
-          return prev
+          return prev;
         }
-        return next
-      })
-    }
-    run()
+        return next;
+      });
+    };
+    run();
     return () => {
-      cancelled = true
-      createdBlobs.forEach((u) => { try { URL.revokeObjectURL(u) } catch { } })
-    }
-  }, [pageFiles])
+      cancelled = true;
+      createdBlobs.forEach((u) => { try { URL.revokeObjectURL(u); } catch { } });
+    };
+  }, [pageFiles]);
 
   // mergeInfo defined above
 
@@ -345,7 +343,7 @@ export default function ClientOpenedDatasetPage() {
               _focusVisible={{ outline: "none", boxShadow: "none" }}
               _active={{ outline: "none", boxShadow: "none" }}
             >
-              <NextLink href="/dataset">{t('dataset.breadcrumb', 'Datasets 📚')}</NextLink>
+              <NextLink href="/dataset">{t("dataset.breadcrumb", "Datasets 📚")}</NextLink>
             </Link>
             {" / "}
             {datasetName || "(unknown)"}
@@ -411,8 +409,8 @@ export default function ClientOpenedDatasetPage() {
                         size="sm"
                         value={labelFilter[lt as LabelType] ? [labelFilter[lt as LabelType]] : []}
                         onValueChange={(details: any) => {
-                          const value = (details?.value?.[0] ?? "any") as LabelMode
-                          setLabelFilter((prev) => ({ ...prev, [lt as LabelType]: value }))
+                          const value = (details?.value?.[0] ?? "any") as LabelMode;
+                          setLabelFilter((prev) => ({ ...prev, [lt as LabelType]: value }));
                         }}
                       >
                         <Select.HiddenSelect />
@@ -453,9 +451,9 @@ export default function ClientOpenedDatasetPage() {
                 name="media"
                 value={selectedMedia}
                 onValueChange={(e: any) => {
-                  const next = (e?.value ?? e) as string[]
+                  const next = (e?.value ?? e) as string[];
                   // Coerce to MediaType[], filter out unknowns
-                  setSelectedMedia(next.filter((v) => (MEDIA_OPTIONS as readonly string[]).includes(v)) as MediaType[])
+                  setSelectedMedia(next.filter((v) => (MEDIA_OPTIONS as readonly string[]).includes(v)) as MediaType[]);
                 }}
               >
                 <For each={MEDIA_OPTIONS as unknown as string[]}>
@@ -491,14 +489,14 @@ export default function ClientOpenedDatasetPage() {
               ))
             ) : (
             pageFiles.map((f) => {
-              const isImage = (f.mime || "").startsWith("image/")
-              const isVideoWithThumb = (f.mime || "").startsWith("video/") && !!f.thumbKey
-              const url = (isImage || isVideoWithThumb) ? imgUrls[f.key] : undefined
-              const mParam = encodeURIComponent(selectedMedia.join(","))
-              const lb = encodeURIComponent(labelFilter["Bounding Box"]) // any|has|no
-              const lo = encodeURIComponent(labelFilter["OneShotBBox"]) // any|has|no
-              const lt = encodeURIComponent(labelFilter["Text"]) // any|has|no
-              const href = `/dataset/opened-dataset/object-card?d=${encodeBase64Utf8(datasetName)}&id=${encodeBase64Utf8(f.id)}&n=${encodeBase64Utf8(f.name || f.key)}&b=${encodeBase64Utf8(f.bucket)}&k=${encodeBase64Utf8(f.key)}&m=${mParam}&lb=${lb}&lo=${lo}&lt=${lt}`
+              const isImage = (f.mime || "").startsWith("image/");
+              const isVideoWithThumb = (f.mime || "").startsWith("video/") && !!f.thumbKey;
+              const url = (isImage || isVideoWithThumb) ? imgUrls[f.key] : undefined;
+              const mParam = encodeURIComponent(selectedMedia.join(","));
+              const lb = encodeURIComponent(labelFilter["Bounding Box"]); // any|has|no
+              const lo = encodeURIComponent(labelFilter["OneShotBBox"]); // any|has|no
+              const lt = encodeURIComponent(labelFilter["Text"]); // any|has|no
+              const href = `/dataset/opened-dataset/object-card?d=${encodeBase64Utf8(datasetName)}&id=${encodeBase64Utf8(f.id)}&n=${encodeBase64Utf8(f.name || f.key)}&b=${encodeBase64Utf8(f.bucket)}&k=${encodeBase64Utf8(f.key)}&m=${mParam}&lb=${lb}&lo=${lo}&lt=${lt}`;
               return (
                 <NextLink key={f.id} href={href}>
                   <Box bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">
@@ -513,9 +511,9 @@ export default function ClientOpenedDatasetPage() {
                           </Center>
                         </Box>
                       )}
-                      {(f.encode === 'video-merge') && (
+                      {(f.encode === "video-merge") && (
                         <Box position="absolute" top="6px" left="6px">
-                          <Badge size="sm" colorPalette="purple" variant="solid">{t('merge.badge','Merged')}</Badge>
+                          <Badge size="sm" colorPalette="purple" variant="solid">{t("merge.badge","Merged")}</Badge>
                         </Box>
                       )}
                     </Box>
@@ -524,7 +522,7 @@ export default function ClientOpenedDatasetPage() {
                     </Box>
                   </Box>
                 </NextLink>
-                )
+                );
               })
             )}
           </SimpleGrid>
@@ -560,5 +558,5 @@ export default function ClientOpenedDatasetPage() {
         </Box>
       </Flex>
     </Box>
-  )
+  );
 }

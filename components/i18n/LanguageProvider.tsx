@@ -1,6 +1,6 @@
-"use client"
+"use client";
 
-import React, { createContext, useContext, useMemo, useState } from "react"
+import React, { createContext, useContext, useMemo, useState } from "react";
 
 type Lang = "en" | "ja"
 
@@ -128,7 +128,7 @@ const en: Dict = {
   "merge.drawer_title": "Merge Sequence",
   "merge.current": "(current)",
   "merge.annotate_only_first": "Annotations are allowed only on the first merged video.",
-}
+};
 
 const ja: Dict = {
   // Nav
@@ -252,9 +252,9 @@ const ja: Dict = {
   "merge.drawer_title": "連結シーケンス",
   "merge.current": "(現在)",
   "merge.annotate_only_first": "連結動画のアノテーションは先頭の動画のみ可能です。",
-}
+};
 
-const DICTS: Record<Lang, Dict> = { en, ja }
+const DICTS: Record<Lang, Dict> = { en, ja };
 
 type Ctx = {
   lang: Lang
@@ -262,43 +262,43 @@ type Ctx = {
   t: (key: string, fallback?: string) => string
 }
 
-const LanguageContext = createContext<Ctx | undefined>(undefined)
+const LanguageContext = createContext<Ctx | undefined>(undefined);
 
 export function LanguageProvider({ children, initialLang }: { children: React.ReactNode; initialLang?: Lang }) {
   const [lang, setLangState] = useState<Lang>(() => {
-    if (initialLang === 'en' || initialLang === 'ja') return initialLang
+    if (initialLang === "en" || initialLang === "ja") return initialLang;
     try {
-      if (typeof window !== 'undefined') {
-        const saved = localStorage.getItem("mlops-ui.lang") as Lang | null
-        if (saved === "en" || saved === "ja") return saved
-        const nav = navigator?.language?.toLowerCase() || "en"
-        return nav.startsWith("ja") ? "ja" : "en"
+      if (typeof window !== "undefined") {
+        const saved = localStorage.getItem("mlops-ui.lang") as Lang | null;
+        if (saved === "en" || saved === "ja") return saved;
+        const nav = navigator?.language?.toLowerCase() || "en";
+        return nav.startsWith("ja") ? "ja" : "en";
       }
     } catch { }
-    return "en"
-  })
+    return "en";
+  });
 
   const setLang = (l: Lang) => {
-    setLangState(l)
+    setLangState(l);
     try {
-      localStorage.setItem("mlops-ui.lang", l)
-      if (typeof document !== 'undefined') {
-        document.cookie = `mlops-ui.lang=${l}; path=/; max-age=${60 * 60 * 24 * 365}`
+      localStorage.setItem("mlops-ui.lang", l);
+      if (typeof document !== "undefined") {
+        document.cookie = `mlops-ui.lang=${l}; path=/; max-age=${60 * 60 * 24 * 365}`;
       }
     } catch { }
-  }
+  };
 
   const t = (key: string, fallback?: string) => {
-    const d = DICTS[lang]
-    return d[key] ?? fallback ?? key
-  }
+    const d = DICTS[lang];
+    return d[key] ?? fallback ?? key;
+  };
 
-  const value = useMemo(() => ({ lang, setLang, t }), [lang])
-  return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>
+  const value = useMemo(() => ({ lang, setLang, t }), [lang]);
+  return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
 }
 
 export function useI18n() {
-  const ctx = useContext(LanguageContext)
-  if (!ctx) throw new Error("useI18n must be used within LanguageProvider")
-  return ctx
+  const ctx = useContext(LanguageContext);
+  if (!ctx) throw new Error("useI18n must be used within LanguageProvider");
+  return ctx;
 }

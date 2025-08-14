@@ -1,15 +1,15 @@
-"use client"
+"use client";
 
-import { Box, HStack, VStack, Heading, Text, Button, Input, InputGroup, SimpleGrid, Badge, Skeleton, SkeletonText } from "@chakra-ui/react"
-import NextLink from "next/link"
-import { useDeferredValue, useMemo, useState } from "react"
-import { LuSearch } from "react-icons/lu"
-import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
-import { useQuery } from "@tanstack/react-query"
-import { extractRows } from "@/components/surreal/normalize"
-import { encodeBase64Utf8 } from "@/components/utils/base64"
-import { useSearchParams } from "next/navigation"
-import { useI18n } from "@/components/i18n/LanguageProvider"
+import { Box, HStack, VStack, Heading, Text, Button, Input, InputGroup, SimpleGrid, Badge, Skeleton, SkeletonText } from "@chakra-ui/react";
+import NextLink from "next/link";
+import { useDeferredValue, useMemo, useState } from "react";
+import { LuSearch } from "react-icons/lu";
+import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider";
+import { useQuery } from "@tanstack/react-query";
+import { extractRows } from "@/components/surreal/normalize";
+import { encodeBase64Utf8 } from "@/components/utils/base64";
+import { useSearchParams } from "next/navigation";
+import { useI18n } from "@/components/i18n/LanguageProvider";
 
 type JobRow = {
   id: string
@@ -21,38 +21,38 @@ type JobRow = {
 }
 
 function thingToString(v: unknown): string {
-  if (v == null) return ""
-  if (typeof v === "string") return v
+  if (v == null) return "";
+  if (typeof v === "string") return v;
   if (typeof v === "object" && v !== null && "tb" in (v as any) && "id" in (v as any)) {
-    const t = v as any
-    const id = typeof t.id === "object" && t.id !== null ? ((t.id as any).toString?.() ?? JSON.stringify(t.id)) : String(t.id)
-    return `${t.tb}:${id}`
+    const t = v as any;
+    const id = typeof t.id === "object" && t.id !== null ? ((t.id as any).toString?.() ?? JSON.stringify(t.id)) : String(t.id);
+    return `${t.tb}:${id}`;
   }
-  return String(v)
+  return String(v);
 }
 
 function formatTimestamp(ts?: string): string {
-  if (!ts) return ""
-  const d = new Date(ts)
-  if (isNaN(d.getTime())) return String(ts)
-  const pad = (n: number) => String(n).padStart(2, "0")
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return String(ts);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export default function InferenceJobsPage() {
-  const { t } = useI18n()
-  const surreal = useSurrealClient()
-  const { isSuccess } = useSurreal()
-  const [query, setQuery] = useState("")
-  const deferred = useDeferredValue(query)
-  const params = useSearchParams()
-  const refresh = params.get("r") || ""
+  const { t } = useI18n();
+  const surreal = useSurrealClient();
+  const { isSuccess } = useSurreal();
+  const [query, setQuery] = useState("");
+  const deferred = useDeferredValue(query);
+  const params = useSearchParams();
+  const refresh = params.get("r") || "";
   const { data: jobs = [], isPending, isError, error, refetch } = useQuery({
     queryKey: ["inference-jobs", refresh],
     enabled: isSuccess,
     queryFn: async (): Promise<JobRow[]> => {
-      const res = await surreal.query("SELECT * FROM inference_job ORDER BY updatedAt DESC")
-      const rows = extractRows<any>(res)
+      const res = await surreal.query("SELECT * FROM inference_job ORDER BY updatedAt DESC");
+      const rows = extractRows<any>(res);
       return rows.map((r: any) => ({
         id: thingToString(r?.id),
         name: String(r?.name ?? ""),
@@ -60,56 +60,56 @@ export default function InferenceJobsPage() {
         taskType: r?.taskType,
         model: r?.model,
         updatedAt: r?.updatedAt,
-      }))
+      }));
     },
     staleTime: 5000,
     refetchOnWindowFocus: false,
     refetchInterval: (q: any) => {
-      const data = q?.state?.data as JobRow[] | undefined
-      if (!data || data.length === 0) return 3000
+      const data = q?.state?.data as JobRow[] | undefined;
+      if (!data || data.length === 0) return 3000;
       const hasActive = data.some((j) => {
-        const s = (j?.status || '').toLowerCase()
-        return !(s === 'complete' || s === 'completed' || s === 'failed' || s === 'faild')
-      })
-      return hasActive ? 3000 : false
+        const s = (j?.status || "").toLowerCase();
+        return !(s === "complete" || s === "completed" || s === "failed" || s === "faild");
+      });
+      return hasActive ? 3000 : false;
     },
-  })
+  });
 
   const filtered = useMemo(() => {
-    const q = deferred.trim().toLowerCase()
-    if (!q) return jobs
-    return jobs.filter((j) => j.name?.toLowerCase().includes(q) || j.model?.toLowerCase().includes(q) || j.taskType?.toLowerCase().includes(q))
-  }, [jobs, deferred])
+    const q = deferred.trim().toLowerCase();
+    if (!q) return jobs;
+    return jobs.filter((j) => j.name?.toLowerCase().includes(q) || j.model?.toLowerCase().includes(q) || j.taskType?.toLowerCase().includes(q));
+  }, [jobs, deferred]);
 
   return (
     <HStack justify="center">
       <VStack w="70%" align="stretch" py="24px" gap="16px">
         <HStack justify="space-between" pb="8px">
           <HStack gap="3" align="center">
-            <Heading size="2xl">{t('inference.title', 'Inference Jobs 🤖')}</Heading>
-            <Badge rounded="full" variant="subtle" colorPalette="teal">{t('inference.badge', 'Inference')}</Badge>
+            <Heading size="2xl">{t("inference.title", "Inference Jobs 🤖")}</Heading>
+            <Badge rounded="full" variant="subtle" colorPalette="teal">{t("inference.badge", "Inference")}</Badge>
           </HStack>
           <HStack>
             <NextLink href="/inference/playground" passHref>
-              <Button rounded="full" variant="outline">{t('nav.playground', 'Playground')} ⚡</Button>
+              <Button rounded="full" variant="outline">{t("nav.playground", "Playground")} ⚡</Button>
             </NextLink>
             <NextLink href="/inference/create" passHref>
-              <Button rounded="full">{t('inference.new', 'New Inference')}</Button>
+              <Button rounded="full">{t("inference.new", "New Inference")}</Button>
             </NextLink>
           </HStack>
         </HStack>
-        <Text textStyle="sm" color="gray.600">{t('inference.subtitle')}</Text>
+        <Text textStyle="sm" color="gray.600">{t("inference.subtitle")}</Text>
         <InputGroup
           flex="1"
           startElement={<LuSearch />}
           endElement={
             query ? (
-              <Button size="xs" variant="ghost" onClick={() => setQuery("")}>{t('common.clear', 'Clear')}</Button>
+              <Button size="xs" variant="ghost" onClick={() => setQuery("")}>{t("common.clear", "Clear")}</Button>
             ) : undefined
           }
         >
           <Input
-            placeholder={t('training.search.placeholder', 'Search jobs by name, model, task')}
+            placeholder={t("training.search.placeholder", "Search jobs by name, model, task")}
             size="sm"
             variant="flushed"
             aria-label="Search jobs"
@@ -121,7 +121,7 @@ export default function InferenceJobsPage() {
         {isError && (
           <HStack color="red.500" justify="space-between">
             <Box>Failed to load jobs: {String((error as any)?.message ?? error)}</Box>
-            <Button size="xs" variant="outline" onClick={() => refetch()}>{t('common.retry', 'Retry')}</Button>
+            <Button size="xs" variant="outline" onClick={() => refetch()}>{t("common.retry", "Retry")}</Button>
           </HStack>
         )}
 
@@ -135,7 +135,7 @@ export default function InferenceJobsPage() {
               </Box>
             ))
           ) : filtered.length === 0 ? (
-            <Text color="gray.500">{t('training.empty', 'No jobs found')}</Text>
+            <Text color="gray.500">{t("training.empty", "No jobs found")}</Text>
           ) : (
             filtered.map((j) => (
               <NextLink key={j.id} href={`/inference/opened-job?j=${encodeBase64Utf8(j.name)}`}>
@@ -144,16 +144,16 @@ export default function InferenceJobsPage() {
                     <Heading size="md">{j.name || "(no name)"}</Heading>
                     <Badge
                       colorPalette={
-                        j.status === 'ProcessWaiting'
-                          ? 'green'
-                          : (j.status === 'StopInterrept' || j.status === 'Failed' || j.status === 'Faild')
-                            ? 'red'
-                            : (j.status === 'Complete' || j.status === 'Completed')
-                              ? 'blue'
-                              : 'gray'
+                        j.status === "ProcessWaiting"
+                          ? "green"
+                          : (j.status === "StopInterrept" || j.status === "Failed" || j.status === "Faild")
+                            ? "red"
+                            : (j.status === "Complete" || j.status === "Completed")
+                              ? "blue"
+                              : "gray"
                       }
                     >
-                      {j.status || 'Idle'}
+                      {j.status || "Idle"}
                     </Badge>
                   </HStack>
                   <Text textStyle="sm" color="gray.600">{j.taskType || "-"} • {j.model || "-"}</Text>
@@ -167,5 +167,5 @@ export default function InferenceJobsPage() {
         </SimpleGrid>
       </VStack>
     </HStack>
-  )
+  );
 }

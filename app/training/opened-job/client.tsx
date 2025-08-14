@@ -1,15 +1,14 @@
-"use client"
+"use client";
 
-import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, TabsRoot, TabsList, TabsTrigger, TabsContent, AspectRatio } from "@chakra-ui/react"
-import NextLink from "next/link"
-import { useSearchParams } from "next/navigation"
-import { useMemo, useState } from "react"
-import { decodeBase64Utf8 } from "@/components/utils/base64"
-import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { extractRows } from "@/components/surreal/normalize"
-import { useRouter } from "next/navigation"
-import { useI18n } from "@/components/i18n/LanguageProvider"
+import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, TabsRoot, TabsList, TabsTrigger, TabsContent, AspectRatio } from "@chakra-ui/react";
+import NextLink from "next/link";
+import { useSearchParams , useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
+import { decodeBase64Utf8 } from "@/components/utils/base64";
+import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { extractRows } from "@/components/surreal/normalize";
+import { useI18n } from "@/components/i18n/LanguageProvider";
 
 type JobRow = {
   id: string
@@ -28,39 +27,39 @@ type JobRow = {
 }
 
 function thingToString(v: unknown): string {
-  if (v == null) return ""
-  if (typeof v === "string") return v
+  if (v == null) return "";
+  if (typeof v === "string") return v;
   if (typeof v === "object" && v !== null && "tb" in (v as any) && "id" in (v as any)) {
-    const t = v as any
-    const id = typeof t.id === "object" && t.id !== null ? ((t.id as any).toString?.() ?? JSON.stringify(t.id)) : String(t.id)
-    return `${t.tb}:${id}`
+    const t = v as any;
+    const id = typeof t.id === "object" && t.id !== null ? ((t.id as any).toString?.() ?? JSON.stringify(t.id)) : String(t.id);
+    return `${t.tb}:${id}`;
   }
-  return String(v)
+  return String(v);
 }
 
 export default function ClientOpenedJobPage() {
-  const { t } = useI18n()
-  const params = useSearchParams()
-  const router = useRouter()
-  const queryClient = useQueryClient()
+  const { t } = useI18n();
+  const params = useSearchParams();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const jobName = useMemo(() => {
-    const j = params.get("j")
-    if (!j) return ""
-    try { return decodeBase64Utf8(j) } catch { return "" }
-  }, [params])
+    const j = params.get("j");
+    if (!j) return "";
+    try { return decodeBase64Utf8(j); } catch { return ""; }
+  }, [params]);
 
-  const surreal = useSurrealClient()
-  const { isSuccess } = useSurreal()
-  const [removing, setRemoving] = useState(false)
+  const surreal = useSurrealClient();
+  const { isSuccess } = useSurreal();
+  const [removing, setRemoving] = useState(false);
 
   const { data: job, isPending, isError, error, refetch } = useQuery({
     queryKey: ["training-job-detail", jobName],
     enabled: isSuccess && !!jobName,
     queryFn: async (): Promise<JobRow | null> => {
-      const res = await surreal.query("SELECT * FROM training_job WHERE name == $name ORDER BY updatedAt DESC LIMIT 1", { name: jobName })
-      const rows = extractRows<any>(res)
-      const r = rows[0]
-      if (!r) return null
+      const res = await surreal.query("SELECT * FROM training_job WHERE name == $name ORDER BY updatedAt DESC LIMIT 1", { name: jobName });
+      const rows = extractRows<any>(res);
+      const r = rows[0];
+      if (!r) return null;
       return {
         id: thingToString(r?.id),
         name: String(r?.name ?? ""),
@@ -69,74 +68,74 @@ export default function ClientOpenedJobPage() {
         model: r?.model,
         datasets: Array.isArray(r?.datasets) ? r.datasets : [],
         labels: Array.isArray(r?.labels) ? r.labels : [],
-        epochs: typeof r?.epochs === 'number' ? r.epochs : undefined,
-        batchSize: typeof r?.batchSize === 'number' ? r.batchSize : undefined,
-        splitTrain: typeof r?.splitTrain === 'number' ? r.splitTrain : undefined,
-        splitTest: typeof r?.splitTest === 'number' ? r.splitTest : undefined,
+        epochs: typeof r?.epochs === "number" ? r.epochs : undefined,
+        batchSize: typeof r?.batchSize === "number" ? r.batchSize : undefined,
+        splitTrain: typeof r?.splitTrain === "number" ? r.splitTrain : undefined,
+        splitTest: typeof r?.splitTest === "number" ? r.splitTest : undefined,
         createdAt: r?.createdAt,
         updatedAt: r?.updatedAt,
-      }
+      };
     },
     refetchOnWindowFocus: false,
     staleTime: 2000,
-  })
+  });
 
   function formatTimestamp(ts?: string): string {
-    if (!ts) return ""
-    const d = new Date(ts)
-    if (isNaN(d.getTime())) return String(ts)
-    const pad = (n: number) => String(n).padStart(2, "0")
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+    if (!ts) return "";
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return String(ts);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
   type Point = Record<string, number | string>
   function LineSvg({ data, yKey, color = "#2b6cb0" }: { data: Point[]; yKey: string; color?: string }) {
-    const width = 800
-    const height = 300
-    const pad = { l: 40, r: 12, t: 12, b: 24 }
-    const innerW = width - pad.l - pad.r
-    const innerH = height - pad.t - pad.b
-    const xs = data.map((_, i) => i)
-    const ys = data.map((d) => Number(d[yKey] as any))
-    const yMin = Math.min(...ys)
-    const yMax = Math.max(...ys)
-    const ySpan = yMax - yMin || 1
-    const toX = (i: number) => pad.l + (innerW * i) / Math.max(1, xs.length - 1)
-    const toY = (y: number) => pad.t + innerH - ((y - yMin) / ySpan) * innerH
+    const width = 800;
+    const height = 300;
+    const pad = { l: 40, r: 12, t: 12, b: 24 };
+    const innerW = width - pad.l - pad.r;
+    const innerH = height - pad.t - pad.b;
+    const xs = data.map((_, i) => i);
+    const ys = data.map((d) => Number(d[yKey] as any));
+    const yMin = Math.min(...ys);
+    const yMax = Math.max(...ys);
+    const ySpan = yMax - yMin || 1;
+    const toX = (i: number) => pad.l + (innerW * i) / Math.max(1, xs.length - 1);
+    const toY = (y: number) => pad.t + innerH - ((y - yMin) / ySpan) * innerH;
     const dAttr = data
       .map((d, i) => `${i === 0 ? "M" : "L"}${toX(i)},${toY(Number(d[yKey] as any))}`)
-      .join(" ")
-    const xTicks = 5
-    const yTicks = 4
+      .join(" ");
+    const xTicks = 5;
+    const yTicks = 4;
     return (
       <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
         <rect x="0" y="0" width={width} height={height} fill="white" />
         {[...Array(xTicks)].map((_, i) => {
-          const x = pad.l + (innerW * i) / (xTicks - 1)
-          return <line key={`vx-${i}`} x1={x} x2={x} y1={pad.t} y2={pad.t + innerH} stroke="#eee" />
+          const x = pad.l + (innerW * i) / (xTicks - 1);
+          return <line key={`vx-${i}`} x1={x} x2={x} y1={pad.t} y2={pad.t + innerH} stroke="#eee" />;
         })}
         {[...Array(yTicks)].map((_, i) => {
-          const y = pad.t + (innerH * i) / (yTicks - 1)
-          return <line key={`hz-${i}`} x1={pad.l} x2={pad.l + innerW} y1={y} y2={y} stroke="#eee" />
+          const y = pad.t + (innerH * i) / (yTicks - 1);
+          return <line key={`hz-${i}`} x1={pad.l} x2={pad.l + innerW} y1={y} y2={y} stroke="#eee" />;
         })}
         <path d={dAttr} fill="none" stroke={color} strokeWidth={2} />
       </svg>
-    )
+    );
   }
 
   async function handleRemove() {
-    if (!jobName || removing) return
-    setRemoving(true)
+    if (!jobName || removing) return;
+    setRemoving(true);
     try {
-      await surreal.query("DELETE training_job WHERE name == $name", { name: jobName })
+      await surreal.query("DELETE training_job WHERE name == $name", { name: jobName });
       // Invalidate job list and navigate with refresh token to force reload
-      queryClient.invalidateQueries({ queryKey: ["training-jobs"] })
-      const r = Date.now().toString()
-      router.push(`/training?r=${encodeURIComponent(r)}`)
+      queryClient.invalidateQueries({ queryKey: ["training-jobs"] });
+      const r = Date.now().toString();
+      router.push(`/training?r=${encodeURIComponent(r)}`);
     } catch {
       // ignore
     } finally {
-      setRemoving(false)
+      setRemoving(false);
     }
   }
 
@@ -146,27 +145,27 @@ export default function ClientOpenedJobPage() {
         <HStack gap="3" align="center">
           <Heading size="2xl">
             <Link asChild color="black" _hover={{ textDecoration: "none", color: "black" }}>
-            <NextLink href="/training">{t('training.detail.breadcrumb','Training 🚀')}</NextLink>
+            <NextLink href="/training">{t("training.detail.breadcrumb","Training 🚀")}</NextLink>
             </Link>
             {" / "}
             {jobName || "(unknown)"}
           </Heading>
-          <Badge rounded="full" variant="subtle" colorPalette="orange">{t('training.badge','Training')}</Badge>
+          <Badge rounded="full" variant="subtle" colorPalette="orange">{t("training.badge","Training")}</Badge>
         </HStack>
         <HStack>
-          {job?.status === 'ProcessWaiting' && (
+          {job?.status === "ProcessWaiting" && (
             <Button size="sm" rounded="full" variant="outline" onClick={async () => {
-              if (!jobName) return
+              if (!jobName) return;
               try {
-                await surreal.query("UPDATE training_job SET status = 'StopInterrept', updatedAt = time::now() WHERE name == $name", { name: jobName })
-                queryClient.invalidateQueries({ queryKey: ["training-jobs"] })
-                refetch()
+                await surreal.query("UPDATE training_job SET status = 'StopInterrept', updatedAt = time::now() WHERE name == $name", { name: jobName });
+                queryClient.invalidateQueries({ queryKey: ["training-jobs"] });
+                refetch();
               } catch {}
-            }}>{t('common.stop','Stop')}</Button>
+            }}>{t("common.stop","Stop")}</Button>
           )}
           <Dialog.Root>
             <Dialog.Trigger asChild>
-              <Button size="sm" rounded="full" colorPalette="red" disabled={removing}>{t('common.remove_job','Remove Job')}</Button>
+              <Button size="sm" rounded="full" colorPalette="red" disabled={removing}>{t("common.remove_job","Remove Job")}</Button>
             </Dialog.Trigger>
             <Portal>
               <Dialog.Backdrop />
@@ -180,9 +179,9 @@ export default function ClientOpenedJobPage() {
                   </Dialog.Body>
                   <Dialog.Footer>
                     <Dialog.ActionTrigger asChild>
-                      <Button variant="outline">{t('common.cancel','Cancel')}</Button>
+                      <Button variant="outline">{t("common.cancel","Cancel")}</Button>
                     </Dialog.ActionTrigger>
-                    <Button colorPalette="red" onClick={handleRemove} disabled={removing}>{t('common.remove','Remove')}</Button>
+                    <Button colorPalette="red" onClick={handleRemove} disabled={removing}>{t("common.remove","Remove")}</Button>
                   </Dialog.Footer>
                   <Dialog.CloseTrigger asChild>
                     <CloseButton size="sm" />
@@ -216,24 +215,24 @@ export default function ClientOpenedJobPage() {
                   <Heading size="lg">{job.name}</Heading>
                   <Badge
                     colorPalette={
-                      job.status === 'ProcessWaiting'
-                        ? 'green'
-                        : job.status === 'StopInterrept'
-                        ? 'red'
-                        : (job.status === 'Complete' || job.status === 'Completed')
-                        ? 'blue'
-                        : 'gray'
+                      job.status === "ProcessWaiting"
+                        ? "green"
+                        : job.status === "StopInterrept"
+                        ? "red"
+                        : (job.status === "Complete" || job.status === "Completed")
+                        ? "blue"
+                        : "gray"
                     }
                   >
-                    {job.status || 'Idle'}
+                    {job.status || "Idle"}
                   </Badge>
                 </HStack>
               </HStack>
-              <Text textStyle="sm" color="gray.700">Task: {job.taskType || '-'}</Text>
-              <Text textStyle="sm" color="gray.700">Model: {job.model || '-'}</Text>
-              <Text textStyle="sm" color="gray.700">Train/Test: {job.splitTrain ?? '-'} : {job.splitTest ?? '-'}</Text>
-              <Text textStyle="sm" color="gray.700">Epochs: {job.epochs ?? '-'}</Text>
-              <Text textStyle="sm" color="gray.700">Batch Size: {job.batchSize ?? '-'}</Text>
+              <Text textStyle="sm" color="gray.700">Task: {job.taskType || "-"}</Text>
+              <Text textStyle="sm" color="gray.700">Model: {job.model || "-"}</Text>
+              <Text textStyle="sm" color="gray.700">Train/Test: {job.splitTrain ?? "-"} : {job.splitTest ?? "-"}</Text>
+              <Text textStyle="sm" color="gray.700">Epochs: {job.epochs ?? "-"}</Text>
+              <Text textStyle="sm" color="gray.700">Batch Size: {job.batchSize ?? "-"}</Text>
               <Box>
                 <Text textStyle="sm" color="gray.700" fontWeight="bold">Datasets</Text>
                 {(!job.datasets || job.datasets.length === 0) ? (
@@ -260,8 +259,8 @@ export default function ClientOpenedJobPage() {
                   )}
                 </Box>
               )}
-              <Text textStyle="xs" color="gray.500">Updated: {formatTimestamp(job.updatedAt) || '-'}</Text>
-              <Text textStyle="xs" color="gray.500">Created: {formatTimestamp(job.createdAt) || '-'}</Text>
+              <Text textStyle="xs" color="gray.500">Updated: {formatTimestamp(job.updatedAt) || "-"}</Text>
+              <Text textStyle="xs" color="gray.500">Created: {formatTimestamp(job.createdAt) || "-"}</Text>
             </VStack>
           )}
         </Box>
@@ -313,5 +312,5 @@ export default function ClientOpenedJobPage() {
         </VStack>
       </HStack>
     </Box>
-  )
+  );
 }

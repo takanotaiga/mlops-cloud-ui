@@ -9,4 +9,4 @@ export const MINIO_CONFIG = {
   bucket: "mlops-datasets",             // target bucket name (lowercase, DNS-safe)
   // Force path-style for MinIO (http://endpoint/bucket/key)
   forcePathStyle: true as const,
-}
+};

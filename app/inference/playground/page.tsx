@@ -1,8 +1,8 @@
-"use client"
+"use client";
 
-import { Box, HStack, VStack, Heading, Text, Button, Input, Textarea, Select, createListCollection, Portal } from "@chakra-ui/react"
-import { useState } from "react"
-import { useI18n } from "@/components/i18n/LanguageProvider"
+import { Box, HStack, VStack, Heading, Text, Button, Input, Textarea, Select, createListCollection, Portal } from "@chakra-ui/react";
+import { useState } from "react";
+import { useI18n } from "@/components/i18n/LanguageProvider";
 
 const taskOptions = createListCollection({
   items: [
@@ -10,23 +10,23 @@ const taskOptions = createListCollection({
     { label: "Image to Text", value: "image-to-text" },
     { label: "Text to Image", value: "text-to-image" },
   ],
-})
+});
 
 export default function Page() {
-  const { t } = useI18n()
-  const [taskType, setTaskType] = useState<string>("")
-  const [prompt, setPrompt] = useState("")
-  const [imageUrl, setImageUrl] = useState<string | null>(null)
-  const [running, setRunning] = useState(false)
+  const { t } = useI18n();
+  const [taskType, setTaskType] = useState<string>("");
+  const [prompt, setPrompt] = useState("");
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
 
   function onPickFile(e: any) {
-    const f = e?.target?.files?.[0]
-    if (!f) return
-    const url = URL.createObjectURL(f)
+    const f = e?.target?.files?.[0];
+    if (!f) return;
+    const url = URL.createObjectURL(f);
     setImageUrl((prev) => {
-      if (prev) { try { URL.revokeObjectURL(prev) } catch {} }
-      return url
-    })
+      if (prev) { try { URL.revokeObjectURL(prev); } catch {} }
+      return url;
+    });
   }
 
   return (
@@ -34,14 +34,14 @@ export default function Page() {
       <VStack w={{ base: "90%", md: "70%" }} align="stretch" gap="16px" py="24px">
         <HStack justify="space-between">
           <HStack gap="3" align="center">
-            <Heading size="2xl">{t('playground.title','Quick Playground ⚡')}</Heading>
-            <Button size="xs" rounded="full" variant="subtle" colorPalette="teal">{t('inference.badge','Inference')}</Button>
+            <Heading size="2xl">{t("playground.title","Quick Playground ⚡")}</Heading>
+            <Button size="xs" rounded="full" variant="subtle" colorPalette="teal">{t("inference.badge","Inference")}</Button>
           </HStack>
           <Button rounded="full" onClick={() => setRunning(true)} disabled={!taskType || running}>
-            {running ? t('common.loading','Loading...') : t('common.start','Start')}
+            {running ? t("common.loading","Loading...") : t("common.start","Start")}
           </Button>
         </HStack>
-        <Text textStyle="sm" color="gray.600">{t('playground.subtitle')}</Text>
+        <Text textStyle="sm" color="gray.600">{t("playground.subtitle")}</Text>
 
         <VStack align="stretch" gap="16px">
           {/* Task */}
@@ -79,7 +79,7 @@ export default function Page() {
           </Box>
 
           {/* Inputs by task */}
-          {taskType === 'text-to-image' && (
+          {taskType === "text-to-image" && (
             <Box p="16px" rounded="md" borderWidth="1px" bg="bg.panel">
               <Text fontWeight="bold" mb="8px">Prompt</Text>
               <Textarea placeholder="A cat astronaut, watercolor style" size="sm" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
@@ -92,16 +92,16 @@ export default function Page() {
             </Box>
           )}
 
-          {(taskType === 'image-to-text' || taskType === 'object-detection') && (
+          {(taskType === "image-to-text" || taskType === "object-detection") && (
             <Box p="16px" rounded="md" borderWidth="1px" bg="bg.panel">
               <Text fontWeight="bold" mb="8px">Input Image</Text>
               <Input type="file" accept="image/*" size="sm" onChange={onPickFile} />
               {imageUrl && (
                 <Box mt="12px" rounded="md" overflow="hidden" borderWidth="1px">
-                  <img src={imageUrl} alt="preview" style={{ display: 'block', width: '100%', height: 'auto' }} />
+                  <img src={imageUrl} alt="preview" style={{ display: "block", width: "100%", height: "auto" }} />
                 </Box>
               )}
-              {taskType === 'image-to-text' && (
+              {taskType === "image-to-text" && (
                 <>
                   <Text fontWeight="bold" mt="12px" mb="8px">Prompt (optional)</Text>
                   <Input placeholder="e.g., Describe the scene" size="sm" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
@@ -116,5 +116,5 @@ export default function Page() {
         </VStack>
       </VStack>
     </HStack>
-  )
+  );
 }

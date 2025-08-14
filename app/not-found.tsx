@@ -1,20 +1,20 @@
-"use client"
+"use client";
 
-import { Box, Center, Heading, Text, Button, HStack, VStack } from "@chakra-ui/react"
-import { keyframes } from "@emotion/react"
-import Link from "next/link"
+import { Box, Center, Heading, Text, Button, HStack, VStack } from "@chakra-ui/react";
+import { keyframes } from "@emotion/react";
+import Link from "next/link";
 
 const float = keyframes({
   "0%": { transform: "translateY(0px)" },
   "50%": { transform: "translateY(-14px)" },
   "100%": { transform: "translateY(0px)" },
-})
+});
 
 const sway = keyframes({
   "0%": { transform: "translateX(0px) rotate(0deg)" },
   "50%": { transform: "translateX(10px) rotate(6deg)" },
   "100%": { transform: "translateX(0px) rotate(0deg)" },
-})
+});
 
 export default function Page() {
   return (
@@ -75,5 +75,5 @@ export default function Page() {
         </VStack>
       </Center>
     </Box>
-  )
+  );
 }

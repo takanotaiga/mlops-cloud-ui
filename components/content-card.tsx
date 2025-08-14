@@ -1,4 +1,4 @@
-import { Box, Image, LinkOverlay, LinkBox } from "@chakra-ui/react"
+import { Box, Image, LinkOverlay, LinkBox } from "@chakra-ui/react";
 
 export default function ContentCard() {
     return (
@@ -15,5 +15,5 @@ export default function ContentCard() {
                 </Box>
             </LinkOverlay>
         </LinkBox>
-    )
+    );
 }
