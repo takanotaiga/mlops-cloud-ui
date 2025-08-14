@@ -221,6 +221,16 @@ export default function ClientOpenedInferenceJobPage() {
     const ab = await file.arrayBuffer();
     return new Uint8Array(ab);
   }
+  async function deleteOpfsFile(path: string): Promise<void> {
+    try {
+      const root = await getOpfsRoot();
+      const { dir, name } = await ensurePath(root, path, false);
+      // remove the file entry if present
+      await dir.removeEntry(name, { recursive: false } as any);
+    } catch {
+      // ignore errors (file/dir may not exist or API unsupported)
+    }
+  }
   async function downloadToOpfsWithProgress(bucket: string, key: string, expectedSize?: number) {
     setDownloading(true);
     setDownloadPct(0);
@@ -358,6 +368,39 @@ export default function ClientOpenedInferenceJobPage() {
     if (!jobName || removing) return;
     setRemoving(true);
     try {
+      // Collect related inference_result keys for OPFS cleanup
+      let keys: string[] = [];
+      try {
+        if (job?.id) {
+          const res = await surreal.query("SELECT key FROM inference_result WHERE job == <record> $job", { job: job.id });
+          const rows = extractRows<any>(res);
+          keys = rows.map((r: any) => String(r?.key || "")).filter(Boolean);
+        }
+      } catch { /* ignore */ }
+
+      // Delete related inference_result rows first
+      try {
+        if (job?.id) {
+          await surreal.query("DELETE inference_result WHERE job == <record> $job", { job: job.id });
+        }
+      } catch { /* ignore */ }
+
+      // Remove cached OPFS files (videos/parquet) for this job's results
+      try {
+        await Promise.all(keys.map((k) => deleteOpfsFile(k)));
+      } catch { /* ignore */ }
+
+      // Revoke any blob URL we created
+      try {
+        setVideoUrl((prev) => {
+          if (prev && prev.startsWith("blob:")) {
+            try { URL.revokeObjectURL(prev); } catch { /* ignore */ }
+          }
+          return null;
+        });
+      } catch { /* ignore */ }
+
+      // Finally remove the job itself
       await surreal.query("DELETE inference_job WHERE name == $name", { name: jobName });
       // Invalidate job list and navigate with refresh token to force reload
       queryClient.invalidateQueries({ queryKey: ["inference-jobs"] });
