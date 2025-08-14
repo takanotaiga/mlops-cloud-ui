@@ -274,7 +274,7 @@ export function LanguageProvider({ children, initialLang }: { children: React.Re
         const nav = navigator?.language?.toLowerCase() || "en";
         return nav.startsWith("ja") ? "ja" : "en";
       }
-    } catch { }
+    } catch { void 0; }
     return "en";
   });
 
@@ -285,7 +285,7 @@ export function LanguageProvider({ children, initialLang }: { children: React.Re
       if (typeof document !== "undefined") {
         document.cookie = `mlops-ui.lang=${l}; path=/; max-age=${60 * 60 * 24 * 365}`;
       }
-    } catch { }
+    } catch { void 0; }
   };
 
   const t = (key: string, fallback?: string) => {

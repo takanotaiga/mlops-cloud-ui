@@ -533,7 +533,7 @@ export default function ClientObjectCardPage() {
     run();
     return () => {
       cancelled = true;
-      if (createdBlob) { try { URL.revokeObjectURL(createdBlob); } catch { } }
+      if (createdBlob) { try { URL.revokeObjectURL(createdBlob); } catch { void 0; } }
     };
   }, [file?.bucket, file?.key, file?.thumbKey, file?.mime, fallbackBucket, fallbackKey]);
 

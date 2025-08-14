@@ -324,7 +324,7 @@ export default function ClientOpenedDatasetPage() {
     run();
     return () => {
       cancelled = true;
-      createdBlobs.forEach((u) => { try { URL.revokeObjectURL(u); } catch { } });
+      createdBlobs.forEach((u) => { try { URL.revokeObjectURL(u); } catch { void 0; } });
     };
   }, [pageFiles]);
 

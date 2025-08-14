@@ -24,7 +24,7 @@ export default function Page() {
     if (!f) return;
     const url = URL.createObjectURL(f);
     setImageUrl((prev) => {
-      if (prev) { try { URL.revokeObjectURL(prev); } catch {} }
+      if (prev) { try { URL.revokeObjectURL(prev); } catch { void 0; } }
       return url;
     });
   }

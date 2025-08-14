@@ -38,11 +38,7 @@ export function SurrealProvider({ children, client, endpoint, params, autoConnec
           await surrealInstance.signin({ username: auth.username, password: auth.password } as any);
         } catch (e) {
           // Some servers expect user/pass keys
-          try {
-            await surrealInstance.signin({ user: auth.username, pass: auth.password } as any);
-          } catch (e2) {
-            throw e2;
-          }
+          await surrealInstance.signin({ user: auth.username, pass: auth.password } as any);
         }
       }
       if (ns && db) {

@@ -155,7 +155,7 @@ export default function Page() {
         );
       }
       router.push(`/inference/opened-job?j=${encodeBase64Utf8(trimmedJobName)}`);
-    } catch { }
+    } catch { void 0; }
   }
 
   return (

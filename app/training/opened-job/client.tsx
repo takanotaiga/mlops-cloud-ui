@@ -160,7 +160,7 @@ export default function ClientOpenedJobPage() {
                 await surreal.query("UPDATE training_job SET status = 'StopInterrept', updatedAt = time::now() WHERE name == $name", { name: jobName });
                 queryClient.invalidateQueries({ queryKey: ["training-jobs"] });
                 refetch();
-              } catch {}
+              } catch { void 0; }
             }}>{t("common.stop","Stop")}</Button>
           )}
           <Dialog.Root>

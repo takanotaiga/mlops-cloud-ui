@@ -246,7 +246,7 @@ export default function ClientOpenedInferenceJobPage() {
       }
       await writable.close();
       const fileUrl = await getOpfsFileUrl(key);
-      setVideoUrl((prev) => { if (prev && prev.startsWith("blob:")) { try { URL.revokeObjectURL(prev); } catch { } } return fileUrl; });
+      setVideoUrl((prev) => { if (prev && prev.startsWith("blob:")) { try { URL.revokeObjectURL(prev); } catch { void 0; } } return fileUrl; });
       setDownloadPct(100);
     } finally {
       setDownloading(false);
@@ -293,7 +293,7 @@ export default function ClientOpenedInferenceJobPage() {
         const exists = await opfsFileExists(current.key);
         if (exists) {
           const url = await getOpfsFileUrl(current.key);
-          if (!cancelled) setVideoUrl((prev) => { if (prev && prev.startsWith("blob:")) { try { URL.revokeObjectURL(prev); } catch { } } return url; });
+          if (!cancelled) setVideoUrl((prev) => { if (prev && prev.startsWith("blob:")) { try { URL.revokeObjectURL(prev); } catch { void 0; } } return url; });
         } else {
           if (!cancelled) setVideoUrl(null);
           // Auto-download video to OPFS for local cache
@@ -400,7 +400,7 @@ export default function ClientOpenedInferenceJobPage() {
   // JSON syntax highlighting (lightweight)
   function highlightJsonToNodes(text: string): ReactNode[] {
     const nodes: ReactNode[] = [];
-    const regex = /(\"(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\\"])*\"\s*:)|(\"(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\\"])*\")|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?/g;
+    const regex = /("(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"\s*:)|("(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*")|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
     let lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = regex.exec(text)) !== null) {
@@ -543,7 +543,7 @@ export default function ClientOpenedInferenceJobPage() {
                 await surreal.query("UPDATE inference_job SET status = 'StopInterrept', updatedAt = time::now() WHERE name == $name", { name: jobName });
                 queryClient.invalidateQueries({ queryKey: ["inference-jobs"] });
                 refetch();
-              } catch { }
+              } catch { void 0; }
             }}>{t("common.stop", "Stop")}</Button>
           )}
           {job && job.status !== "ProcessWaiting" && (
@@ -555,7 +555,7 @@ export default function ClientOpenedInferenceJobPage() {
                   await surreal.query("UPDATE inference_job SET status = 'ProcessWaiting', updatedAt = time::now() WHERE name == $name", { name: jobName });
                   queryClient.invalidateQueries({ queryKey: ["inference-jobs"] });
                   refetch();
-                } catch { }
+                } catch { void 0; }
               }}>{t("common.rerun_job", "Rerun job")}</Button>
             )}
           <Dialog.Root>
@@ -704,7 +704,9 @@ export default function ClientOpenedInferenceJobPage() {
                   {current && isVideoResult(current) ? (
                     videoUrl ? (
                       <>
-                        <video controls style={{ width: "100%", maxHeight: "70vh" }} src={videoUrl} />
+                        <video controls style={{ width: "100%", maxHeight: "70vh" }} src={videoUrl}>
+                          <track kind="captions" />
+                        </video>
                       </>
                     ) : (
                       <>
@@ -749,7 +751,7 @@ export default function ClientOpenedInferenceJobPage() {
                           try {
                             const toCopy = jsonData && jsonData._raw ? String(jsonData._raw) : JSON.stringify(jsonData, null, 2);
                             await navigator.clipboard.writeText(toCopy);
-                          } catch { }
+                          } catch { void 0; }
                         }}>Copy JSON</Button>
                         <Button size="sm" rounded="full" variant="outline" onClick={() => downloadDirect(current.bucket, current.key)}>Download JSON</Button>
                       </HStack>
@@ -764,7 +766,7 @@ export default function ClientOpenedInferenceJobPage() {
                             try {
                               const url = await getSignedObjectUrl(current.bucket, current.key, 60 * 10);
                               await queryParquetPage(url, tablePage, true, current.key);
-                            } catch { }
+                            } catch { void 0; }
                           }}>Retry</Button>
                         </HStack>
                       ) : pqLoading ? (
@@ -799,7 +801,7 @@ export default function ClientOpenedInferenceJobPage() {
                                   const qk = enc(current.key);
                                   const url = `/inference/opened-job/analysis?j=${encodeURIComponent(j)}&b=${encodeURIComponent(qb)}&k=${encodeURIComponent(qk)}`;
                                   router.push(url);
-                                } catch { }
+                                } catch { void 0; }
                               }}
                             >
                               {t("inference.detailed_analysis", "Detailed Analysis")}

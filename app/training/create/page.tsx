@@ -107,7 +107,7 @@ export default function Page() {
             const n = (r?.name ?? "").toString();
             if (n) names.push(n);
           }
-        } catch { }
+        } catch { void 0; }
       }
       const uniq = Array.from(new Set(names));
       uniq.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));

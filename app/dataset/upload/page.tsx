@@ -114,7 +114,7 @@ export default function Page() {
     setProgress([]);
     removedKeysRef.current.clear();
     if (fileInputRef.current) {
-      try { fileInputRef.current.value = ""; } catch { }
+      try { fileInputRef.current.value = ""; } catch { void 0; }
     }
   }, []);
 
@@ -172,7 +172,7 @@ export default function Page() {
           // Ensure we capture at time 0 exactly.
           // Some browsers need an explicit seek to 0 after metadata is ready.
           const onMeta = () => {
-            try { video.currentTime = 0; } catch {}
+            try { video.currentTime = 0; } catch { void 0; }
             // Prefer requestVideoFrameCallback to ensure frame is actually rendered
             const anyVideo: any = video as any;
             if (typeof anyVideo.requestVideoFrameCallback === "function") {
@@ -230,7 +230,7 @@ export default function Page() {
     (e) => {
       const pickedRaw = e.target.files ? Array.from(e.target.files) : [];
       if (pickedRaw.length === 0) {
-        try { e.target.value = ""; } catch {}
+        try { e.target.value = ""; } catch { void 0; }
         return;
       }
       // Validate and normalize picked files
@@ -239,12 +239,12 @@ export default function Page() {
         const isVideo = f.type.startsWith("video/");
         if (!isImage && !isVideo) {
           setError("画像または動画のみアップロードできます");
-          try { e.target.value = ""; } catch {}
+          try { e.target.value = ""; } catch { void 0; }
           return;
         }
         if (f.size > MAX_FILE_SIZE) {
           setError("1ファイルあたり最大50GBまでです");
-          try { e.target.value = ""; } catch {}
+          try { e.target.value = ""; } catch { void 0; }
           return;
         }
       }
@@ -285,7 +285,7 @@ export default function Page() {
         return next;
       });
       // Clear input value to avoid stale selections
-      try { e.target.value = ""; } catch {}
+      try { e.target.value = ""; } catch { void 0; }
     },
     [MAX_FILE_SIZE, fileKey]
   );
@@ -307,7 +307,7 @@ export default function Page() {
     });
     // Also clear the input value so removed files can't resurface
     if (fileInputRef.current) {
-      try { fileInputRef.current.value = ""; } catch {}
+      try { fileInputRef.current.value = ""; } catch { void 0; }
     }
   }, [fileKey]);
 
