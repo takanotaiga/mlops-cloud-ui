@@ -1,8 +1,8 @@
 "use client";
 
-import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table, Separator, Accordion, Span } from "@chakra-ui/react";
+import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table, Separator, Accordion, Span, Steps } from "@chakra-ui/react";
 import NextLink from "next/link";
-import { useSearchParams , useRouter } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { decodeBase64Utf8 } from "@/components/utils/base64";
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider";
@@ -20,6 +20,20 @@ type JobRow = {
   model?: string
   datasets?: string[]
   createdAt?: string
+  updatedAt?: string
+}
+
+type ProcessStep = { id: string; label?: string }
+type ProcessGraph = { steps?: ProcessStep[]; edges?: any[] }
+type ProcessStepState = {
+  status?: "pending" | "running" | "completed" | "failed"
+  percent?: number
+  message?: string
+  error?: any
+}
+type ProcessState = {
+  current?: string | null
+  byId?: Record<string, ProcessStepState>
   updatedAt?: string
 }
 
@@ -93,6 +107,53 @@ export default function ClientOpenedInferenceJobPage() {
       return isTerminal ? false : 3000;
     },
   });
+
+  // Poll process graph/state at 300ms intervals
+  const { data: proc = { graph: { steps: [] }, state: {} as ProcessState } } = useQuery({
+    queryKey: ["inference-job-process", jobName],
+    enabled: isSuccess && !!jobName,
+    queryFn: async (): Promise<{ graph: ProcessGraph; state: ProcessState }> => {
+      const res = await surreal.query(
+        "SELECT process_graph, process_state FROM inference_job WHERE name == $name  LIMIT 1",
+        { name: jobName }
+      );
+      const rows = extractRows<any>(res);
+      const r = rows[0] || {};
+      const graph = (r?.process_graph ?? {}) as ProcessGraph;
+      const state = (r?.process_state ?? {}) as ProcessState;
+      return { graph, state };
+    },
+    refetchOnWindowFocus: false,
+    refetchInterval: 300,
+    staleTime: 0,
+  });
+
+  const procSteps = useMemo(() => (proc?.graph?.steps ?? []).map((s) => ({ id: String(s.id), title: String(s.label ?? s.id) })), [proc?.graph?.steps]);
+  const stepStateById: Record<string, ProcessStepState> = useMemo(() => proc?.state?.byId ?? {}, [proc?.state?.byId]);
+  const currentStepId: string | null | undefined = proc?.state?.current;
+  const allCompleted = useMemo(() => procSteps.length > 0 && procSteps.every((s) => (stepStateById[s.id]?.status ?? "pending") === "completed"), [procSteps, stepStateById]);
+  const firstFailedIndex = useMemo(() => procSteps.findIndex((s) => (stepStateById[s.id]?.status ?? "pending") === "failed"), [procSteps, stepStateById]);
+  const activeIndex = useMemo(() => {
+    if (typeof firstFailedIndex === "number" && firstFailedIndex >= 0) return firstFailedIndex;
+    if (currentStepId) {
+      const idx = procSteps.findIndex((s) => s.id === currentStepId);
+      if (idx >= 0) return idx;
+    }
+    // fallback to last completed + 1
+    let lastCompleted = -1;
+    procSteps.forEach((s, i) => { if ((stepStateById[s.id]?.status ?? "pending") === "completed") lastCompleted = i; });
+    return Math.min(procSteps.length - 1, Math.max(0, lastCompleted + 1));
+  }, [procSteps, stepStateById, currentStepId, firstFailedIndex]);
+
+  function normalizePercent(v: unknown): number {
+    if (typeof v === "number") return v;
+    if (typeof v === "string") {
+      const s = v.trim().replace(/%$/, "").replace(/f$/i, "");
+      const n = parseFloat(s);
+      return Number.isFinite(n) ? n : NaN;
+    }
+    return NaN;
+  }
 
   // Query inference results for this job when completed and task matches (newest first)
   const { data: results = [] } = useQuery({
@@ -683,6 +744,60 @@ export default function ClientOpenedInferenceJobPage() {
               <Text textStyle="xs" color="gray.500">Created: {formatTimestamp(job.createdAt)}</Text>
               <Text textStyle="xs" color="gray.500">Updated: {formatTimestamp(job.updatedAt)}</Text>
 
+              {/* Progress: placed under info on the left */}
+              {procSteps.length > 0 && (
+                <Box rounded="md" borderWidth="1px" p="12px" minH="300px" maxH="70vh" overflowY="auto" bg="bg.canvas">
+                  <Heading size="sm" mb="8px">Progress</Heading>
+                  <Steps.Root orientation="vertical" count={procSteps.length} step={(allCompleted ? procSteps.length : activeIndex)}>
+                    <Steps.List gap="4">
+                      {procSteps.map((s, index) => {
+                        const st = stepStateById[s.id] || {};
+                        const statusRaw = String(st.status ?? "pending").toLowerCase();
+                        let pct = normalizePercent(st.percent);
+                        if (!Number.isFinite(pct)) pct = statusRaw === "completed" ? 100 : 0;
+                        pct = Math.max(0, Math.min(100, pct));
+                        let derivedStatus: "pending" | "running" | "completed" | "failed" = "pending";
+                        if (s.id === currentStepId) derivedStatus = "running";
+                        else if (statusRaw === "failed") derivedStatus = "failed";
+                        else if (statusRaw === "completed" || pct >= 100) derivedStatus = "completed";
+                        else derivedStatus = "pending";
+                        const message = String(st.error ?? st.message ?? "");
+                        return (
+                          <Steps.Item key={s.id} index={index} title={s.title} py="3">
+                            <Steps.Indicator />
+                            <Steps.Title>{s.title}</Steps.Title>
+                            <Steps.Separator my="3" borderLeftWidth="2px" borderColor="gray.300" opacity={1} />
+                            <Steps.Content index={index}>
+                              <VStack align="stretch" gap={3} mt={3} mb={6} w="full">
+                                <HStack justify="space-between">
+                                  <Badge rounded="full" variant="subtle" colorPalette={
+                                    derivedStatus === "running" ? "blue" : derivedStatus === "completed" ? "green" : derivedStatus === "failed" ? "red" : "gray"
+                                  }>
+                                    {derivedStatus}
+                                  </Badge>
+                                  <Box minW="64px" textAlign="right">
+                                    <Text textStyle="xs" color="gray.600" style={{ fontVariantNumeric: "tabular-nums" }}>{pct.toFixed(2)}%</Text>
+                                  </Box>
+                                </HStack>
+                                <Progress.Root value={pct} w="full">
+                                  <Progress.Track>
+                                    <Progress.Range />
+                                  </Progress.Track>
+                                </Progress.Root>
+                                {message ? (
+                                  <Text textStyle="xs" color={derivedStatus === "failed" ? "red.600" : "gray.700"}>{message}</Text>
+                                ) : null}
+                              </VStack>
+                            </Steps.Content>
+                          </Steps.Item>
+                        );
+                      })}
+                    </Steps.List>
+                    <Steps.CompletedContent>All steps are complete!</Steps.CompletedContent>
+                  </Steps.Root>
+                </Box>
+              )}
+
               {/* Results list (grouped by minute) */}
               {(job.status === "Complete" || job.status === "Completed") && job.taskType === "one-shot-object-detection" && (
                 <VStack align="stretch" gap="8px" mt="8px">
@@ -737,6 +852,7 @@ export default function ClientOpenedInferenceJobPage() {
         </Box>
 
         <Box flex="1" rounded="md" borderWidth="1px" bg="bg.panel" p="16px" minH="240px">
+
           {job && (job.status === "Complete" || job.status === "Completed") && job.taskType === "one-shot-object-detection" ? (
             <VStack align="stretch" gap={3}>
               {(!results || results.length === 0) ? (
