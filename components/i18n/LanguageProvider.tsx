@@ -128,6 +128,19 @@ const en: Dict = {
   "merge.drawer_title": "Merge Sequence",
   "merge.current": "(current)",
   "merge.annotate_only_first": "Annotations are allowed only on the first merged video.",
+
+  // Charts
+  "chart.type.line": "Line",
+  "chart.type.frequency": "Frequency",
+  "chart.type.derivative": "Derivative",
+  "chart.type.histogram": "Histogram",
+  "chart.type.cdf": "CDF",
+  "chart.type.ccdf": "CCDF",
+  "chart.type.scatter": "Scatter",
+  "chart.type.correlation": "Correlation",
+  "chart.type.cumsum": "Cumulative Sum",
+  "chart.type.pctchange": "% Change",
+  "chart.type.missing": "Missing Profile",
 };
 
 const ja: Dict = {
@@ -252,6 +265,19 @@ const ja: Dict = {
   "merge.drawer_title": "連結シーケンス",
   "merge.current": "(現在)",
   "merge.annotate_only_first": "連結動画のアノテーションは先頭の動画のみ可能です。",
+
+  // Charts
+  "chart.type.line": "折れ線",
+  "chart.type.frequency": "頻度",
+  "chart.type.derivative": "微分",
+  "chart.type.histogram": "ヒストグラム",
+  "chart.type.cdf": "CDF",
+  "chart.type.ccdf": "CCDF",
+  "chart.type.scatter": "散布図",
+  "chart.type.correlation": "相関",
+  "chart.type.cumsum": "累積和",
+  "chart.type.pctchange": "変化率",
+  "chart.type.missing": "欠損プロファイル",
 };
 
 const DICTS: Record<Lang, Dict> = { en, ja };
