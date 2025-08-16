@@ -1,0 +1,55 @@
+name: Build Check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-typecheck:
+    name: Build and Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18.x
+          cache: yarn
+
+      - name: Show versions
+        run: |
+          node -v
+          yarn -v || true
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Type check
+        run: yarn type-check
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          NEXT_PUBLIC_SURREAL_URL: ws://127.0.0.1:8000/rpc
+          NEXT_PUBLIC_SURREAL_NS: ci
+          NEXT_PUBLIC_SURREAL_DB: ci
+          NEXT_PUBLIC_SURREAL_USER: root
+          NEXT_PUBLIC_SURREAL_PASS: root
+
+      - name: Build
+        run: yarn build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          NEXT_PUBLIC_SURREAL_URL: ws://127.0.0.1:8000/rpc
+          NEXT_PUBLIC_SURREAL_NS: ci
+          NEXT_PUBLIC_SURREAL_DB: ci
+          NEXT_PUBLIC_SURREAL_USER: root
+          NEXT_PUBLIC_SURREAL_PASS: root
+
