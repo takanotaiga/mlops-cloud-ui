@@ -56,3 +56,21 @@ Next.js' modules straight away.
 A `type-check` script is also added to `package.json`, which runs TypeScript's
 `tsc` CLI in `noEmit` mode to run type-checking separately. You can then include
 this, for example, in your `test` scripts.
+
+## Docker
+
+- Build local image:
+  - `docker build -t ghcr.io/<OWNER>/<REPO>:dev .`
+- Run locally:
+  - `docker run --rm -p 3000:3000 \
+    -e NEXT_PUBLIC_SURREAL_URL=ws://127.0.0.1:8000/rpc \
+    -e NEXT_PUBLIC_SURREAL_NS=mlops \
+    -e NEXT_PUBLIC_SURREAL_DB=cloud_ui \
+    -e NEXT_PUBLIC_SURREAL_USER=root \
+    -e NEXT_PUBLIC_SURREAL_PASS=root \
+    ghcr.io/takanotaiga/mlops-cloud-ui:main`
+- Open: http://localhost:3000
+
+Notes:
+- Replace `<OWNER>/<REPO>` with your GitHub org/repo.
+- Set `NEXT_PUBLIC_*` as needed for your environment; values above are local examples.
