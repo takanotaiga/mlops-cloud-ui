@@ -3,6 +3,7 @@
 import { Box, Heading, HStack, VStack, Text, Badge, Button, ButtonGroup, Dialog, Portal, CloseButton } from "@chakra-ui/react";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 import { useEffect, useState } from "react";
+import AppInfoCard from "@/components/meta/AppInfoCard";
 
 async function getOpfsRoot(): Promise<any> {
   const ns: any = (navigator as any).storage;
@@ -149,6 +150,9 @@ export default function SettingsPage() {
             </HStack>
           </HStack>
         </Box>
+
+        {/* About card */}
+        <AppInfoCard />
 
       </VStack>
     </HStack>
