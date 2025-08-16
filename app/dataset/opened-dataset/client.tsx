@@ -116,6 +116,19 @@ export default function ClientOpenedDatasetPage() {
     setRemoving(true);
     try {
       await withTimeout((async () => {
+        // Collect encoded_segment objects to delete from S3 (do this before DB deletion)
+        let segmentObjects: { bucket: string; key: string }[] = [];
+        try {
+          const res = await surreal.query(
+            "SELECT bucket, key FROM encoded_segment WHERE file.dataset == $dataset",
+            { dataset: datasetName }
+          );
+          const rows = extractRows<any>(res);
+          segmentObjects = rows
+            .map((r: any) => ({ bucket: String(r?.bucket || ""), key: String(r?.key || "") }))
+            .filter((o: any) => o.bucket && o.key);
+        } catch { /* ignore */ }
+
         // 1) Delete dataset-scoped related rows first (annotations, encode jobs, segments, labels, merge groups)
         try { await surreal.query("DELETE annotation WHERE file.dataset == $dataset", { dataset: datasetName }); } catch { /* ignore */ }
         try { await surreal.query("DELETE encode_job WHERE file.dataset == $dataset", { dataset: datasetName }); } catch { /* ignore */ }
@@ -131,6 +144,10 @@ export default function ClientOpenedDatasetPage() {
             try { await deleteObjectFromS3(f.bucket, f.thumbKey); } catch { /* ignore */ }
           }
         }
+        // 3b) Delete encoded_segment objects from S3 (best-effort)
+        try {
+          await Promise.all(segmentObjects.map((o) => deleteObjectFromS3(o.bucket, o.key).catch(() => {})));
+        } catch { /* ignore */ }
       })(), 3000);
     } catch {
       // timeout or error: continue navigation without blocking the user

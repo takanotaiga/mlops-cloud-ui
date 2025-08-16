@@ -458,6 +458,19 @@ export default function ClientObjectCardPage() {
     setRemoving(true);
     try {
       await withTimeout((async () => {
+        // Collect encoded_segment objects to delete from S3 before DB deletion
+        let segmentObjects: { bucket: string; key: string }[] = [];
+        try {
+          const segRes = await surreal.query(
+            "SELECT bucket, key FROM encoded_segment WHERE file == <record> $id",
+            { id: file?.id || fileId }
+          );
+          const segRows = extractRows<any>(segRes);
+          segmentObjects = segRows
+            .map((r: any) => ({ bucket: String(r?.bucket || ""), key: String(r?.key || "") }))
+            .filter((o: any) => o.bucket && o.key);
+        } catch { /* ignore */ }
+
         // 1) Delete related rows in SurrealDB that reference this file
         const idForRefs = file?.id || fileId;
         if (idForRefs) {
@@ -483,6 +496,10 @@ export default function ClientObjectCardPage() {
         if (bucket && thumbKey) {
           try { await deleteObjectFromS3(bucket, thumbKey); } catch { /* ignore */ }
         }
+        // 3b) Delete encoded_segment objects from S3 (best-effort)
+        try {
+          await Promise.all(segmentObjects.map((o) => deleteObjectFromS3(o.bucket, o.key).catch(() => {})));
+        } catch { /* ignore */ }
       })(), 3000);
 
       // Invalidate dataset file list and navigate back with a refresh token

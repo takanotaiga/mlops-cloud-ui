@@ -9,7 +9,7 @@ import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvid
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { extractRows } from "@/components/surreal/normalize";
 import { useI18n } from "@/components/i18n/LanguageProvider";
-import { getSignedObjectUrl } from "@/components/utils/minio";
+import { getSignedObjectUrl, deleteObjectFromS3 } from "@/components/utils/minio";
 import { LuChevronLeft, LuChevronRight } from "react-icons/lu";
 
 type JobRow = {
@@ -397,14 +397,20 @@ export default function ClientOpenedInferenceJobPage() {
     if (!jobName || removing) return;
     setRemoving(true);
     try {
-      // Collect related inference_result keys for OPFS cleanup
-      let keys: string[] = [];
+      // Collect related inference_result objects for S3/OPFS cleanup
+      let objects: { bucket: string; key: string }[] = [];
       try {
         if (job?.id) {
-          const res = await surreal.query("SELECT key FROM inference_result WHERE job == <record> $job", { job: job.id });
+          const res = await surreal.query("SELECT bucket, key FROM inference_result WHERE job == <record> $job", { job: job.id });
           const rows = extractRows<any>(res);
-          keys = rows.map((r: any) => String(r?.key || "")).filter(Boolean);
+          objects = rows.map((r: any) => ({ bucket: String(r?.bucket || ""), key: String(r?.key || "") }))
+            .filter((o: any) => o.bucket && o.key);
         }
+      } catch { /* ignore */ }
+
+      // Delete S3 objects (best-effort)
+      try {
+        await Promise.all(objects.map((o) => deleteObjectFromS3(o.bucket, o.key).catch(() => {})));
       } catch { /* ignore */ }
 
       // Delete related inference_result rows first
@@ -416,6 +422,7 @@ export default function ClientOpenedInferenceJobPage() {
 
       // Remove cached OPFS files (videos/parquet) for this job's results
       try {
+        const keys = objects.map((o) => o.key);
         await Promise.all(keys.map((k) => deleteOpfsFile(k)));
       } catch { /* ignore */ }
 
