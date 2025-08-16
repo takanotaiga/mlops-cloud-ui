@@ -859,6 +859,30 @@ export default function ClientOpenedInferenceJobPage() {
                 <Text color="gray.600">Result not ready yet.</Text>
               ) : (
                 <>
+                  {/* Top action bar: Download / Copy JSON */}
+                  <HStack justify="flex-end" mb="8px" gap="8px">
+                    {current ? (
+                      <>
+                        {isJsonResult(current) && (
+                          <Button size="sm" rounded="full" variant="outline" onClick={async () => {
+                            try {
+                              // Ensure we have jsonData loaded, otherwise fetch then copy
+                              if (!jsonData) {
+                                await refetchJson();
+                              }
+                              const text = (jsonData && jsonData._raw) ? String(jsonData._raw) : JSON.stringify(jsonData ?? {}, null, 2);
+                              await navigator.clipboard.writeText(text);
+                            } catch { /* ignore */ }
+                          }} disabled={jsonLoading || !!jsonError}>Copy JSON</Button>
+                        )}
+                        {!isParquetResult(current) && (
+                          <Button size="sm" rounded="full" onClick={() => downloadDirect(current.bucket, current.key)}>
+                            Download
+                          </Button>
+                        )}
+                      </>
+                    ) : null}
+                  </HStack>
                   {/* Current Result */}
                   {current && isVideoResult(current) ? (
                     videoUrl ? (
@@ -905,15 +929,7 @@ export default function ClientOpenedInferenceJobPage() {
                           })()}
                         </Box>
                       )}
-                      <HStack>
-                        <Button size="sm" rounded="full" onClick={async () => {
-                          try {
-                            const toCopy = jsonData && jsonData._raw ? String(jsonData._raw) : JSON.stringify(jsonData, null, 2);
-                            await navigator.clipboard.writeText(toCopy);
-                          } catch { void 0; }
-                        }}>Copy JSON</Button>
-                        <Button size="sm" rounded="full" variant="outline" onClick={() => downloadDirect(current.bucket, current.key)}>Download JSON</Button>
-                      </HStack>
+                      {/* Buttons moved to the top action bar */}
                     </>
                   ) : current && isParquetResult(current) ? (
                     <>
@@ -945,7 +961,7 @@ export default function ClientOpenedInferenceJobPage() {
                               <Text textStyle="xs" color="gray.600" mt={1}>{downloadPct}%</Text>
                             </Box>
                           )}
-                          <HStack justify="flex-end" mb="8px">
+                          <HStack justify="flex-end" mb="8px" gap="8px">
                             <Button
                               size="sm"
                               rounded="full"
@@ -964,6 +980,9 @@ export default function ClientOpenedInferenceJobPage() {
                               }}
                             >
                               {t("inference.detailed_analysis", "Detailed Analysis")}
+                            </Button>
+                            <Button size="sm" rounded="full" variant="outline" onClick={() => current && downloadDirect(current.bucket, current.key)}>
+                              Download Parquet
                             </Button>
                           </HStack>
                           <Box overflowX="auto" borderWidth="1px" rounded="md">
