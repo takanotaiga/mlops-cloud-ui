@@ -785,27 +785,45 @@ export default function ClientOpenedInferenceJobPage() {
                   {(!results || results.length === 0) ? (
                     <Text textStyle="sm" color="gray.600">Result not ready yet.</Text>
                   ) : (
-                    <VStack align="stretch" gap="4px" maxH="260px" overflowY="auto" style={{ scrollbarGutter: "stable both-edges" }}>
+                    <VStack align="stretch" gap="8px" maxH="500px" overflowY="auto" style={{ scrollbarGutter: "stable both-edges" }}>
                       {results.map((r, idx) => {
                         const name = r.key.split("/").pop() || r.key;
                         const type = isVideoResult(r) ? "Video" : isJsonResult(r) ? "JSON" : isParquetResult(r) ? "Parquet" : "File";
+                        const description = r?.meta?.description ? String(r.meta.description) : "";
                         const selected = idx === selectedIndex;
                         return (
-                          <Button key={r.id}
-                            variant={selected ? "solid" : "outline"}
-                            colorPalette={selected ? "teal" : "gray"}
-                            justifyContent="space-between"
-                            size="sm"
+                          <Box
+                            key={r.id}
+                            as="button"
                             onClick={() => { setSelectedIndex(idx); setVideoUrl(null); setTablePage(1); }}
+                            textAlign="left"
+                            rounded="md"
+                            borderWidth="1px"
+                            p="10px"
+                            bg={selected ? "teal.50" : "white"}
+                            borderColor={selected ? "teal.300" : "gray.200"}
+                            _hover={{ shadow: "sm", borderColor: selected ? "teal.400" : "gray.300" }}
                           >
-                            <HStack justify="space-between" w="full">
-                              <Text textStyle="sm" maxW="70%" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</Text>
-                              <HStack gap="2">
-                                <Badge rounded="full" variant="subtle">{type}</Badge>
+                            <VStack align="stretch" gap={1}>
+                              <Text textStyle="sm" fontWeight="semibold" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</Text>
+                              {description ? (
+                                <Text textStyle="xs" color="gray.700"
+                                  style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                                  {description}
+                                </Text>
+                              ) : null}
+                              <HStack justify="space-between" mt={description ? 1 : 0}>
+                                <Badge
+                                  rounded="full"
+                                  variant="subtle"
+                                  colorPalette={type === "Video" ? "teal" : type === "JSON" ? "purple" : type === "Parquet" ? "blue" : "gray"}
+                                >
+                                  {type}
+                                </Badge>
                                 <Text textStyle="xs" color="gray.600">{formatTimestamp(r.createdAt)}</Text>
                               </HStack>
-                            </HStack>
-                          </Button>
+                            </VStack>
+                          </Box>
                         );
                       })}
                     </VStack>
