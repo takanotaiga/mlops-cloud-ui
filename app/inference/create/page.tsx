@@ -28,30 +28,30 @@ import { encodeBase64Utf8 } from "@/components/utils/base64";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 
 const INTERNET_MODELS_BY_TASK: Record<string, { label: string; value: string }[]> = {
-  "object-detection": [
-    { label: "YOLOv8 (internet)", value: "yolov8" },
-    { label: "YOLOv9 (internet)", value: "yolov9" },
-  ],
+  // "object-detection": [
+  //   { label: "YOLOv8 (internet)", value: "yolov8" },
+  //   { label: "YOLOv9 (internet)", value: "yolov9" },
+  // ],
   "one-shot-object-detection": [
-    { label: "SAM2 (internet)", value: "sam2" },
+    // { label: "SAM2 (internet)", value: "sam2" },
     { label: "SAMURAI ULR (internet)", value: "samurai-ulr" },
   ],
-  "image-to-text": [
-    { label: "BLIP-2 (internet)", value: "blip2" },
-    { label: "ViT-GPT2 (internet)", value: "vit-gpt2" },
-  ],
-  "text-to-image": [
-    { label: "Stable Diffusion 1.5 (internet)", value: "sd15" },
-    { label: "Stable Diffusion XL (internet)", value: "sdxl" },
-  ],
+  // "image-to-text": [
+  //   { label: "BLIP-2 (internet)", value: "blip2" },
+  //   { label: "ViT-GPT2 (internet)", value: "vit-gpt2" },
+  // ],
+  // "text-to-image": [
+  //   { label: "Stable Diffusion 1.5 (internet)", value: "sd15" },
+  //   { label: "Stable Diffusion XL (internet)", value: "sdxl" },
+  // ],
 };
 
 const taskOptions = createListCollection({
   items: [
-    { label: "Object Detection", value: "object-detection" },
+    // { label: "Object Detection", value: "object-detection" },
     { label: "One Shot Object Detection", value: "one-shot-object-detection" },
-    { label: "Image to Text", value: "image-to-text" },
-    { label: "Text to Image", value: "text-to-image" },
+    // { label: "Image to Text", value: "image-to-text" },
+    // { label: "Text to Image", value: "text-to-image" },
   ],
 });
 
@@ -306,7 +306,7 @@ export default function Page() {
                   <Text textStyle="sm" color="gray.600" mb="6px">{t("inference.model_source","Model Source")}</Text>
                   <HStack gap="2">
                     <Button size="xs" rounded="full" variant={modelSource === "internet" ? "solid" : "outline"} onClick={() => setModelSource("internet")}>{t("inference.model_source.internet","Internet")}</Button>
-                    <Button size="xs" rounded="full" variant={modelSource === "trained" ? "solid" : "outline"} onClick={() => setModelSource("trained")}>{t("inference.model_source.trained","Trained")}</Button>
+                    {/* <Button size="xs" rounded="full" variant={modelSource === "trained" ? "solid" : "outline"} onClick={() => setModelSource("trained")}>{t("inference.model_source.trained","Trained")}</Button> */}
                   </HStack>
                 </Box>
 

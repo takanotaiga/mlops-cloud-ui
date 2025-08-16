@@ -15,7 +15,6 @@ import {
   Portal,
   CloseButton,
   Input,
-  Textarea,
   Accordion,
   Span,
   Drawer,
@@ -343,6 +342,10 @@ export default function ClientObjectCardPage() {
   const [autoMode, setAutoMode] = useState<"bbox" | "text">("bbox");
   const [autoMsg, setAutoMsg] = useState<string>("");
   const [autoRunning, setAutoRunning] = useState<boolean>(false);
+  // Temporary no-op reads to satisfy TypeScript noUnusedLocals while parts of UI are commented
+  void textLabel; void textSaving; void textLabelId;
+  void autoPrompt; void autoMode; void autoMsg; void autoRunning;
+  void setAutoPrompt; void setAutoMode; void setAutoMsg; void setAutoRunning;
 
   // Helpers to mutate labels
   async function addLabel(name: string) {
@@ -444,6 +447,8 @@ export default function ClientObjectCardPage() {
       setTextSaving(false);
     }
   }
+  // Mark as used while UI block is commented out
+  void saveTextLabel;
 
   // Helper to add timeout to a promise
   function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -747,7 +752,7 @@ export default function ClientObjectCardPage() {
             </Accordion.Item>
 
             {/* Auto Annotation */}
-            <Accordion.Item value="auto">
+            {/* <Accordion.Item value="auto">
               <Accordion.ItemTrigger>
                 <Span flex="1">{t("object.auto_anno","Auto Annotation")}</Span>
                 <Accordion.ItemIndicator />
@@ -792,7 +797,7 @@ export default function ClientObjectCardPage() {
                   </VStack>
                 </Accordion.ItemBody>
               </Accordion.ItemContent>
-            </Accordion.Item>
+            </Accordion.Item> */}
 
             {/* BBox Labels */}
             <Accordion.Item value="bbox">
@@ -847,7 +852,7 @@ export default function ClientObjectCardPage() {
             </Accordion.Item>
 
             {/* Text Label */}
-            <Accordion.Item value="text">
+            {/* <Accordion.Item value="text">
               <Accordion.ItemTrigger>
                 <Span flex="1">{t("object.text_label","Text Label")}</Span>
                 <Accordion.ItemIndicator />
@@ -868,7 +873,7 @@ export default function ClientObjectCardPage() {
                   </VStack>
                 </Accordion.ItemBody>
               </Accordion.ItemContent>
-            </Accordion.Item>
+            </Accordion.Item> */}
           </Accordion.Root>
         </VStack>
 

@@ -25,12 +25,12 @@ export function HomeHero() {
             <NextLink href="/dataset" passHref>
               <Button rounded="full" size="md">{t("cta.get_started","Get Started 🎉")}</Button>
             </NextLink>
-            <NextLink href="/training" passHref>
+            {/* <NextLink href="/training" passHref>
               <Button variant="outline" rounded="full" size="md">{t("cta.view_training","View Training 🚀")}</Button>
-            </NextLink>
-            <NextLink href="/inference/playground" passHref>
+            </NextLink> */}
+            {/* <NextLink href="/inference/playground" passHref>
               <Button variant="outline" rounded="full" size="md">{t("cta.try_playground","Try Playground ⚡")}</Button>
-            </NextLink>
+            </NextLink> */}
           </HStack>
         </VStack>
       </VStack>

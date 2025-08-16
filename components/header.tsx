@@ -39,11 +39,11 @@ export default function Header() {
                     </LinkOverlay>
                 </LinkBox>
 
-                <LinkBox px="10px" h="25px">
+                {/* <LinkBox px="10px" h="25px">
                     <LinkOverlay href="/training">
                         <Text textStyle="sm">{t("nav.training", "Training")}</Text>
                     </LinkOverlay>
-                </LinkBox>
+                </LinkBox> */}
 
                 <LinkBox px="10px" h="25px">
                     <LinkOverlay href="/inference" >

@@ -90,9 +90,9 @@ export default function InferenceJobsPage() {
             <Badge rounded="full" variant="subtle" colorPalette="teal">{t("inference.badge", "Inference")}</Badge>
           </HStack>
           <HStack>
-            <NextLink href="/inference/playground" passHref>
+            {/* <NextLink href="/inference/playground" passHref>
               <Button rounded="full" variant="outline">{t("nav.playground", "Playground")} ⚡</Button>
-            </NextLink>
+            </NextLink> */}
             <NextLink href="/inference/create" passHref>
               <Button rounded="full">{t("inference.new", "New Inference")}</Button>
             </NextLink>

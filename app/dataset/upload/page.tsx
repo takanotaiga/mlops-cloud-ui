@@ -78,7 +78,6 @@ const makeVideoEncodeModes = (hasLongVideo15: boolean, hasMultipleVideos: boolea
     items: [
       ...(hasMultipleVideos ? [{ label: "All Merge", value: "video-merge" }] : []),
       ...(hasLongVideo15 ? [{ label: "TimeLaps(15min)", value: "video-timelaps-15" }] : []),
-      { label: "Convert To Image", value: "video-to-image" },
       { label: "Do Nothing", value: "video-none" },
     ],
   });

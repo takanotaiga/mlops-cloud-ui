@@ -311,17 +311,17 @@ export default function ClientDetailedAnalysisPage() {
   }, [pq, freqCol, freqTopN, freqAsPercent]);
 
   const chartTypeItems = useMemo(() => ([
-    { label: t('chart.type.line', 'Line'), value: 'line' },
-    { label: t('chart.type.frequency', 'Frequency'), value: 'frequency' },
-    { label: t('chart.type.derivative', 'Derivative'), value: 'derivative' },
-    { label: t('chart.type.histogram', 'Histogram'), value: 'histogram' },
-    { label: t('chart.type.cdf', 'CDF'), value: 'cdf' },
-    { label: t('chart.type.ccdf', 'CCDF'), value: 'ccdf' },
-    { label: t('chart.type.scatter', 'Scatter'), value: 'scatter' },
-    { label: t('chart.type.correlation', 'Correlation'), value: 'correlation' },
-    { label: t('chart.type.cumsum', 'Cumulative Sum'), value: 'cumsum' },
-    { label: t('chart.type.pctchange', '% Change'), value: 'pctchange' },
-    { label: t('chart.type.missing', 'Missing Profile'), value: 'missing' },
+    { label: t("chart.type.line", "Line"), value: "line" },
+    { label: t("chart.type.frequency", "Frequency"), value: "frequency" },
+    { label: t("chart.type.derivative", "Derivative"), value: "derivative" },
+    { label: t("chart.type.histogram", "Histogram"), value: "histogram" },
+    { label: t("chart.type.cdf", "CDF"), value: "cdf" },
+    { label: t("chart.type.ccdf", "CCDF"), value: "ccdf" },
+    { label: t("chart.type.scatter", "Scatter"), value: "scatter" },
+    { label: t("chart.type.correlation", "Correlation"), value: "correlation" },
+    { label: t("chart.type.cumsum", "Cumulative Sum"), value: "cumsum" },
+    { label: t("chart.type.pctchange", "% Change"), value: "pctchange" },
+    { label: t("chart.type.missing", "Missing Profile"), value: "missing" },
   ]), [t]);
 
   return (
@@ -1077,21 +1077,21 @@ function computeMissingProfile(pq: LoadedParquet | null): { label: string; value
     let missing = 0;
     for (const r of pq.rows) {
       const v = r?.[c];
-      if (v == null || (typeof v === 'number' && !Number.isFinite(v))) missing++;
-      else if (typeof v === 'string' && (v.trim() === '' || v.toLowerCase() === 'nan')) missing++;
+      if (v == null || (typeof v === "number" && !Number.isFinite(v))) missing++;
+      else if (typeof v === "string" && (v.trim() === "" || v.toLowerCase() === "nan")) missing++;
     }
     return { label: c, value: total === 0 ? 0 : (missing / total) };
   });
 }
 
 function computeCdfLike(values: (number | null)[], ccdf: boolean) {
-  const xs = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v)).sort((a,b)=>a-b);
+  const xs = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v)).sort((a,b)=>a-b);
   const n = xs.length;
   const data: any[] = [];
   for (let i = 0; i < n; i++) {
     const v = xs[i];
     const frac = (i + 1) / n;
-    data.push({ value: v, [ccdf ? 'ccdf' : 'cdf']: ccdf ? (1 - frac) : frac });
+    data.push({ value: v, [ccdf ? "ccdf" : "cdf"]: ccdf ? (1 - frac) : frac });
   }
   return data;
 }
@@ -1101,9 +1101,9 @@ function SimpleHistogramChart({ values, bins = 20, asPercent = false }: { values
   const padding = { left: 50, right: 10, top: 10, bottom: 40 };
   const plotW = width - padding.left - padding.right;
   const plotH = height - padding.top - padding.bottom;
-  const xs = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  const xs = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
   if (xs.length === 0) return <Text>No numeric data</Text> as any;
-  let min = Math.min(...xs), max = Math.max(...xs);
+  const min = Math.min(...xs); let max = Math.max(...xs);
   if (max === min) { max = min + 1; }
   const bw = (max - min) / Math.max(1, bins);
   const counts = new Array(bins).fill(0);
@@ -1181,7 +1181,7 @@ function SimpleScatterChart({ data, xKey, yKey, logX = false, logY = false, tren
         <circle key={i} cx={scaleX(p.x)} cy={scaleY(p.y)} r={2} fill="#2D3748" />
       ))}
       {ols && (
-        <polyline fill="none" stroke={COLORS[0]} strokeWidth={2} points={linePts.map((p)=>`${scaleX(p.x)},${scaleY(p.y)}`).join(' ')} />
+        <polyline fill="none" stroke={COLORS[0]} strokeWidth={2} points={linePts.map((p)=>`${scaleX(p.x)},${scaleY(p.y)}`).join(" ")} />
       )}
     </svg>
   );
