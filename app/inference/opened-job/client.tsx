@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table, Separator, Accordion, Span, Steps } from "@chakra-ui/react";
+import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table, Separator, Steps } from "@chakra-ui/react";
 import NextLink from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -18,6 +18,7 @@ type JobRow = {
   status?: string
   taskType?: string
   model?: string
+  modelSource?: string
   datasets?: string[]
   createdAt?: string
   updatedAt?: string
@@ -72,6 +73,7 @@ export default function ClientOpenedInferenceJobPage() {
   const surreal = useSurrealClient();
   const { isSuccess } = useSurreal();
   const [removing, setRemoving] = useState(false);
+  const [copying, setCopying] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<boolean>(false);
   const [downloadPct, setDownloadPct] = useState<number>(0);
@@ -92,6 +94,7 @@ export default function ClientOpenedInferenceJobPage() {
         status: r?.status,
         taskType: r?.taskType,
         model: r?.model,
+        modelSource: r?.modelSource,
         datasets: Array.isArray(r?.datasets) ? r.datasets : [],
         createdAt: r?.createdAt,
         updatedAt: r?.updatedAt,
@@ -185,36 +188,7 @@ export default function ClientOpenedInferenceJobPage() {
   }, [results.length]);
   const current = useMemo(() => (results && results.length > 0 ? results[Math.min(results.length - 1, Math.max(0, selectedIndex))] : undefined), [results, selectedIndex]);
 
-  // Group results by minute key
-  const grouped = useMemo(() => {
-    const map = new Map<string, { key: string; date: Date | null; items: { idx: number; r: InferenceResultRow }[] }>();
-    results.forEach((r, idx) => {
-      const key = formatMinuteKey(r.createdAt);
-      const date = r.createdAt ? new Date(r.createdAt) : null;
-      const item = { idx, r };
-      const entry = map.get(key);
-      if (entry) {
-        entry.items.push(item);
-      } else {
-        map.set(key, { key, date: (date && !isNaN(date.getTime())) ? date : null, items: [item] });
-      }
-    });
-    const list = Array.from(map.values());
-    list.sort((a, b) => {
-      if (a.date && b.date) return b.date.getTime() - a.date.getTime();
-      if (a.date) return -1;
-      if (b.date) return 1;
-      return b.key.localeCompare(a.key);
-    });
-    list.forEach((g) => {
-      g.items.sort((a, b) => {
-        const da = a.r.createdAt ? new Date(a.r.createdAt).getTime() : 0;
-        const db = b.r.createdAt ? new Date(b.r.createdAt).getTime() : 0;
-        return db - da;
-      });
-    });
-    return list;
-  }, [results]);
+  // Ungrouped results list (already ordered by createdAt DESC)
 
   // Classification helpers
   function getExt(name?: string) {
@@ -417,13 +391,7 @@ export default function ClientOpenedInferenceJobPage() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
-  function formatMinuteKey(ts?: string): string {
-    if (!ts) return "Unknown";
-    const d = new Date(ts);
-    if (isNaN(d.getTime())) return "Unknown";
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  }
+  // removed minute grouping helper
 
   async function handleRemove() {
     if (!jobName || removing) return;
@@ -653,14 +621,25 @@ export default function ClientOpenedInferenceJobPage() {
           {job && job.status !== "ProcessWaiting" && (
             (job.status === "StopInterrept" || job.status === "Complete" || job.status === "Completed" || job.status === "Failed" || job.status === "Faild" || job.status === "Error")
           ) && (
-              <Button size="sm" rounded="full" variant="outline" onClick={async () => {
-                if (!jobName) return;
+              <Button size="sm" rounded="full" variant="outline" disabled={copying} onClick={async () => {
+                if (!jobName || !job) return;
+                setCopying(true);
                 try {
-                  await surreal.query("UPDATE inference_job SET status = 'ProcessWaiting', updatedAt = time::now() WHERE name == $name", { name: jobName });
+                  // Build new job name: currentName + _copy
+                  const newName = `${jobName}_copy`;
+                  // Create a new job with the same parameters (taskType/model/datasets), fresh status/time
+                  await surreal.query(
+                    "CREATE inference_job SET name = $name, status = 'ProcessWaiting', taskType = $taskType, model = $model, modelSource = $modelSource, datasets = $datasets, createdAt = time::now(), updatedAt = time::now()",
+                    { name: newName, taskType: job.taskType, model: job.model, modelSource: job.modelSource, datasets: job.datasets || [] }
+                  );
                   queryClient.invalidateQueries({ queryKey: ["inference-jobs"] });
-                  refetch();
-                } catch { void 0; }
-              }}>{t("common.rerun_job", "Rerun job")}</Button>
+                  const enc = (s: string) => {
+                    try { return btoa(unescape(encodeURIComponent(s))); } catch { return ""; }
+                  };
+                  router.push(`/inference/opened-job?j=${encodeURIComponent(enc(newName))}`);
+                } catch { /* ignore */ }
+                finally { setCopying(false); }
+              }}>CopyJob</Button>
             )}
           <Dialog.Root>
             <Dialog.Trigger asChild>
@@ -798,7 +777,7 @@ export default function ClientOpenedInferenceJobPage() {
                 </Box>
               )}
 
-              {/* Results list (grouped by minute) */}
+              {/* Results list (flat) */}
               {(job.status === "Complete" || job.status === "Completed") && job.taskType === "one-shot-object-detection" && (
                 <VStack align="stretch" gap="8px" mt="8px">
                   <Separator />
@@ -806,44 +785,30 @@ export default function ClientOpenedInferenceJobPage() {
                   {(!results || results.length === 0) ? (
                     <Text textStyle="sm" color="gray.600">Result not ready yet.</Text>
                   ) : (
-                    <Accordion.Root collapsible defaultValue={grouped.length ? [grouped[0].key] : []}>
-                      {grouped.map((g) => (
-                        <Accordion.Item key={g.key} value={g.key}>
-                          <Accordion.ItemTrigger>
-                            <Span flex="1">{g.key}</Span>
-                            <Accordion.ItemIndicator />
-                          </Accordion.ItemTrigger>
-                          <Accordion.ItemContent>
-                            <Accordion.ItemBody>
-                              <VStack align="stretch" gap="4px" maxH="260px" overflowY="auto" style={{ scrollbarGutter: "stable both-edges" }}>
-                                {g.items.map(({ idx, r }) => {
-                                  const name = r.key.split("/").pop() || r.key;
-                                  const type = isVideoResult(r) ? "Video" : isJsonResult(r) ? "JSON" : isParquetResult(r) ? "Parquet" : "File";
-                                  const selected = idx === selectedIndex;
-                                  return (
-                                    <Button key={r.id}
-                                      variant={selected ? "solid" : "outline"}
-                                      colorPalette={selected ? "teal" : "gray"}
-                                      justifyContent="space-between"
-                                      size="sm"
-                                      onClick={() => { setSelectedIndex(idx); setVideoUrl(null); setTablePage(1); }}
-                                    >
-                                      <HStack justify="space-between" w="full">
-                                        <Text textStyle="sm" maxW="70%" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</Text>
-                                        <HStack gap="2">
-                                          <Badge rounded="full" variant="subtle">{type}</Badge>
-                                          <Text textStyle="xs" color="gray.600">{formatTimestamp(r.createdAt)}</Text>
-                                        </HStack>
-                                      </HStack>
-                                    </Button>
-                                  );
-                                })}
-                              </VStack>
-                            </Accordion.ItemBody>
-                          </Accordion.ItemContent>
-                        </Accordion.Item>
-                      ))}
-                    </Accordion.Root>
+                    <VStack align="stretch" gap="4px" maxH="260px" overflowY="auto" style={{ scrollbarGutter: "stable both-edges" }}>
+                      {results.map((r, idx) => {
+                        const name = r.key.split("/").pop() || r.key;
+                        const type = isVideoResult(r) ? "Video" : isJsonResult(r) ? "JSON" : isParquetResult(r) ? "Parquet" : "File";
+                        const selected = idx === selectedIndex;
+                        return (
+                          <Button key={r.id}
+                            variant={selected ? "solid" : "outline"}
+                            colorPalette={selected ? "teal" : "gray"}
+                            justifyContent="space-between"
+                            size="sm"
+                            onClick={() => { setSelectedIndex(idx); setVideoUrl(null); setTablePage(1); }}
+                          >
+                            <HStack justify="space-between" w="full">
+                              <Text textStyle="sm" maxW="70%" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</Text>
+                              <HStack gap="2">
+                                <Badge rounded="full" variant="subtle">{type}</Badge>
+                                <Text textStyle="xs" color="gray.600">{formatTimestamp(r.createdAt)}</Text>
+                              </HStack>
+                            </HStack>
+                          </Button>
+                        );
+                      })}
+                    </VStack>
                   )}
                 </VStack>
               )}
