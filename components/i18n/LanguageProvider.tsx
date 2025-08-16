@@ -11,6 +11,7 @@ const en: Dict = {
   "nav.datasets": "Datasets",
   "nav.training": "Training",
   "nav.inference": "Inference",
+  "nav.docs": "Docs",
   "nav.playground": "Playground",
 
   // Home
@@ -148,6 +149,7 @@ const ja: Dict = {
   "nav.datasets": "データセット",
   "nav.training": "トレーニング",
   "nav.inference": "推論",
+  "nav.docs": "ドキュメント",
   "nav.playground": "お試しエリア",
 
   // Home

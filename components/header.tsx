@@ -51,6 +51,12 @@ export default function Header() {
                     </LinkOverlay>
                 </LinkBox>
 
+                <LinkBox px="10px" h="25px">
+                    <LinkOverlay href="/docs" >
+                        <Text textStyle="sm">{t("nav.docs", "Docs")}</Text>
+                    </LinkOverlay>
+                </LinkBox>
+
                 <LinkBox h="25px" px="6px">
                     <LinkOverlay href="/settings" aria-label="Settings">
                         <IconButton aria-label="Settings" size="xs" variant="ghost" p={1} mt="-2px">
