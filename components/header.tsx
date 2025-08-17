@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, HStack, Heading, Text, LinkBox, LinkOverlay, Badge, IconButton, Drawer, Button, Portal, CloseButton, VStack, Link } from "@chakra-ui/react";
+import { Box, HStack, Heading, Text, LinkBox, LinkOverlay, IconButton, Drawer, Button, Portal, CloseButton, VStack, Link } from "@chakra-ui/react";
 import { LuMenu } from "react-icons/lu";
 import NextLink from "next/link";
 import { usePathname } from "next/navigation";
