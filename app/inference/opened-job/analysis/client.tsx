@@ -264,233 +264,169 @@ export default function ClientDetailedAnalysisPage() {
         <Separator />
 
         {/* Controls */}
-        <HStack gap="16px" align="flex-start" wrap="wrap">
-          <VStack align="stretch" minW="220px">
-            <Text textStyle="sm" color="gray.600">Chart type</Text>
-            <Select.Root
-              size="sm"
-              width="100%"
-              collection={createListCollection({ items: chartTypeItems })}
-              value={[chartType]}
-              onValueChange={(d: any) => setChartType((d?.value?.[0] ?? "line") as ChartType)}
-            >
-              <Select.HiddenSelect />
-              <Select.Control>
-                <Select.Trigger>
-                  <Select.ValueText placeholder="Chart type" />
-                </Select.Trigger>
-                <Select.IndicatorGroup>
-                  <Select.Indicator />
-                </Select.IndicatorGroup>
-              </Select.Control>
-              <Portal>
-                <Select.Positioner>
-                  <Select.Content>
+        <HStack gap="16px" align="stretch" wrap="wrap">
+          {/* Chart & Axes */}
+          <Box minW="360px" flexShrink={0} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
+            <VStack align="stretch" gap="10px">
+              <Text textStyle="sm" fontWeight="semibold" color="gray.700">Chart & Axes</Text>
+              <VStack align="stretch">
+                <Text textStyle="sm" color="gray.600">Chart type</Text>
+                <Select.Root size="sm" width="100%"
+                  collection={createListCollection({ items: chartTypeItems })}
+                  value={[chartType]}
+                  onValueChange={(d: any) => setChartType((d?.value?.[0] ?? "line") as ChartType)}
+                >
+                  <Select.HiddenSelect />
+                  <Select.Control>
+                    <Select.Trigger>
+                      <Select.ValueText placeholder="Chart type" />
+                    </Select.Trigger>
+                    <Select.IndicatorGroup><Select.Indicator /></Select.IndicatorGroup>
+                  </Select.Control>
+                  <Portal><Select.Positioner><Select.Content>
                     {chartTypeItems.map((it) => (
-                      <Select.Item key={it.value} item={it}>
-                        {it.label}
-                        <Select.ItemIndicator />
-                      </Select.Item>
+                      <Select.Item key={it.value} item={it}>{it.label}<Select.ItemIndicator /></Select.Item>
                     ))}
-                  </Select.Content>
-                </Select.Positioner>
-              </Portal>
-            </Select.Root>
-          </VStack>
-          {(chartType === "line" || chartType === "derivative") && (
-          <VStack align="stretch" minW="240px">
-            <Text textStyle="sm" color="gray.600">X Axis</Text>
-            <Select.Root
-              size="sm"
-              width="100%"
-              collection={createListCollection({ items: numericCols.map((c) => ({ label: c, value: c })) })}
-              value={xCol ? [xCol] : []}
-              onValueChange={(d: any) => setXCol(d?.value?.[0] ?? "")}
-            >
-              <Select.HiddenSelect />
-              <Select.Control>
-                <Select.Trigger>
-                  <Select.ValueText placeholder="Select X axis" />
-                </Select.Trigger>
-                <Select.IndicatorGroup>
-                  <Select.Indicator />
-                </Select.IndicatorGroup>
-              </Select.Control>
-              <Portal>
-                <Select.Positioner>
-                  <Select.Content>
-                    {numericCols.map((c) => (
-                      <Select.Item key={c} item={{ label: c, value: c }}>
-                        {c}
-                        <Select.ItemIndicator />
-                      </Select.Item>
-                    ))}
-                  </Select.Content>
-                </Select.Positioner>
-              </Portal>
-            </Select.Root>
-          </VStack>
-          )}
-          
-          {(chartType === "line" || chartType === "derivative") && (
-          <VStack align="stretch" minW="420px">
-            <Text textStyle="sm" color="gray.600">Filter (rows)</Text>
-            <HStack gap="8px">
-              <Input size="sm" flex={1} value={rowFilterExpr} onChange={(e) => setRowFilterExpr(e.target.value)}
-                placeholder={"e.g. status ∈ {ok,err} ∧ score ≥ 0.8 ∪ tag = \"test\""} />
-              <Button size="xs" variant="outline" onClick={() => setRowFilterExpr("")}>Clear</Button>
-            </HStack>
-              {rowFilterError ? <Text textStyle="xs" color="red.500">{rowFilterError}</Text> : (
-              <Text textStyle="xs" color="gray.500">Supports =, ≠, ≥, ≤, &gt;, &lt;, ∈, ∉, ~, !~, ∧/∩//\\ (AND), ∨/∪/\\/ (OR), !/¬/~ (NOT); parentheses, sets {"{a,b}"}; works across all column types. Use &quot;~&quot; between field and value for contains, and leading &quot;~&quot; as TLA+ NOT.</Text>
-            )}
-          </VStack>
-          )}
-          {/* Export controls */}
-          {(chartType === "line" || chartType === "derivative") && (
-          <VStack align="stretch" minW="260px">
-            <Text textStyle="sm" color="gray.600">Export</Text>
-            <HStack gap="8px">
-              <Button size="sm" variant="outline" onClick={async () => {
-                if (!xCol || yCols.length === 0) return;
-                setExportError(null); setExportBusy(true);
-                try {
-                  let rows: any[] = exportRows;
-                  if (chartType === "derivative") {
-                    rows = computeDerivative(exportRows, xCol, yCols);
-                  }
-                  const cols = [xCol, ...yCols];
-                  const csv = toCSV(rows, cols);
-                  downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), suggestFilename(`${jobName || "export"}_${chartType}.csv`));
-                } catch (e: any) {
-                  setExportError(String(e?.message || e));
-                } finally { setExportBusy(false); }
-              }} disabled={exportBusy || !xCol || yCols.length === 0}>{exportBusy ? "Exporting…" : "Export CSV"}</Button>
-              <Button size="sm" variant="solid" colorPalette="teal" onClick={async () => {
-                if (!xCol || yCols.length === 0) return;
-                setExportError(null); setExportBusy(true);
-                try {
-                  let rows: any[] = exportRows;
-                  if (chartType === "derivative") {
-                    rows = computeDerivative(exportRows, xCol, yCols);
-                  }
-                  const cols = [xCol, ...yCols];
-                  const csv = toCSV(rows, cols);
-                  const buf = await csvToParquetViaDuckDB(csv);
-                  downloadBlob(new Blob([buf], { type: "application/octet-stream" }), suggestFilename(`${jobName || "export"}_${chartType}.parquet`));
-                } catch (e: any) {
-                  setExportError(String(e?.message || e));
-                } finally { setExportBusy(false); }
-              }} disabled={exportBusy || !xCol || yCols.length === 0}>Export Parquet</Button>
-            </HStack>
-            {exportError && <Text textStyle="xs" color="red.500">{exportError}</Text>}
-          </VStack>
-          )}
-          {(chartType === "line" || chartType === "derivative") && (
-          <VStack align="stretch" minW="280px">
-            <Text textStyle="sm" color="gray.600">Y Axis (multiple)</Text>
-            <CheckboxGroup value={yCols} onValueChange={(v: any) => setYCols((v?.value ?? v) as string[])}>
-              <VStack align="stretch" h="110px" overflowY="auto" borderWidth="1px" rounded="md" p="8px" bg="bg.panel" style={{ scrollbarGutter: "stable both-edges" }}>
-                {numericCols.map((c) => (
-                  <Checkbox.Root key={c} value={c}>
-                    <Checkbox.HiddenInput />
-                    <Checkbox.Control />
-                    <Checkbox.Label>{c}</Checkbox.Label>
-                  </Checkbox.Root>
-                ))}
-                {numericCols.length === 0 && (
-                  <Text textStyle="xs" color="gray.500">No numeric columns</Text>
-                )}
+                  </Select.Content></Select.Positioner></Portal>
+                </Select.Root>
               </VStack>
-            </CheckboxGroup>
-          </VStack>
-          )}
-          {(chartType === "line" || chartType === "derivative") && (
-          <VStack align="stretch" minW="200px">
-            <Text textStyle="sm" color="gray.600">Moving average</Text>
-            <Select.Root
-              size="sm"
-              width="100%"
-              collection={createListCollection({ items: [1,3,5,7,9,11].map((n) => ({ label: n === 1 ? "None" : `${n}`, value: String(n) })) })}
-              value={[String(maWindow)]}
-              onValueChange={(d: any) => {
-                const v = Number(d?.value?.[0] ?? "1");
-                setMaWindow(!Number.isFinite(v) || v < 1 ? 1 : v);
-              }}
-            >
-              <Select.HiddenSelect />
-              <Select.Control>
-                <Select.Trigger>
-                  <Select.ValueText placeholder="Window" />
-                </Select.Trigger>
-                <Select.IndicatorGroup>
-                  <Select.Indicator />
-                </Select.IndicatorGroup>
-              </Select.Control>
-              <Portal>
-                <Select.Positioner>
-                  <Select.Content>
-                    {[1,3,5,7,9,11].map((n) => (
-                      <Select.Item key={n} item={{ label: n === 1 ? "None" : `${n}`, value: String(n) }}>
-                        {n === 1 ? "None" : `${n}`}
-                        <Select.ItemIndicator />
-                      </Select.Item>
-                    ))}
-                  </Select.Content>
-                </Select.Positioner>
-              </Portal>
-            </Select.Root>
-          </VStack>
-          )}
-          {(chartType === "line" || chartType === "derivative") && (
-          <VStack align="stretch" minW="200px">
-            <Text textStyle="sm" color="gray.600">Y Axis</Text>
-            <Select.Root
-              size="sm"
-              width="100%"
-              collection={createListCollection({ items: [
-                { label: "Auto", value: "auto" },
-                { label: "0 to Max", value: "zeroToMax" },
-              ] })}
-              value={[yAxisMode]}
-              onValueChange={(d: any) => setYAxisMode(((d?.value?.[0] ?? "auto") as any))}
-            >
-              <Select.HiddenSelect />
-              <Select.Control>
-                <Select.Trigger>
-                  <Select.ValueText placeholder="Y axis mode" />
-                </Select.Trigger>
-                <Select.IndicatorGroup>
-                  <Select.Indicator />
-                </Select.IndicatorGroup>
-              </Select.Control>
-              <Portal>
-                <Select.Positioner>
-                  <Select.Content>
-                    {[
+              {(chartType === "line" || chartType === "derivative") && (
+                <VStack align="stretch">
+                  <Text textStyle="sm" color="gray.600">X Axis</Text>
+                  <Select.Root size="sm" width="100%"
+                    collection={createListCollection({ items: numericCols.map((c) => ({ label: c, value: c })) })}
+                    value={xCol ? [xCol] : []}
+                    onValueChange={(d: any) => setXCol(d?.value?.[0] ?? "")}
+                  >
+                    <Select.HiddenSelect />
+                    <Select.Control><Select.Trigger><Select.ValueText placeholder="Select X axis" /></Select.Trigger><Select.IndicatorGroup><Select.Indicator /></Select.IndicatorGroup></Select.Control>
+                    <Portal><Select.Positioner><Select.Content>
+                      {numericCols.map((c) => (<Select.Item key={c} item={{ label: c, value: c }}>{c}<Select.ItemIndicator /></Select.Item>))}
+                    </Select.Content></Select.Positioner></Portal>
+                  </Select.Root>
+                </VStack>
+              )}
+              {(chartType === "line" || chartType === "derivative") && (
+                <VStack align="stretch">
+                  <Text textStyle="sm" color="gray.600">Y Axis (multiple)</Text>
+                  <CheckboxGroup value={yCols} onValueChange={(v: any) => setYCols((v?.value ?? v) as string[])}>
+                    <VStack align="stretch" h="140px" overflowY="auto" borderWidth="1px" rounded="md" p="8px" bg="bg.canvas" style={{ scrollbarGutter: "stable both-edges" }}>
+                      {numericCols.map((c) => (
+                        <Checkbox.Root key={c} value={c}>
+                          <Checkbox.HiddenInput />
+                          <Checkbox.Control />
+                          <Checkbox.Label>{c}</Checkbox.Label>
+                        </Checkbox.Root>
+                      ))}
+                      {numericCols.length === 0 && (<Text textStyle="xs" color="gray.500">No numeric columns</Text>)}
+                    </VStack>
+                  </CheckboxGroup>
+                </VStack>
+              )}
+            </VStack>
+          </Box>
+
+          {/* Scale & Smoothing */}
+          <Box minW="280px" flexShrink={0} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
+            <VStack align="stretch" gap="10px">
+              <Text textStyle="sm" fontWeight="semibold" color="gray.700">Scale & Smoothing</Text>
+              {(chartType === "line" || chartType === "derivative") && (
+                <VStack align="stretch">
+                  <Text textStyle="sm" color="gray.600">Moving average</Text>
+                  <Select.Root size="sm" width="100%"
+                    collection={createListCollection({ items: [1,3,5,7,9,11].map((n) => ({ label: n === 1 ? "None" : `${n}`, value: String(n) })) })}
+                    value={[String(maWindow)]}
+                    onValueChange={(d: any) => { const v = Number(d?.value?.[0] ?? "1"); setMaWindow(!Number.isFinite(v) || v < 1 ? 1 : v); }}
+                  >
+                    <Select.HiddenSelect />
+                    <Select.Control><Select.Trigger><Select.ValueText placeholder="Window" /></Select.Trigger><Select.IndicatorGroup><Select.Indicator /></Select.IndicatorGroup></Select.Control>
+                    <Portal><Select.Positioner><Select.Content>
+                      {[1,3,5,7,9,11].map((n) => (<Select.Item key={n} item={{ label: n === 1 ? "None" : `${n}`, value: String(n) }}>{n === 1 ? "None" : `${n}`}<Select.ItemIndicator /></Select.Item>))}
+                    </Select.Content></Select.Positioner></Portal>
+                  </Select.Root>
+                </VStack>
+              )}
+              {(chartType === "line" || chartType === "derivative") && (
+                <VStack align="stretch">
+                  <Text textStyle="sm" color="gray.600">Y Axis</Text>
+                  <Select.Root size="sm" width="100%"
+                    collection={createListCollection({ items: [
                       { label: "Auto", value: "auto" },
                       { label: "0 to Max", value: "zeroToMax" },
-                    ].map((it) => (
-                      <Select.Item key={it.value} item={it}>
-                        {it.label}
-                        <Select.ItemIndicator />
-                      </Select.Item>
-                    ))}
-                  </Select.Content>
-                </Select.Positioner>
-              </Portal>
-            </Select.Root>
-          </VStack>
-          )}
-          {(chartType === "line" || chartType === "derivative") && (
-          <VStack align="stretch" minW="180px">
-            <Text textStyle="sm" color="gray.600">Log Y</Text>
-            <Checkbox.Root checked={logY} onCheckedChange={(e: any) => setLogY(!!(e?.checked ?? e))}>
-              <Checkbox.HiddenInput />
-              <Checkbox.Control />
-              <Checkbox.Label>Use log scale</Checkbox.Label>
-            </Checkbox.Root>
-          </VStack>
-          )}
+                    ] })}
+                    value={[yAxisMode]}
+                    onValueChange={(d: any) => setYAxisMode(((d?.value?.[0] ?? "auto") as any))}
+                  >
+                    <Select.HiddenSelect />
+                    <Select.Control><Select.Trigger><Select.ValueText placeholder="Y axis mode" /></Select.Trigger><Select.IndicatorGroup><Select.Indicator /></Select.IndicatorGroup></Select.Control>
+                    <Portal><Select.Positioner><Select.Content>
+                      {[{label:"Auto",value:"auto"},{label:"0 to Max",value:"zeroToMax"}].map((it) => (<Select.Item key={it.value} item={it}>{it.label}<Select.ItemIndicator /></Select.Item>))}
+                    </Select.Content></Select.Positioner></Portal>
+                  </Select.Root>
+                </VStack>
+              )}
+              {(chartType === "line" || chartType === "derivative") && (
+                <VStack align="stretch">
+                  <Text textStyle="sm" color="gray.600">Log Y</Text>
+                  <Checkbox.Root checked={logY} onCheckedChange={(e: any) => setLogY(!!(e?.checked ?? e))}>
+                    <Checkbox.HiddenInput /><Checkbox.Control /><Checkbox.Label>Use log scale</Checkbox.Label>
+                  </Checkbox.Root>
+                </VStack>
+              )}
+            </VStack>
+          </Box>
+
+          {/* Filter & Export */}
+          <Box minW="420px" flex={1} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
+            <VStack align="stretch" gap="10px">
+              <Text textStyle="sm" fontWeight="semibold" color="gray.700">Filter & Export</Text>
+              {(chartType === "line" || chartType === "derivative") && (
+                <VStack align="stretch">
+                  <Text textStyle="sm" color="gray.600">Filter (rows)</Text>
+                  <HStack gap="8px">
+                    <Input size="sm" flex={1} value={rowFilterExpr} onChange={(e) => setRowFilterExpr(e.target.value)} placeholder={"e.g. status ∈ {ok,err} ∧ score ≥ 0.8 ∪ tag = \"test\""} />
+                    <Button size="xs" variant="outline" onClick={() => setRowFilterExpr("")}>Clear</Button>
+                  </HStack>
+                  {rowFilterError ? <Text textStyle="xs" color="red.500">{rowFilterError}</Text> : (
+                    <Text textStyle="xs" color="gray.500">Supports =, ≠, ≥, ≤, &gt;, &lt;, ∈, ∉, ~, !~, ∧/∩//\\ (AND), ∨/∪/\\/ (OR), !/¬/~ (NOT); parentheses, sets {"{a,b}"}; works across all column types. Use &quot;~&quot; between field and value for contains, and leading &quot;~&quot; as TLA+ NOT.</Text>
+                  )}
+                </VStack>
+              )}
+              {(chartType === "line" || chartType === "derivative") && (
+                <VStack align="stretch">
+                  <Text textStyle="sm" color="gray.600">Export</Text>
+                  <HStack gap="8px" wrap="wrap">
+                    <Button size="sm" variant="outline" onClick={async () => {
+                      if (!xCol || yCols.length === 0) return;
+                      setExportError(null); setExportBusy(true);
+                      try {
+                        let rows: any[] = exportRows;
+                        if (chartType === "derivative") { rows = computeDerivative(exportRows, xCol, yCols); }
+                        const cols = [xCol, ...yCols];
+                        const csv = toCSV(rows, cols);
+                        downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), suggestFilename(`${jobName || "export"}_${chartType}.csv`));
+                      } catch (e: any) { setExportError(String(e?.message || e)); }
+                      finally { setExportBusy(false); }
+                    }} disabled={exportBusy || !xCol || yCols.length === 0}>{exportBusy ? "Exporting…" : "Export CSV"}</Button>
+                    <Button size="sm" variant="solid" colorPalette="teal" onClick={async () => {
+                      if (!xCol || yCols.length === 0) return;
+                      setExportError(null); setExportBusy(true);
+                      try {
+                        let rows: any[] = exportRows;
+                        if (chartType === "derivative") { rows = computeDerivative(exportRows, xCol, yCols); }
+                        const cols = [xCol, ...yCols];
+                        const csv = toCSV(rows, cols);
+                        const buf = await csvToParquetViaDuckDB(csv);
+                        downloadBlob(new Blob([buf], { type: "application/octet-stream" }), suggestFilename(`${jobName || "export"}_${chartType}.parquet`));
+                      } catch (e: any) { setExportError(String(e?.message || e)); }
+                      finally { setExportBusy(false); }
+                    }} disabled={exportBusy || !xCol || yCols.length === 0}>Export Parquet</Button>
+                  </HStack>
+                  {exportError && <Text textStyle="xs" color="red.500">{exportError}</Text>}
+                </VStack>
+              )}
+            </VStack>
+          </Box>
         </HStack>
 
         {/* Chart */}
