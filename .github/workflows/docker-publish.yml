@@ -35,6 +35,7 @@ jobs:
 
       - name: Log in to the Container registry
         uses: docker/login-action@v3
+        if: ${{ github.event_name != 'pull_request' }}
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -66,4 +67,3 @@ jobs:
             NEXT_PUBLIC_SURREAL_DB=ci
             NEXT_PUBLIC_SURREAL_USER=root
             NEXT_PUBLIC_SURREAL_PASS=root
-
