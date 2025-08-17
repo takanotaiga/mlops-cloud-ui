@@ -109,7 +109,7 @@ export default function ClientDetailedAnalysisPage() {
           fileBuf = await downloadAndCacheBytes(bucket, key);
         }
         await db.registerFileBuffer("current.parquet", fileBuf);
-        const res: any = await conn.query(`SELECT * FROM read_parquet('current.parquet')`);
+        const res: any = await conn.query("SELECT * FROM read_parquet('current.parquet')");
         const rows: any[] = (res as any)?.toArray?.() ?? [];
         const cols: string[] = (res as any)?.schema?.fields?.map((f: any) => String(f.name)) ?? (rows[0] ? Object.keys(rows[0]) : []);
         await conn.close();
@@ -134,6 +134,8 @@ export default function ClientDetailedAnalysisPage() {
   // Row filter expression (set/logic based)
   const [rowFilterExpr, setRowFilterExpr] = useState<string>("");
   const [rowFilterError, setRowFilterError] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState<boolean>(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   // Helper defined at module scope
   // Columns that have at least one finite numeric value
   const numericCols = useMemo(() => {
@@ -213,6 +215,27 @@ export default function ClientDetailedAnalysisPage() {
   }, [pq, xCol, yCols, rowFilter]);
 
   const series = useMemo(() => yCols.map((name, i) => ({ name, color: COLORS[i % COLORS.length] })), [yCols]);
+
+  // Pre-downsampling data (used for export)
+  const exportRows = useMemo(() => {
+    if (!pq || !xCol) return [] as any[];
+    const rows = pq.rows;
+    const out: any[] = [];
+    for (const r of rows) {
+      if (!rowFilter(r)) continue;
+      const xv = toFiniteNumber(r?.[xCol]);
+      if (xv == null) continue;
+      const obj: Record<string, number | null> = { [xCol]: xv } as any;
+      for (const y of yCols) {
+        const yv = toFiniteNumber(r?.[y]);
+        obj[y] = yv == null ? null : yv;
+      }
+      out.push(obj);
+    }
+    // Sort by X
+    out.sort((a: any, b: any) => (Number(a[xCol]) - Number(b[xCol])));
+    return out;
+  }, [pq, xCol, yCols, rowFilter]);
 
   // No X Range restriction; render entire domain
 
@@ -317,9 +340,49 @@ export default function ClientDetailedAnalysisPage() {
                 placeholder={"e.g. status ∈ {ok,err} ∧ score ≥ 0.8 ∪ tag = \"test\""} />
               <Button size="xs" variant="outline" onClick={() => setRowFilterExpr("")}>Clear</Button>
             </HStack>
-            {rowFilterError ? <Text textStyle="xs" color="red.500">{rowFilterError}</Text> : (
-              <Text textStyle="xs" color="gray.500">Supports =, ≠, ≥, ≤, &gt;, &lt;, ∈, ∉, ~, !~, ∧/∩//\\ (AND), ∨/∪/\\/ (OR), !/¬/~ (NOT); parentheses, sets {'{a,b}'}; works across all column types. Use '~' between field and value for contains, and leading '~' as TLA+ NOT.</Text>
+              {rowFilterError ? <Text textStyle="xs" color="red.500">{rowFilterError}</Text> : (
+              <Text textStyle="xs" color="gray.500">Supports =, ≠, ≥, ≤, &gt;, &lt;, ∈, ∉, ~, !~, ∧/∩//\\ (AND), ∨/∪/\\/ (OR), !/¬/~ (NOT); parentheses, sets {"{a,b}"}; works across all column types. Use &quot;~&quot; between field and value for contains, and leading &quot;~&quot; as TLA+ NOT.</Text>
             )}
+          </VStack>
+          )}
+          {/* Export controls */}
+          {(chartType === "line" || chartType === "derivative") && (
+          <VStack align="stretch" minW="260px">
+            <Text textStyle="sm" color="gray.600">Export</Text>
+            <HStack gap="8px">
+              <Button size="sm" variant="outline" onClick={async () => {
+                if (!xCol || yCols.length === 0) return;
+                setExportError(null); setExportBusy(true);
+                try {
+                  let rows: any[] = exportRows;
+                  if (chartType === "derivative") {
+                    rows = computeDerivative(exportRows, xCol, yCols);
+                  }
+                  const cols = [xCol, ...yCols];
+                  const csv = toCSV(rows, cols);
+                  downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), suggestFilename(`${jobName || "export"}_${chartType}.csv`));
+                } catch (e: any) {
+                  setExportError(String(e?.message || e));
+                } finally { setExportBusy(false); }
+              }} disabled={exportBusy || !xCol || yCols.length === 0}>{exportBusy ? "Exporting…" : "Export CSV"}</Button>
+              <Button size="sm" variant="solid" colorPalette="teal" onClick={async () => {
+                if (!xCol || yCols.length === 0) return;
+                setExportError(null); setExportBusy(true);
+                try {
+                  let rows: any[] = exportRows;
+                  if (chartType === "derivative") {
+                    rows = computeDerivative(exportRows, xCol, yCols);
+                  }
+                  const cols = [xCol, ...yCols];
+                  const csv = toCSV(rows, cols);
+                  const buf = await csvToParquetViaDuckDB(csv);
+                  downloadBlob(new Blob([buf], { type: "application/octet-stream" }), suggestFilename(`${jobName || "export"}_${chartType}.parquet`));
+                } catch (e: any) {
+                  setExportError(String(e?.message || e));
+                } finally { setExportBusy(false); }
+              }} disabled={exportBusy || !xCol || yCols.length === 0}>Export Parquet</Button>
+            </HStack>
+            {exportError && <Text textStyle="xs" color="red.500">{exportError}</Text>}
           </VStack>
           )}
           {(chartType === "line" || chartType === "derivative") && (
@@ -461,6 +524,19 @@ const COLORS = [
   "#38A169", // green.500
 ];
 
+function SimpleLegend({ series }: { series: { name: string; color: string }[] }) {
+  return (
+    <HStack justify="flex-end" wrap="wrap" gap="10px" mb="6px">
+      {series.map((s) => (
+        <HStack key={s.name} gap="6px">
+          <Box w="10px" h="10px" bg={s.color} borderRadius="2px" borderWidth="1px" borderColor="gray.300" />
+          <Text textStyle="xs" color="gray.700">{s.name}</Text>
+        </HStack>
+      ))}
+    </HStack>
+  );
+}
+
 function SimpleLineChart({ data, xKey, series, maWindow = 1, yAxisMode = "auto", logY = false }: { data: any[]; xKey: string; series: { name: string; color: string }[]; maWindow?: number; yAxisMode?: "auto" | "zeroToMax"; logY?: boolean }) {
   const width = 1000;
   const height = 360;
@@ -564,49 +640,52 @@ function SimpleLineChart({ data, xKey, series, maWindow = 1, yAxisMode = "auto",
   })();
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="360">
-      <rect x={padding.left} y={padding.top} width={plotW} height={plotH} fill="#ffffff" stroke="#E2E8F0" />
-      {/* Grid + Y ticks */}
-      {yTickVals.map((v, i) => {
-        const y = yScale(v);
-        return (
-          <g key={`y${i}`}>
-            <line x1={padding.left} x2={padding.left + plotW} y1={y} y2={y} stroke="#EDF2F7" />
-            <text x={padding.left - 8} y={y} textAnchor="end" dominantBaseline="middle" fontSize="10" fill="#4A5568">
-              {Math.round(v * 100) / 100}
-            </text>
-          </g>
-        );
-      })}
-      {/* X ticks */}
-      {xTickIdxs.map((idx, i) => {
-        const xv = xVals[idx];
-        const x = xScale(xv);
-        const label = isNumericX ? String(Math.round(xv * 100) / 100) : String(xs[idx]);
-        return (
-          <g key={`x${i}`}>
-            <line x1={x} x2={x} y1={padding.top + plotH} y2={padding.top + plotH + 4} stroke="#A0AEC0" />
-            <text x={x} y={padding.top + plotH + 16} textAnchor="middle" fontSize="10" fill="#4A5568">
-              {label}
-            </text>
-          </g>
-        );
-      })}
-      {/* Series lines */}
-      {series.map((s) => {
-        const pts: string[] = [];
-        const ys = yBySeries.get(s.name)!;
-        for (let i = 0; i < data.length; i++) {
-          const xv = xVals[i];
-          const yv = ys[i];
-          if (!Number.isFinite(yv)) continue;
+    <Box>
+      <SimpleLegend series={series} />
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="360">
+        <rect x={padding.left} y={padding.top} width={plotW} height={plotH} fill="#ffffff" stroke="#E2E8F0" />
+        {/* Grid + Y ticks */}
+        {yTickVals.map((v, i) => {
+          const y = yScale(v);
+          return (
+            <g key={`y${i}`}>
+              <line x1={padding.left} x2={padding.left + plotW} y1={y} y2={y} stroke="#EDF2F7" />
+              <text x={padding.left - 8} y={y} textAnchor="end" dominantBaseline="middle" fontSize="10" fill="#4A5568">
+                {Math.round(v * 100) / 100}
+              </text>
+            </g>
+          );
+        })}
+        {/* X ticks */}
+        {xTickIdxs.map((idx, i) => {
+          const xv = xVals[idx];
           const x = xScale(xv);
-          const y = yScale(yv);
-          pts.push(`${x},${y}`);
-        }
-        return <polyline key={s.name} fill="none" stroke={s.color} strokeWidth={2} points={pts.join(" ")} />;
-      })}
-    </svg>
+          const label = isNumericX ? String(Math.round(xv * 100) / 100) : String(xs[idx]);
+          return (
+            <g key={`x${i}`}>
+              <line x1={x} x2={x} y1={padding.top + plotH} y2={padding.top + plotH + 4} stroke="#A0AEC0" />
+              <text x={x} y={padding.top + plotH + 16} textAnchor="middle" fontSize="10" fill="#4A5568">
+                {label}
+              </text>
+            </g>
+          );
+        })}
+        {/* Series lines */}
+        {series.map((s) => {
+          const pts: string[] = [];
+          const ys = yBySeries.get(s.name)!;
+          for (let i = 0; i < data.length; i++) {
+            const xv = xVals[i];
+            const yv = ys[i];
+            if (!Number.isFinite(yv)) continue;
+            const x = xScale(xv);
+            const y = yScale(yv);
+            pts.push(`${x},${y}`);
+          }
+          return <polyline key={s.name} fill="none" stroke={s.color} strokeWidth={2} points={pts.join(" ")} />;
+        })}
+      </svg>
+    </Box>
   );
 }
 
@@ -667,6 +746,63 @@ function downsampleBins(data: any[], xKey: string, yCols: string[], maxPoints: n
   return out;
 }
 
+// ------- Export helpers -------
+function toCSV(rows: any[], cols: string[]): string {
+  const esc = (v: any) => {
+    if (v == null || (typeof v === "number" && !Number.isFinite(v))) return "";
+    const s = String(v);
+    if (/[",\n]/.test(s)) return "\"" + s.replace(/"/g, "\"\"") + "\"";
+    return s;
+  };
+  const header = cols.join(",");
+  const lines = rows.map((r) => cols.map((c) => esc(r?.[c])).join(","));
+  return [header, ...lines].join("\n");
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.style.display = "none";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function suggestFilename(base: string): string {
+  return base.replace(/[^a-zA-Z0-9._-]+/g, "_");
+}
+
+async function csvToParquetViaDuckDB(csv: string): Promise<Uint8Array> {
+  const importer = new Function("u", "return import(u)") as (u: string) => Promise<any>;
+  let mod: any;
+  try { mod = await importer("https://esm.sh/@duckdb/duckdb-wasm@1.28.0/dist/duckdb-browser.mjs"); } catch {
+    mod = await importer("https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/dist/duckdb-browser.mjs");
+  }
+  const bundles = mod.getJsDelivrBundles();
+  const bundle = (bundles && (bundles.mvp || bundles.standalone || bundles["mvp"])) || (await mod.selectBundle(bundles));
+  const workerUrl = bundle.mainWorker || bundle.worker;
+  let worker: Worker;
+  try {
+    const resp = await fetch(workerUrl, { mode: "cors" });
+    const scriptText = await resp.text();
+    const blobUrl = URL.createObjectURL(new Blob([scriptText], { type: "text/javascript" }));
+    worker = new Worker(blobUrl);
+  } catch {
+    worker = new Worker(workerUrl);
+  }
+  const logger = new mod.ConsoleLogger();
+  const db = new mod.AsyncDuckDB(logger, worker);
+  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+  const conn = await db.connect();
+  const encoder = new TextEncoder();
+  await db.registerFileBuffer("filtered.csv", encoder.encode(csv));
+  await conn.query("CREATE TABLE t AS SELECT * FROM read_csv_auto('filtered.csv', header=true)");
+  await conn.query("COPY t TO 'export.parquet' (FORMAT PARQUET)");
+  const buf: Uint8Array = await db.copyFileToBuffer("export.parquet");
+  await conn.close();
+  await db.terminate();
+  return buf;
+}
+
 // ---------------- Row filter expression parser ----------------
 // Supports:
 // - Comparators: =, ==, ≠, !=, ≥, >=, ≤, <=, >, <
@@ -694,71 +830,71 @@ function tokenizeFilter(input: string): Tok[] {
     const c = peek();
     if (isWS(c)) { next(); continue; }
     // punctuation
-    if (c === '(') { toks.push({ type: 'LP' }); next(); continue; }
-    if (c === ')') { toks.push({ type: 'RP' }); next(); continue; }
-    if (c === '{') { toks.push({ type: 'LB' }); next(); continue; }
-    if (c === '}') { toks.push({ type: 'RB' }); next(); continue; }
-    if (c === ',') { toks.push({ type: 'COMMA' }); next(); continue; }
+    if (c === "(") { toks.push({ type: "LP" }); next(); continue; }
+    if (c === ")") { toks.push({ type: "RP" }); next(); continue; }
+    if (c === "{") { toks.push({ type: "LB" }); next(); continue; }
+    if (c === "}") { toks.push({ type: "RB" }); next(); continue; }
+    if (c === ",") { toks.push({ type: "COMMA" }); next(); continue; }
     // multi-char operators and unicode
     // TLA+ style logic tokens
-    if (matchAhead('/\\')) { i += 2; pushOp('AND'); continue; }
-    if (matchAhead('\\/')) { i += 2; pushOp('OR'); continue; }
-    if (matchAhead('not in')) { i += 6; pushOp('NIN'); continue; }
-    if (matchAhead('NOT IN')) { i += 6; pushOp('NIN'); continue; }
-    if (matchAhead('!=')) { i += 2; pushOp('NE'); continue; }
-    if (matchAhead('==')) { i += 2; pushOp('EQ'); continue; }
-    if (matchAhead('>=')) { i += 2; pushOp('GTE'); continue; }
-    if (matchAhead('<=')) { i += 2; pushOp('LTE'); continue; }
-    if (matchAhead('!~')) { i += 2; pushOp('NCONTAINS'); continue; }
-    if (matchAhead('&&')) { i += 2; pushOp('AND'); continue; }
-    if (matchAhead('||')) { i += 2; pushOp('OR'); continue; }
-    if (matchAhead('!in')) { i += 3; pushOp('NIN'); continue; }
-    if (matchAhead('notin')) { i += 5; pushOp('NIN'); continue; }
+    if (matchAhead("/\\")) { i += 2; pushOp("AND"); continue; }
+    if (matchAhead("\\/")) { i += 2; pushOp("OR"); continue; }
+    if (matchAhead("not in")) { i += 6; pushOp("NIN"); continue; }
+    if (matchAhead("NOT IN")) { i += 6; pushOp("NIN"); continue; }
+    if (matchAhead("!=")) { i += 2; pushOp("NE"); continue; }
+    if (matchAhead("==")) { i += 2; pushOp("EQ"); continue; }
+    if (matchAhead(">=")) { i += 2; pushOp("GTE"); continue; }
+    if (matchAhead("<=")) { i += 2; pushOp("LTE"); continue; }
+    if (matchAhead("!~")) { i += 2; pushOp("NCONTAINS"); continue; }
+    if (matchAhead("&&")) { i += 2; pushOp("AND"); continue; }
+    if (matchAhead("||")) { i += 2; pushOp("OR"); continue; }
+    if (matchAhead("!in")) { i += 3; pushOp("NIN"); continue; }
+    if (matchAhead("notin")) { i += 5; pushOp("NIN"); continue; }
     // single char ops and unicode variants
-    if (c === '=') { next(); pushOp('EQ'); continue; }
-    if (c === '>') { next(); pushOp('GT'); continue; }
-    if (c === '<') { next(); pushOp('LT'); continue; }
-    if (c === '!') { next(); pushOp('NOT'); continue; }
-    if (c === '~') { next(); pushOp('TILDE'); continue; }
-    if (c === '∈') { next(); pushOp('IN'); continue; }
-    if (c === '∉') { next(); pushOp('NIN'); continue; }
-    if (c === '≥') { next(); pushOp('GTE'); continue; }
-    if (c === '≤') { next(); pushOp('LTE'); continue; }
-    if (c === '≠') { next(); pushOp('NE'); continue; }
-    if (c === '∧' || c === '∩') { next(); pushOp('AND'); continue; }
-    if (c === '∨' || c === '∪') { next(); pushOp('OR'); continue; }
-    if (c === '¬') { next(); pushOp('NOT'); continue; }
+    if (c === "=") { next(); pushOp("EQ"); continue; }
+    if (c === ">") { next(); pushOp("GT"); continue; }
+    if (c === "<") { next(); pushOp("LT"); continue; }
+    if (c === "!") { next(); pushOp("NOT"); continue; }
+    if (c === "~") { next(); pushOp("TILDE"); continue; }
+    if (c === "∈") { next(); pushOp("IN"); continue; }
+    if (c === "∉") { next(); pushOp("NIN"); continue; }
+    if (c === "≥") { next(); pushOp("GTE"); continue; }
+    if (c === "≤") { next(); pushOp("LTE"); continue; }
+    if (c === "≠") { next(); pushOp("NE"); continue; }
+    if (c === "∧" || c === "∩") { next(); pushOp("AND"); continue; }
+    if (c === "∨" || c === "∪") { next(); pushOp("OR"); continue; }
+    if (c === "¬") { next(); pushOp("NOT"); continue; }
     // quoted strings (single, double, backtick)
-    if (c === '"' || c === '\'' || c === '`') {
+    if (c === "\"" || c === "'" || c === "`") {
       const q = next();
       let out = "";
       while (i < s.length && s[i] !== q) {
-        if (s[i] === '\\' && i + 1 < s.length) { out += s[i + 1]; i += 2; }
+        if (s[i] === "\\" && i + 1 < s.length) { out += s[i + 1]; i += 2; }
         else { out += s[i++]; }
       }
-      if (i >= s.length) throw new Error('Unclosed string literal');
+      if (i >= s.length) throw new Error("Unclosed string literal");
       next();
-      toks.push({ type: 'STRING', value: out });
+      toks.push({ type: "STRING", value: out });
       continue;
     }
     // identifiers, keywords, numbers
-    const word = readWhile((ch) => !isWS(ch) && !'(){} ,<>=!~'.includes(ch));
+    const word = readWhile((ch) => !isWS(ch) && !"(){} ,<>=!~".includes(ch));
     if (word.length === 0) { // fallback to single char (unexpected)
-      toks.push({ type: 'CHAR', value: next() });
+      toks.push({ type: "CHAR", value: next() });
       continue;
     }
     const lower = word.toLowerCase();
-    if (lower === 'and') { pushOp('AND'); continue; }
-    if (lower === 'or') { pushOp('OR'); continue; }
-    if (lower === 'not') { pushOp('NOT'); continue; }
-    if (lower === 'in') { pushOp('IN'); continue; }
-    if (lower === 'true' || lower === 'false') { toks.push({ type: 'BOOL', value: lower === 'true' }); continue; }
-    if (lower === 'null' || lower === 'nil' || lower === 'none') { toks.push({ type: 'NULL', value: null }); continue; }
+    if (lower === "and") { pushOp("AND"); continue; }
+    if (lower === "or") { pushOp("OR"); continue; }
+    if (lower === "not") { pushOp("NOT"); continue; }
+    if (lower === "in") { pushOp("IN"); continue; }
+    if (lower === "true" || lower === "false") { toks.push({ type: "BOOL", value: lower === "true" }); continue; }
+    if (lower === "null" || lower === "nil" || lower === "none") { toks.push({ type: "NULL", value: null }); continue; }
     // number?
     const num = Number(word);
-    if (!Number.isNaN(num) && /^[-+]?\d*\.?\d+(e[-+]?\d+)?$/i.test(word)) { toks.push({ type: 'NUMBER', value: num }); continue; }
+    if (!Number.isNaN(num) && /^[-+]?\d*\.?\d+(e[-+]?\d+)?$/i.test(word)) { toks.push({ type: "NUMBER", value: num }); continue; }
     // identifier (column name)
-    toks.push({ type: 'IDENT', value: word });
+    toks.push({ type: "IDENT", value: word });
   }
   return toks;
 }
@@ -775,37 +911,37 @@ function buildFilterPredicate(expr: string): (row: any) => boolean {
   };
   function parseValue(): any {
     const t = peek();
-    if (!t) throw new Error('Unexpected end');
-    if (t.type === 'NUMBER' || t.type === 'STRING' || t.type === 'BOOL' || t.type === 'NULL') { i++; return t.value; }
+    if (!t) throw new Error("Unexpected end");
+    if (t.type === "NUMBER" || t.type === "STRING" || t.type === "BOOL" || t.type === "NULL") { i++; return t.value; }
     // bare identifier as string value
-    if (t.type === 'IDENT') { i++; return String(t.value); }
-    throw new Error('Expected value');
+    if (t.type === "IDENT") { i++; return String(t.value); }
+    throw new Error("Expected value");
   }
   function parseSet(): any[] {
-    if (!eat('LB')) throw new Error('Expected {');
+    if (!eat("LB")) throw new Error("Expected {");
     const arr: any[] = [];
-    while (i < toks.length && peek()?.type !== 'RB') {
+    while (i < toks.length && peek()?.type !== "RB") {
       arr.push(parseValue());
-      if (peek()?.type === 'COMMA') eat('COMMA');
+      if (peek()?.type === "COMMA") eat("COMMA");
     }
-    if (!eat('RB')) throw new Error('Expected }');
+    if (!eat("RB")) throw new Error("Expected }");
     return arr;
   }
   function eqVal(a: any, b: any): boolean {
     const na = toFiniteNumber(a); const nb = toFiniteNumber(b);
     if (na != null && nb != null) return na === nb;
-    if (typeof a === 'boolean' || typeof b === 'boolean') return Boolean(a) === Boolean(b);
+    if (typeof a === "boolean" || typeof b === "boolean") return Boolean(a) === Boolean(b);
     if (a == null && b == null) return true;
     return String(a) === String(b);
   }
-  function cmpNum(op: 'GT'|'GTE'|'LT'|'LTE', a: any, b: any): boolean {
-    const na = toFiniteNumber(a); const nb = toFiniteNumber(b);
-    if (na == null || nb == null) return false;
-    if (op === 'GT') return na > nb;
-    if (op === 'GTE') return na >= nb;
-    if (op === 'LT') return na < nb;
-    return na <= nb;
-  }
+function cmpNum(op: "GT"|"GTE"|"LT"|"LTE", a: any, b: any): boolean {
+  const na = toFiniteNumber(a); const nb = toFiniteNumber(b);
+  if (na == null || nb == null) return false;
+  if (op === "GT") return na > nb;
+  if (op === "GTE") return na >= nb;
+  if (op === "LT") return na < nb;
+  return na <= nb;
+}
   function contains(a: any, b: any): boolean {
     if (a == null || b == null) return false;
     const sa = String(a).toLowerCase();
@@ -814,63 +950,63 @@ function buildFilterPredicate(expr: string): (row: any) => boolean {
   }
   function parsePrimary(): (row: any) => boolean {
     const t = peek();
-    if (!t) throw new Error('Unexpected end');
-    if (t.type === 'LP') { eat('LP'); const e = parseOr(); if (!eat('RP')) throw new Error('Expected )'); return e; }
+    if (!t) throw new Error("Unexpected end");
+    if (t.type === "LP") { eat("LP"); const e = parseOr(); if (!eat("RP")) throw new Error("Expected )"); return e; }
     // comparison: IDENT op value | IDENT IN set | IDENT ~ value
-    if (t.type === 'IDENT' || t.type === 'STRING') {
+    if (t.type === "IDENT" || t.type === "STRING") {
       const identTok = eat(t.type);
       const key = String(identTok!.value);
       const opTok = peek();
-      if (!opTok) throw new Error('Missing operator after ' + key);
+      if (!opTok) throw new Error("Missing operator after " + key);
       const op = opTok.type; i++;
-      if (op === 'IN' || op === 'NIN') {
+      if (op === "IN" || op === "NIN") {
         const arr = parseSet();
         return (row: any) => {
           const v = row?.[key];
           const inSet = arr.some((x) => eqVal(v, x));
-          return op === 'IN' ? inSet : !inSet;
+          return op === "IN" ? inSet : !inSet;
         };
       }
-      if (op === 'TILDE' || op === 'NCONTAINS') {
+      if (op === "TILDE" || op === "NCONTAINS") {
         const val = parseValue();
         return (row: any) => {
           const v = row?.[key];
           const ok = contains(v, val);
-          return op === 'TILDE' ? ok : !ok;
+          return op === "TILDE" ? ok : !ok;
         };
       }
-      if (['EQ','NE','GT','GTE','LT','LTE'].includes(op)) {
+      if (["EQ","NE","GT","GTE","LT","LTE"].includes(op)) {
         const val = parseValue();
         return (row: any) => {
           const v = row?.[key];
           let res = false;
-          if (op === 'EQ') res = eqVal(v, val);
-          else if (op === 'NE') res = !eqVal(v, val);
+          if (op === "EQ") res = eqVal(v, val);
+          else if (op === "NE") res = !eqVal(v, val);
           else res = cmpNum(op as any, v, val);
           return res;
         };
       }
-      throw new Error('Unsupported operator: ' + op);
+      throw new Error("Unsupported operator: " + op);
     }
-    throw new Error('Expected identifier or (')
+    throw new Error("Expected identifier or (");
   }
   function parseNot(): (row: any) => boolean {
     const t = peek();
-    if (t && (t.type === 'NOT' || t.type === 'TILDE')) { eat(t.type); const e = parseNot(); return (r) => !e(r); }
+    if (t && (t.type === "NOT" || t.type === "TILDE")) { eat(t.type); const e = parseNot(); return (r) => !e(r); }
     return parsePrimary();
   }
   function parseAnd(): (row: any) => boolean {
     let left = parseNot();
-    while (peek() && peek()!.type === 'AND') { eat('AND'); const right = parseNot(); const l = left; left = (r) => l(r) && right(r); }
+    while (peek() && peek()!.type === "AND") { eat("AND"); const right = parseNot(); const l = left; left = (r) => l(r) && right(r); }
     return left;
   }
   function parseOr(): (row: any) => boolean {
     let left = parseAnd();
-    while (peek() && peek()!.type === 'OR') { eat('OR'); const right = parseAnd(); const l = left; left = (r) => l(r) || right(r); }
+    while (peek() && peek()!.type === "OR") { eat("OR"); const right = parseAnd(); const l = left; left = (r) => l(r) || right(r); }
     return left;
   }
   const pred = parseOr();
-  if (i < toks.length) throw new Error('Unexpected token');
+  if (i < toks.length) throw new Error("Unexpected token");
   return pred;
 }
 
