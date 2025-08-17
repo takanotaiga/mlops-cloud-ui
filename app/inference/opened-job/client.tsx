@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table, Separator, Steps } from "@chakra-ui/react";
+import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table, Separator, Steps, Accordion } from "@chakra-ui/react";
 import NextLink from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -25,19 +25,8 @@ type JobRow = {
   updatedAt?: string
 }
 
-type ProcessStep = { id: string; label?: string }
-type ProcessGraph = { steps?: ProcessStep[]; edges?: any[] }
-type ProcessStepState = {
-  status?: "pending" | "running" | "completed" | "failed"
-  percent?: number
-  message?: string
-  error?: any
-}
-type ProcessState = {
-  current?: string | null
-  byId?: Record<string, ProcessStepState>
-  updatedAt?: string
-}
+type ProgressStep = { key: string; label?: string; state?: "pending" | "running" | "completed" | "failed" }
+type JobProgress = { current_key?: string | null; steps?: ProgressStep[] }
 
 type InferenceResultRow = {
   id: string
@@ -112,52 +101,46 @@ export default function ClientOpenedInferenceJobPage() {
     },
   });
 
-  // Poll process graph/state at 300ms intervals
-  const { data: proc = { graph: { steps: [] }, state: {} as ProcessState } } = useQuery({
-    queryKey: ["inference-job-process", jobName],
+  // Poll job progress (step-based) at short intervals
+  const { data: progress = { current_key: null, steps: [] } as JobProgress } = useQuery({
+    queryKey: ["inference-job-progress", jobName],
     enabled: isSuccess && !!jobName,
-    queryFn: async (): Promise<{ graph: ProcessGraph; state: ProcessState }> => {
+    queryFn: async (): Promise<JobProgress> => {
       const res = await surreal.query(
-        "SELECT process_graph, process_state FROM inference_job WHERE name == $name  LIMIT 1",
+        "SELECT progress FROM inference_job WHERE name == $name LIMIT 1",
         { name: jobName }
       );
       const rows = extractRows<any>(res);
       const r = rows[0] || {};
-      const graph = (r?.process_graph ?? {}) as ProcessGraph;
-      const state = (r?.process_state ?? {}) as ProcessState;
-      return { graph, state };
+      const p = (r?.progress ?? {}) as JobProgress;
+      // Normalize shape defensively
+      const steps: ProgressStep[] = Array.isArray(p?.steps) ? p.steps.map((s: any) => ({
+        key: String(s?.key ?? ""),
+        label: s?.label ? String(s.label) : undefined,
+        state: (s?.state ?? "pending") as any,
+      })).filter((s) => s.key) : [];
+      return { current_key: p?.current_key ?? null, steps };
     },
     refetchOnWindowFocus: false,
-    refetchInterval: 300,
+    refetchInterval: 800,
     staleTime: 0,
   });
 
-  const procSteps = useMemo(() => (proc?.graph?.steps ?? []).map((s) => ({ id: String(s.id), title: String(s.label ?? s.id) })), [proc?.graph?.steps]);
-  const stepStateById: Record<string, ProcessStepState> = useMemo(() => proc?.state?.byId ?? {}, [proc?.state?.byId]);
-  const currentStepId: string | null | undefined = proc?.state?.current;
-  const allCompleted = useMemo(() => procSteps.length > 0 && procSteps.every((s) => (stepStateById[s.id]?.status ?? "pending") === "completed"), [procSteps, stepStateById]);
-  const firstFailedIndex = useMemo(() => procSteps.findIndex((s) => (stepStateById[s.id]?.status ?? "pending") === "failed"), [procSteps, stepStateById]);
+  const procSteps = useMemo(() => (progress?.steps ?? []).map((s) => ({ id: String(s.key), title: String(s.label ?? s.key), state: (s.state ?? "pending") as "pending" | "running" | "completed" | "failed" })), [progress?.steps]);
+  const currentStepId: string | null | undefined = progress?.current_key ?? null;
+  const allCompleted = useMemo(() => procSteps.length > 0 && procSteps.every((s) => (s.state ?? "pending") === "completed"), [procSteps]);
+  const firstFailedIndex = useMemo(() => procSteps.findIndex((s) => (s.state ?? "pending") === "failed"), [procSteps]);
   const activeIndex = useMemo(() => {
     if (typeof firstFailedIndex === "number" && firstFailedIndex >= 0) return firstFailedIndex;
     if (currentStepId) {
-      const idx = procSteps.findIndex((s) => s.id === currentStepId);
+      const idx = procSteps.findIndex((s) => s.id === currentStepId || s.state === "running");
       if (idx >= 0) return idx;
     }
     // fallback to last completed + 1
     let lastCompleted = -1;
-    procSteps.forEach((s, i) => { if ((stepStateById[s.id]?.status ?? "pending") === "completed") lastCompleted = i; });
+    procSteps.forEach((s, i) => { if ((s.state ?? "pending") === "completed") lastCompleted = i; });
     return Math.min(procSteps.length - 1, Math.max(0, lastCompleted + 1));
-  }, [procSteps, stepStateById, currentStepId, firstFailedIndex]);
-
-  function normalizePercent(v: unknown): number {
-    if (typeof v === "number") return v;
-    if (typeof v === "string") {
-      const s = v.trim().replace(/%$/, "").replace(/f$/i, "");
-      const n = parseFloat(s);
-      return Number.isFinite(n) ? n : NaN;
-    }
-    return NaN;
-  }
+  }, [procSteps, currentStepId, firstFailedIndex]);
 
   // Query inference results for this job when completed and task matches (newest first)
   const { data: results = [] } = useQuery({
@@ -633,56 +616,49 @@ export default function ClientOpenedInferenceJobPage() {
 
               {/* Progress: placed under info on the left */}
               {procSteps.length > 0 && (
-                <Box rounded="md" borderWidth="1px" p="12px" minH="300px" maxH="70vh" overflowY="auto" bg="bg.canvas">
-                  <Heading size="sm" mb="8px">Progress</Heading>
-                  <Steps.Root orientation="vertical" count={procSteps.length} step={(allCompleted ? procSteps.length : activeIndex)}>
-                    <Steps.List gap="4">
-                      {procSteps.map((s, index) => {
-                        const st = stepStateById[s.id] || {};
-                        const statusRaw = String(st.status ?? "pending").toLowerCase();
-                        let pct = normalizePercent(st.percent);
-                        if (!Number.isFinite(pct)) pct = statusRaw === "completed" ? 100 : 0;
-                        pct = Math.max(0, Math.min(100, pct));
-                        let derivedStatus: "pending" | "running" | "completed" | "failed" = "pending";
-                        if (s.id === currentStepId) derivedStatus = "running";
-                        else if (statusRaw === "failed") derivedStatus = "failed";
-                        else if (statusRaw === "completed" || pct >= 100) derivedStatus = "completed";
-                        else derivedStatus = "pending";
-                        const message = String(st.error ?? st.message ?? "");
-                        return (
-                          <Steps.Item key={s.id} index={index} title={s.title} py="3">
-                            <Steps.Indicator />
-                            <Steps.Title>{s.title}</Steps.Title>
-                            <Steps.Separator my="3" borderLeftWidth="2px" borderColor="gray.300" opacity={1} />
-                            <Steps.Content index={index}>
-                              <VStack align="stretch" gap={3} mt={3} mb={6} w="full">
-                                <HStack justify="space-between">
-                                  <Badge rounded="full" variant="subtle" colorPalette={
-                                    derivedStatus === "running" ? "blue" : derivedStatus === "completed" ? "green" : derivedStatus === "failed" ? "red" : "gray"
-                                  }>
-                                    {derivedStatus}
-                                  </Badge>
-                                  <Box minW="64px" textAlign="right">
-                                    <Text textStyle="xs" color="gray.600" style={{ fontVariantNumeric: "tabular-nums" }}>{pct.toFixed(2)}%</Text>
-                                  </Box>
-                                </HStack>
-                                <Progress.Root value={pct} w="full">
-                                  <Progress.Track>
-                                    <Progress.Range />
-                                  </Progress.Track>
-                                </Progress.Root>
-                                {message ? (
-                                  <Text textStyle="xs" color={derivedStatus === "failed" ? "red.600" : "gray.700"}>{message}</Text>
-                                ) : null}
-                              </VStack>
-                            </Steps.Content>
-                          </Steps.Item>
-                        );
-                      })}
-                    </Steps.List>
-                    <Steps.CompletedContent>All steps are complete!</Steps.CompletedContent>
-                  </Steps.Root>
-                </Box>
+                <Accordion.Root multiple defaultValue={((job?.status === "Complete" || job?.status === "Completed") ? [] : ["progress"]) }>
+                  <Accordion.Item value="progress">
+                    <Accordion.ItemTrigger>
+                      <HStack justify="space-between" w="full">
+                        <Heading size="sm">Progress</Heading>
+                        <Accordion.ItemIndicator />
+                      </HStack>
+                    </Accordion.ItemTrigger>
+                    <Accordion.ItemContent>
+                      <Accordion.ItemBody>
+                        <Box rounded="md" borderWidth="1px" p="12px" minH="300px" maxH="70vh" overflowY="auto" bg="bg.canvas">
+                          <Steps.Root orientation="vertical" count={procSteps.length} step={(allCompleted ? procSteps.length : activeIndex)}>
+                            <Steps.List gap="4">
+                              {procSteps.map((s, index) => {
+                                const derivedStatus: "pending" | "running" | "completed" | "failed" =
+                                  s.id === currentStepId && s.state !== "completed" ? "running" : (s.state ?? "pending");
+                                return (
+                                  <Steps.Item key={s.id} index={index} title={s.title} py="3">
+                                    <Steps.Indicator />
+                                    <Steps.Title>{s.title}</Steps.Title>
+                                    <Steps.Separator my="3" borderLeftWidth="2px" borderColor="gray.300" opacity={1} />
+                                    <Steps.Content index={index}>
+                                      <VStack align="stretch" gap={3} mt={3} mb={6} w="full">
+                                        <HStack justify="space-between">
+                                          <Badge rounded="full" variant="subtle" colorPalette={
+                                            derivedStatus === "running" ? "blue" : derivedStatus === "completed" ? "green" : derivedStatus === "failed" ? "red" : "gray"
+                                          }>
+                                            {derivedStatus}
+                                          </Badge>
+                                        </HStack>
+                                      </VStack>
+                                    </Steps.Content>
+                                  </Steps.Item>
+                                );
+                              })}
+                            </Steps.List>
+                            <Steps.CompletedContent>All steps are complete!</Steps.CompletedContent>
+                          </Steps.Root>
+                        </Box>
+                      </Accordion.ItemBody>
+                    </Accordion.ItemContent>
+                  </Accordion.Item>
+                </Accordion.Root>
               )}
 
               {/* Results list (flat) */}
