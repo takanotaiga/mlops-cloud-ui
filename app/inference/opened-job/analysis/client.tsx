@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { decodeBase64Utf8 } from "@/components/utils/base64";
 import { getSignedObjectUrl } from "@/components/utils/minio";
+import { cacheExists, readCachedBytes, downloadAndCacheBytes } from "@/components/utils/storage-cache";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 
 type ChartType =
@@ -65,37 +66,7 @@ export default function ClientDetailedAnalysisPage() {
     try { return decodeBase64Utf8(k); } catch { return ""; }
   }, [params]);
 
-  // OPFS helpers (optional cache)
-  async function getOpfsRoot(): Promise<any> {
-    const ns: any = (navigator as any).storage;
-    if (!ns?.getDirectory) throw new Error("OPFS not supported");
-    return await ns.getDirectory();
-  }
-  async function ensurePath(root: any, path: string, create: boolean): Promise<{ dir: any; name: string }> {
-    const parts = path.split("/").filter(Boolean);
-    const name = parts.pop() || "";
-    let dir = root;
-    for (const p of parts) {
-      dir = await dir.getDirectoryHandle(p, { create });
-    }
-    return { dir, name };
-  }
-  async function opfsFileExists(path: string): Promise<boolean> {
-    try {
-      const root = await getOpfsRoot();
-      const { dir, name } = await ensurePath(root, path, false);
-      await dir.getFileHandle(name, { create: false });
-      return true;
-    } catch { return false; }
-  }
-  async function readOpfsFileBytes(path: string): Promise<Uint8Array> {
-    const root = await getOpfsRoot();
-    const { dir, name } = await ensurePath(root, path, false);
-    const fh = await dir.getFileHandle(name, { create: false });
-    const file = await fh.getFile();
-    const ab = await file.arrayBuffer();
-    return new Uint8Array(ab);
-  }
+  // Cache helpers are in storage-cache.ts; no OPFS-only code
 
   const [loading, setLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -130,20 +101,21 @@ export default function ClientDetailedAnalysisPage() {
         const db = new mod.AsyncDuckDB(logger, worker);
         await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
         const conn = await db.connect();
-        // fetch parquet bytes (prefer OPFS cache)
+        // fetch parquet bytes (prefer browser cache)
         let fileBuf: Uint8Array;
         try {
-          if (await opfsFileExists(key)) {
-            fileBuf = await readOpfsFileBytes(key);
+          if (await cacheExists(bucket, key)) {
+            fileBuf = (await readCachedBytes(bucket, key)) || new Uint8Array(0);
+            if (!fileBuf || fileBuf.length === 0) throw new Error("empty cache");
           } else {
             const url = await getSignedObjectUrl(bucket, key, 60 * 10);
             const resp = await fetch(url);
             fileBuf = new Uint8Array(await resp.arrayBuffer());
+            // best-effort: populate cache for next time
+            try { await downloadAndCacheBytes(bucket, key); } catch { /* ignore */ }
           }
         } catch {
-          const url = await getSignedObjectUrl(bucket, key, 60 * 10);
-          const resp = await fetch(url);
-          fileBuf = new Uint8Array(await resp.arrayBuffer());
+          fileBuf = await downloadAndCacheBytes(bucket, key);
         }
         await db.registerFileBuffer("current.parquet", fileBuf);
         const LIMIT = 5000;

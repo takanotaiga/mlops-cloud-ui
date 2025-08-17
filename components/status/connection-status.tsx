@@ -1,47 +1,42 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Status, Text, Tooltip, Box } from "@chakra-ui/react";
-import { useSurreal } from "@/components/surreal/SurrealProvider";
-import { S3Client } from "@aws-sdk/client-s3";
-import { MINIO_CONFIG } from "@/app/secrets/minio-config";
-import { ensureBucketExists } from "@/components/minio/ensure-bucket";
 
 type MinioState = { ok: boolean; loading: boolean; message?: string }
 
 export default function ConnectionStatus() {
-  const { isSuccess: dbOk, isError: dbErr, isConnecting: dbLoading, error: dbError } = useSurreal();
+  const [dbOk, setDbOk] = useState(false);
+  const [dbLoading, setDbLoading] = useState(true);
+  const [dbErr, setDbErr] = useState<string | null>(null);
   const [minio, setMinio] = useState<MinioState>({ ok: false, loading: true });
-
-  const s3 = useMemo(() => {
-    return new S3Client({
-      region: MINIO_CONFIG.region,
-      endpoint: MINIO_CONFIG.endpoint,
-      forcePathStyle: MINIO_CONFIG.forcePathStyle,
-      credentials: {
-        accessKeyId: MINIO_CONFIG.accessKeyId,
-        secretAccessKey: MINIO_CONFIG.secretAccessKey,
-      },
-    });
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
     const check = async () => {
-      setMinio((s) => ({ ...s, loading: true }));
+      setDbLoading(true);
+      setMinio({ ok: false, loading: true });
       try {
-        await ensureBucketExists(s3, MINIO_CONFIG.bucket, MINIO_CONFIG.region);
-        if (!cancelled) setMinio({ ok: true, loading: false });
+        const res = await fetch("/api/status");
+        const j = await res.json();
+        if (!cancelled) {
+          setDbOk(!!j.dbOk);
+          setDbErr(j.dbOk ? null : (j.dbError ? String(j.dbError) : "error"));
+          setDbLoading(false);
+          setMinio({ ok: !!j.s3Ok, loading: false, message: j.s3Ok ? undefined : (j.s3Error ? String(j.s3Error) : "error") });
+        }
       } catch (e: any) {
-        const msg = e?.name || e?.code || e?.message || "MinIO error";
-        if (!cancelled) setMinio({ ok: false, loading: false, message: String(msg) });
+        if (!cancelled) {
+          setDbOk(false);
+          setDbErr(String(e?.message || e));
+          setDbLoading(false);
+          setMinio({ ok: false, loading: false, message: "status error" });
+        }
       }
     };
-    check();
-    return () => {
-      cancelled = true;
-    };
-  }, [s3]);
+    void check();
+    return () => { cancelled = true; };
+  }, []);
 
   const allOk = dbOk && minio.ok;
   const anyLoading = dbLoading || minio.loading;
@@ -55,7 +50,7 @@ export default function ConnectionStatus() {
   } else if (allOk) {
     label = "Connected";
   } else {
-    const dbMsg = dbErr ? `DB: ${String(dbError ?? "error")}` : "";
+    const dbMsg = dbErr ? `DB: ${String(dbErr ?? "error")}` : "";
     const s3Msg = !minio.ok ? `MinIO: ${minio.message ?? "error"}` : "";
     detail = [dbMsg, s3Msg].filter(Boolean).join(" | ");
     // Header should only show compact labels, details go to tooltip
