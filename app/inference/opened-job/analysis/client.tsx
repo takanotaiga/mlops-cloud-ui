@@ -3,7 +3,7 @@
 import { Box, Heading, HStack, VStack, Text, Link, Badge, Select, CheckboxGroup, Checkbox, Separator, SkeletonText, Skeleton, createListCollection, Portal, Input, Button } from "@chakra-ui/react";
 import NextLink from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { decodeBase64Utf8 } from "@/components/utils/base64";
 import { getSignedObjectUrl } from "@/components/utils/minio";
 import { cacheExists, readCachedBytes, downloadAndCacheBytes } from "@/components/utils/storage-cache";
@@ -136,6 +136,7 @@ export default function ClientDetailedAnalysisPage() {
   const [rowFilterError, setRowFilterError] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState<boolean>(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const chartSvgRef = useRef<SVGSVGElement | null>(null);
   // Helper defined at module scope
   // Columns that have at least one finite numeric value
   const numericCols = useMemo(() => {
@@ -376,10 +377,10 @@ export default function ClientDetailedAnalysisPage() {
             </VStack>
           </Box>
 
-          {/* Filter & Export */}
+          {/* Filter */}
           <Box minW="420px" flex={1} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
             <VStack align="stretch" gap="10px">
-              <Text textStyle="sm" fontWeight="semibold" color="gray.700">Filter & Export</Text>
+              <Text textStyle="sm" fontWeight="semibold" color="gray.700">Filter</Text>
               {(chartType === "line" || chartType === "derivative") && (
                 <VStack align="stretch">
                   <Text textStyle="sm" color="gray.600">Filter (rows)</Text>
@@ -392,9 +393,15 @@ export default function ClientDetailedAnalysisPage() {
                   )}
                 </VStack>
               )}
+            </VStack>
+          </Box>
+
+          {/* Export */}
+          <Box minW="420px" flex={1} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
+            <VStack align="stretch" gap="10px">
+              <Text textStyle="sm" fontWeight="semibold" color="gray.700">Export</Text>
               {(chartType === "line" || chartType === "derivative") && (
                 <VStack align="stretch">
-                  <Text textStyle="sm" color="gray.600">Export</Text>
                   <HStack gap="8px" wrap="wrap">
                     <Button size="sm" variant="outline" onClick={async () => {
                       if (!xCol || yCols.length === 0) return;
@@ -421,6 +428,14 @@ export default function ClientDetailedAnalysisPage() {
                       } catch (e: any) { setExportError(String(e?.message || e)); }
                       finally { setExportBusy(false); }
                     }} disabled={exportBusy || !xCol || yCols.length === 0}>Export Parquet</Button>
+                    <Button size="sm" variant="outline" onClick={() => {
+                      const svg = chartSvgRef.current; if (!svg) return;
+                      try { const blob = svgToBlob(svg); downloadBlob(blob, suggestFilename(`${jobName || "export"}_${chartType}.svg`)); } catch (e: any) { setExportError(String(e?.message || e)); }
+                    }}>Export SVG</Button>
+                    <Button size="sm" variant="outline" onClick={async () => {
+                      const svg = chartSvgRef.current; if (!svg) return;
+                      try { const blob = await svgToPngBlob(svg, 2); downloadBlob(blob, suggestFilename(`${jobName || "export"}_${chartType}.png`)); } catch (e: any) { setExportError(String(e?.message || e)); }
+                    }}>Export PNG (2x)</Button>
                   </HStack>
                   {exportError && <Text textStyle="xs" color="red.500">{exportError}</Text>}
                 </VStack>
@@ -441,9 +456,9 @@ export default function ClientDetailedAnalysisPage() {
           ) : !pq || !xCol || yCols.length === 0 ? (
             <Text color="gray.600">Select axes to render the chart.</Text>
           ) : chartType === "line" ? (
-            <SimpleLineChart data={chartData} xKey={xCol} series={series} maWindow={maWindow} yAxisMode={yAxisMode} logY={logY} />
+            <SimpleLineChart svgRef={chartSvgRef} data={chartData} xKey={xCol} series={series} maWindow={maWindow} yAxisMode={yAxisMode} logY={logY} />
           ) : chartType === "derivative" ? (
-            <SimpleLineChart data={computeDerivative(chartData, xCol, yCols)} xKey={xCol} series={series} maWindow={maWindow} yAxisMode={yAxisMode} logY={logY} />
+            <SimpleLineChart svgRef={chartSvgRef} data={computeDerivative(chartData, xCol, yCols)} xKey={xCol} series={series} maWindow={maWindow} yAxisMode={yAxisMode} logY={logY} />
           ) : null}
         </Box>
       </VStack>
@@ -473,7 +488,7 @@ function SimpleLegend({ series }: { series: { name: string; color: string }[] })
   );
 }
 
-function SimpleLineChart({ data, xKey, series, maWindow = 1, yAxisMode = "auto", logY = false }: { data: any[]; xKey: string; series: { name: string; color: string }[]; maWindow?: number; yAxisMode?: "auto" | "zeroToMax"; logY?: boolean }) {
+function SimpleLineChart({ svgRef, data, xKey, series, maWindow = 1, yAxisMode = "auto", logY = false }: { svgRef?: React.Ref<SVGSVGElement>; data: any[]; xKey: string; series: { name: string; color: string }[]; maWindow?: number; yAxisMode?: "auto" | "zeroToMax"; logY?: boolean }) {
   const width = 1000;
   const height = 360;
   const padding = { left: 50, right: 10, top: 10, bottom: 40 };
@@ -578,7 +593,7 @@ function SimpleLineChart({ data, xKey, series, maWindow = 1, yAxisMode = "auto",
   return (
     <Box>
       <SimpleLegend series={series} />
-      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="360">
+      <svg ref={svgRef as any} viewBox={`0 0 ${width} ${height}`} width="100%" height="360">
         <rect x={padding.left} y={padding.top} width={plotW} height={plotH} fill="#ffffff" stroke="#E2E8F0" />
         {/* Grid + Y ticks */}
         {yTickVals.map((v, i) => {
@@ -737,6 +752,45 @@ async function csvToParquetViaDuckDB(csv: string): Promise<Uint8Array> {
   await conn.close();
   await db.terminate();
   return buf;
+}
+
+function svgToBlob(svg: SVGSVGElement): Blob {
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+  const serializer = new XMLSerializer();
+  const str = serializer.serializeToString(clone);
+  return new Blob(["<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n", str], { type: "image/svg+xml;charset=utf-8" });
+}
+
+async function svgToPngBlob(svg: SVGSVGElement, scale: number = 1): Promise<Blob> {
+  const blob = svgToBlob(svg);
+  const url = URL.createObjectURL(blob);
+  try {
+    const vb = svg.viewBox && svg.viewBox.baseVal ? svg.viewBox.baseVal : null as any;
+    const w = vb && vb.width ? vb.width : (svg.clientWidth || 1000);
+    const h = vb && vb.height ? vb.height : (svg.clientHeight || 360);
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = (e) => reject(e);
+      image.src = url;
+    });
+    const canvas = document.createElement("canvas");
+    const s = Math.max(1, scale);
+    canvas.width = Math.ceil(w * s);
+    canvas.height = Math.ceil(h * s);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D context not available");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((b) => b ? resolve(b) : reject(new Error("Failed to encode PNG")), "image/png");
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 // ---------------- Row filter expression parser ----------------
