@@ -39,19 +39,19 @@ NEXT_PUBLIC_SURREAL_PASS=root`}</Code>
         <Box>
           <Heading size="lg" mb="3">バックエンド構成</Heading>
           <Box as="ul" pl="5" style={{ listStyle: "disc" }}>
-            <Box as="li"><b>MinIO / S3</b>：ブラウザから AWS SDK v3 で直接アップロード。互換性のため <Code>forcePathStyle: true</Code> を使用。</Box>
-            <Box as="li"><b>SurrealDB</b>：WebSocket/HTTP RPC（<Code>.../rpc</Code>）で接続し、<Code>connect</Code> → <Code>signin</Code> → <Code>USE NS/DB</Code> を実行。</Box>
+            <Box as="li"><b>MinIO / S3</b>：ブラウザ→Next.js API→S3 の中継方式に変更。サーバ側で AWS SDK v3 を使用します。</Box>
+            <Box as="li"><b>SurrealDB</b>：ブラウザ→Next.js API→SurrealDB の中継方式に変更。サーバ側で Surreal クライアントを使用します。</Box>
           </Box>
-          <Text mt="2">開発用のデフォルト値は <Code>app/secrets/*</Code> にありますが、本番は <Code>.env.local</Code> の <Code>NEXT_PUBLIC_*</Code> で上書きしてください。</Text>
+          <Text mt="2">接続情報は <Code>.env.local</Code> のサーバ環境変数（<Code>SURREAL_*</Code>、<Code>MINIO_*</Code>）で設定してください。</Text>
         </Box>
 
         <Line />
 
         <Box>
-          <Heading size="lg" mb="3">設定ファイル</Heading>
+          <Heading size="lg" mb="3">環境変数</Heading>
           <Box as="ul" pl="5" style={{ listStyle: "disc" }}>
-            <Box as="li"><Code>app/secrets/minio-config.tsx</Code>：<Code>endpoint</Code>, <Code>region</Code>, <Code>accessKeyId</Code>, <Code>secretAccessKey</Code>, <Code>bucket</Code>, <Code>forcePathStyle</Code></Box>
-            <Box as="li"><Code>app/secrets/surreal-config.ts</Code>：<Code>NEXT_PUBLIC_SURREAL_URL</Code>, <Code>NEXT_PUBLIC_SURREAL_NS</Code>, <Code>NEXT_PUBLIC_SURREAL_DB</Code>, <Code>NEXT_PUBLIC_SURREAL_USER</Code>, <Code>NEXT_PUBLIC_SURREAL_PASS</Code></Box>
+            <Box as="li"><b>SurrealDB</b>：<Code>SURREAL_URL</Code>（例：<Code>ws://surreal:8000/rpc</Code>）、<Code>SURREAL_NS</Code>、<Code>SURREAL_DB</Code>、<Code>SURREAL_USER</Code>、<Code>SURREAL_PASS</Code></Box>
+            <Box as="li"><b>MinIO</b>：<Code>MINIO_ENDPOINT_INTERNAL</Code>（例：<Code>http://minio:9000</Code>）、<Code>MINIO_REGION</Code>、<Code>MINIO_ACCESS_KEY_ID</Code>、<Code>MINIO_SECRET_ACCESS_KEY</Code>、<Code>MINIO_BUCKET</Code></Box>
           </Box>
         </Box>
 
@@ -140,8 +140,8 @@ print(df.head())
         <Box>
           <Heading size="lg" mb="3">セキュリティ</Heading>
           <Box as="ul" pl="5" style={{ listStyle: "disc" }}>
-            <Box as="li">本番でブラウザ直アップロードを行う場合、長期キーは埋め込まず、署名付きURLまたは短期クレデンシャルを発行する中継 API を推奨。</Box>
-            <Box as="li">リポジトリに本番キーをコミットしない（<Code>app/secrets/*</Code> は開発用）。</Box>
+            <Box as="li">ブラウザ直アクセスは避け、必ず Next.js API を経由（このリポジトリはすでにその構成）。</Box>
+            <Box as="li">リポジトリに本番キーをコミットしない（全て環境変数で設定）。</Box>
             <Box as="li">CORS・バケットポリシーは最小権限で構成。</Box>
             <Box as="li">ユーザー入力（データセット名など）はサニタイズする。</Box>
           </Box>

@@ -1,22 +1,18 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import Surreal from "surrealdb";
-import { useMutation } from "@tanstack/react-query";
-
 interface SurrealProviderProps {
   children: React.ReactNode
-  endpoint: string
-  params?: Parameters<Surreal["connect"]>[1]
-  client?: Surreal
   autoConnect?: boolean
-  auth?: { username: string; password: string }
-  ns?: string
-  db?: string
+}
+
+interface ApiSurrealLike {
+  query: (sql: string, vars?: Record<string, unknown>) => Promise<any>;
+  close: () => Promise<true>;
 }
 
 interface SurrealProviderState {
-  client: Surreal
+  client: ApiSurrealLike
   isConnecting: boolean
   isSuccess: boolean
   isError: boolean
@@ -27,51 +23,50 @@ interface SurrealProviderState {
 
 const SurrealContext = createContext<SurrealProviderState | undefined>(undefined);
 
-export function SurrealProvider({ children, client, endpoint, params, autoConnect = true, auth, ns, db }: SurrealProviderProps) {
-  const [surrealInstance] = useState(() => client ?? new Surreal());
+export function SurrealProvider({ children, autoConnect = true }: SurrealProviderProps) {
+  const [ready, setReady] = useState(false);
 
-  const { mutateAsync: connectMutation, isPending, isSuccess, isError, error, reset } = useMutation({
-    mutationFn: async () => {
-      await surrealInstance.connect(endpoint, params);
-      if (auth?.username && auth?.password) {
-        try {
-          await surrealInstance.signin({ username: auth.username, password: auth.password } as any);
-        } catch (e) {
-          // Some servers expect user/pass keys
-          await surrealInstance.signin({ user: auth.username, pass: auth.password } as any);
-        }
-      }
-      if (ns && db) {
-        await surrealInstance.use({ namespace: ns, database: db });
-      }
-      return true as const;
-    },
-  });
-
-  const connect = useCallback(() => connectMutation(), [connectMutation]);
-  const close = useCallback(() => surrealInstance.close(), [surrealInstance]);
+  const connect = useCallback(async () => {
+    // API-backed mode: no real connection needed; consider it ready
+    setReady(true);
+    return true as const;
+  }, []);
+  const close = useCallback(async () => {
+    return true as const;
+  }, []);
 
   useEffect(() => {
-    if (autoConnect) {
-      connect();
-    }
-    return () => {
-      reset();
-      surrealInstance.close();
-    };
-  }, [autoConnect, connect, reset, surrealInstance]);
+    if (autoConnect) void connect();
+    return () => { setReady(false); };
+  }, [autoConnect, connect]);
+
+  const apiClient: ApiSurrealLike = useMemo(() => ({
+    query: async (sql: string, vars?: Record<string, unknown>) => {
+      const res = await fetch("/api/db/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sql, vars }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({} as any));
+        throw new Error(err?.error || `DB error ${res.status}`);
+      }
+      return await res.json();
+    },
+    close,
+  }), [close]);
 
   const value: SurrealProviderState = useMemo(
     () => ({
-      client: surrealInstance,
-      isConnecting: isPending,
-      isSuccess,
-      isError,
-      error,
+      client: apiClient,
+      isConnecting: !ready,
+      isSuccess: ready,
+      isError: false,
+      error: undefined,
       connect,
       close,
     }),
-    [surrealInstance, isPending, isSuccess, isError, error, connect, close],
+    [apiClient, ready, connect, close],
   );
 
   return <SurrealContext.Provider value={value}>{children}</SurrealContext.Provider>;
@@ -83,6 +78,4 @@ export function useSurreal() {
   return ctx;
 }
 
-export function useSurrealClient() {
-  return useSurreal().client;
-}
+export function useSurrealClient() { return useSurreal().client; }

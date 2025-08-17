@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { extractRows } from "@/components/surreal/normalize";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 import { getSignedObjectUrl, deleteObjectFromS3 } from "@/components/utils/minio";
+import { cacheExists, getCachedBlobUrl, downloadAndCacheWithProgress, downloadAndCacheBytes, deleteCached, readCachedBytes } from "@/components/utils/storage-cache";
 import { LuChevronLeft, LuChevronRight } from "react-icons/lu";
 
 type JobRow = {
@@ -218,113 +219,15 @@ export default function ClientOpenedInferenceJobPage() {
     return ext === "parquet";
   }
 
-  // OPFS helpers (used for videos only)
-  async function getOpfsRoot(): Promise<any> {
-    const ns: any = (navigator as any).storage;
-    if (!ns?.getDirectory) throw new Error("OPFS not supported");
-    return await ns.getDirectory();
-  }
-  async function ensurePath(root: any, path: string, create: boolean): Promise<{ dir: any; name: string }> {
-    const parts = path.split("/").filter(Boolean);
-    const name = parts.pop() || "";
-    let dir = root;
-    for (const p of parts) {
-      dir = await dir.getDirectoryHandle(p, { create });
+  // Cache helpers (OPFS or Cache API)
+  async function ensureVideoCachedAndUrl(bucket: string, key: string, expectedSize?: number): Promise<string> {
+    // If already cached, return blob URL
+    if (await cacheExists(bucket, key)) {
+      const u = await getCachedBlobUrl(bucket, key);
+      if (u) return u;
     }
-    return { dir, name };
-  }
-  async function opfsFileExists(path: string): Promise<boolean> {
-    try {
-      const root = await getOpfsRoot();
-      const { dir, name } = await ensurePath(root, path, false);
-      await dir.getFileHandle(name, { create: false });
-      return true;
-    } catch { return false; }
-  }
-  async function getOpfsFileUrl(path: string): Promise<string> {
-    const root = await getOpfsRoot();
-    const { dir, name } = await ensurePath(root, path, false);
-    const fh = await dir.getFileHandle(name, { create: false });
-    const file = await fh.getFile();
-    return URL.createObjectURL(file);
-  }
-  async function readOpfsFileBytes(path: string): Promise<Uint8Array> {
-    const root = await getOpfsRoot();
-    const { dir, name } = await ensurePath(root, path, false);
-    const fh = await dir.getFileHandle(name, { create: false });
-    const file = await fh.getFile();
-    const ab = await file.arrayBuffer();
-    return new Uint8Array(ab);
-  }
-  async function deleteOpfsFile(path: string): Promise<void> {
-    try {
-      const root = await getOpfsRoot();
-      const { dir, name } = await ensurePath(root, path, false);
-      // remove the file entry if present
-      await dir.removeEntry(name, { recursive: false } as any);
-    } catch {
-      // ignore errors (file/dir may not exist or API unsupported)
-    }
-  }
-  async function downloadToOpfsWithProgress(bucket: string, key: string, expectedSize?: number) {
-    setDownloading(true);
-    setDownloadPct(0);
-    try {
-      const url = await getSignedObjectUrl(bucket, key, 60 * 30);
-      const resp = await fetch(url);
-      if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
-      const total = expectedSize && expectedSize > 0 ? expectedSize : Number(resp.headers.get("Content-Length") || 0);
-      const reader = resp.body.getReader();
-      const root = await getOpfsRoot();
-      const { dir, name } = await ensurePath(root, key, true);
-      const fh = await dir.getFileHandle(name, { create: true });
-      const writable = await (fh as any).createWritable();
-      let downloaded = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) {
-          await writable.write(value);
-          downloaded += value.length || value.byteLength || 0;
-          if (total > 0) setDownloadPct(Math.min(100, Math.round((downloaded / total) * 100)));
-        }
-      }
-      await writable.close();
-      const fileUrl = await getOpfsFileUrl(key);
-      setVideoUrl((prev) => { if (prev && prev.startsWith("blob:")) { try { URL.revokeObjectURL(prev); } catch { void 0; } } return fileUrl; });
-      setDownloadPct(100);
-    } finally {
-      setDownloading(false);
-    }
-  }
-  async function downloadFileToOpfsWithProgress(bucket: string, key: string, expectedSize?: number) {
-    setDownloading(true);
-    setDownloadPct(0);
-    try {
-      const url = await getSignedObjectUrl(bucket, key, 60 * 30);
-      const resp = await fetch(url);
-      if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
-      const total = expectedSize && expectedSize > 0 ? expectedSize : Number(resp.headers.get("Content-Length") || 0);
-      const reader = resp.body.getReader();
-      const root = await getOpfsRoot();
-      const { dir, name } = await ensurePath(root, key, true);
-      const fh = await dir.getFileHandle(name, { create: true });
-      const writable = await (fh as any).createWritable();
-      let downloaded = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) {
-          await writable.write(value);
-          downloaded += value.length || value.byteLength || 0;
-          if (total > 0) setDownloadPct(Math.min(100, Math.round((downloaded / total) * 100)));
-        }
-      }
-      await writable.close();
-      setDownloadPct(100);
-    } finally {
-      setDownloading(false);
-    }
+    // Download to cache with progress and return URL
+    return await downloadAndCacheWithProgress(bucket, key, expectedSize, (p) => setDownloadPct(p));
   }
 
   // On page/result change, if exists in OPFS already (videos), open it immediately and hide download button
@@ -335,16 +238,17 @@ export default function ClientOpenedInferenceJobPage() {
       if (!isVideoResult(current)) return;
       setCheckingLocal(true);
       try {
-        const exists = await opfsFileExists(current.key);
+        const exists = await cacheExists(current.bucket, current.key);
         if (exists) {
-          const url = await getOpfsFileUrl(current.key);
+          const url = await getCachedBlobUrl(current.bucket, current.key);
           if (!cancelled) setVideoUrl((prev) => { if (prev && prev.startsWith("blob:")) { try { URL.revokeObjectURL(prev); } catch { void 0; } } return url; });
         } else {
           if (!cancelled) setVideoUrl(null);
           // Auto-download video to OPFS for local cache
           if (!downloading) {
             try {
-              await downloadToOpfsWithProgress(current.bucket, current.key, current.size);
+              const url = await ensureVideoCachedAndUrl(current.bucket, current.key, current.size);
+              if (!cancelled) setVideoUrl((prev) => { if (prev && prev.startsWith("blob:")) { try { URL.revokeObjectURL(prev); } catch { void 0; } } return url; });
             } catch { /* ignore */ }
           }
         }
@@ -366,12 +270,16 @@ export default function ClientOpenedInferenceJobPage() {
       if (!isParquetResult(current)) return;
       setCheckingParquetLocal(true);
       try {
-        const exists = await opfsFileExists(current.key);
+        const exists = await cacheExists(current.bucket, current.key);
         // no UI indicator; just proceed
         if (!exists && !downloading) {
           try {
-            await downloadFileToOpfsWithProgress(current.bucket, current.key, current.size);
+            setDownloading(true);
+            setDownloadPct(0);
+            await downloadAndCacheBytes(current.bucket, current.key);
+            setDownloadPct(100);
           } catch { /* ignore */ }
+          finally { setDownloading(false); }
         }
       } catch {
         // ignore
@@ -422,8 +330,7 @@ export default function ClientOpenedInferenceJobPage() {
 
       // Remove cached OPFS files (videos/parquet) for this job's results
       try {
-        const keys = objects.map((o) => o.key);
-        await Promise.all(keys.map((k) => deleteOpfsFile(k)));
+        await Promise.all(objects.map((o) => deleteCached(o.bucket, o.key)));
       } catch { /* ignore */ }
 
       // Revoke any blob URL we created
@@ -516,7 +423,7 @@ export default function ClientOpenedInferenceJobPage() {
   const [pqLoading, setPqLoading] = useState<boolean>(false);
   const [pqError, setPqError] = useState<string | null>(null);
 
-  async function queryParquetPage(url: string, page: number, useOpfsIfAvailable: boolean = true, keyForOpfs?: string) {
+  async function queryParquetPage(url: string, page: number, bucketForCache?: string, keyForCache?: string) {
     setPqLoading(true);
     setPqError(null);
     try {
@@ -547,17 +454,11 @@ export default function ClientOpenedInferenceJobPage() {
       const db = new mod.AsyncDuckDB(logger, worker);
       await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
       const conn = await db.connect();
-      // Acquire parquet bytes either from OPFS (if present) or fetch
+      // Acquire parquet bytes either from cache (OPFS/CacheAPI) or fetch
       let fileBuf: Uint8Array;
-      if (useOpfsIfAvailable && keyForOpfs) {
-        try {
-          if (await opfsFileExists(keyForOpfs)) {
-            fileBuf = await readOpfsFileBytes(keyForOpfs);
-          } else {
-            const fileResp = await fetch(url);
-            fileBuf = new Uint8Array(await fileResp.arrayBuffer());
-          }
-        } catch {
+      if (bucketForCache && keyForCache && (await cacheExists(bucketForCache, keyForCache))) {
+        fileBuf = (await readCachedBytes(bucketForCache, keyForCache)) || new Uint8Array(0);
+        if (!fileBuf || fileBuf.length === 0) {
           const fileResp = await fetch(url);
           fileBuf = new Uint8Array(await fileResp.arrayBuffer());
         }
@@ -592,7 +493,7 @@ export default function ClientOpenedInferenceJobPage() {
       if (!current || !isParquetResult(current)) return;
       try {
         const url = await getSignedObjectUrl(current.bucket, current.key, 60 * 10);
-        if (!cancelled) await queryParquetPage(url, tablePage, true, current.key);
+        if (!cancelled) await queryParquetPage(url, tablePage, current.bucket, current.key);
       } catch (e: any) {
         if (!cancelled) setPqError(String(e?.message || e));
       }
@@ -930,7 +831,7 @@ export default function ClientOpenedInferenceJobPage() {
                             if (!current) return;
                             try {
                               const url = await getSignedObjectUrl(current.bucket, current.key, 60 * 10);
-                              await queryParquetPage(url, tablePage, true, current.key);
+                              await queryParquetPage(url, tablePage, current.bucket, current.key);
                             } catch { void 0; }
                           }}>Retry</Button>
                         </HStack>

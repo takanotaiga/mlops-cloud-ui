@@ -74,3 +74,71 @@ this, for example, in your `test` scripts.
 Notes:
 - Replace `<OWNER>/<REPO>` with your GitHub org/repo.
 - Set `NEXT_PUBLIC_*` as needed for your environment; values above are local examples.
+
+## Backend Environment Variables (Server)
+
+The UI now proxies SurrealDB and S3/MinIO through Next.js API routes (no direct browser credentials). Configure server-side envs via `docker run -e` or your orchestrator:
+
+- SurrealDB
+  - `SURREAL_URL`: e.g., `ws://surreal:8000/rpc` (must include `/rpc`)
+  - `SURREAL_NS`, `SURREAL_DB`
+  - `SURREAL_USER`, `SURREAL_PASS`
+
+- MinIO / S3
+  - `MINIO_ENDPOINT_INTERNAL`: server-visible endpoint (e.g., `http://minio:9000`)
+  - `MINIO_REGION`: default `us-east-1`
+  - `MINIO_ACCESS_KEY_ID`, `MINIO_SECRET_ACCESS_KEY`
+  - `MINIO_BUCKET`: e.g., `mlops-datasets`
+  - `MINIO_FORCE_PATH_STYLE`: default `true`
+  - `S3_MULTIPART_THRESHOLD_BYTES` (optional): default `1000000000` (1GB). Files below use PutObject; above use multipart.
+
+Example:
+
+```
+docker run --rm -p 3000:3000 \
+  -e NEXT_PUBLIC_SURREAL_URL=ws://127.0.0.1:8000/rpc \
+  -e NEXT_PUBLIC_SURREAL_NS=mlops \
+  -e NEXT_PUBLIC_SURREAL_DB=cloud_ui \
+  -e NEXT_PUBLIC_SURREAL_USER=root \
+  -e NEXT_PUBLIC_SURREAL_PASS=root \
+  -e SURREAL_URL=ws://surreal:8000/rpc \
+  -e SURREAL_NS=mlops \
+  -e SURREAL_DB=cloud_ui \
+  -e SURREAL_USER=root \
+  -e SURREAL_PASS=root \
+  -e MINIO_ENDPOINT_INTERNAL=http://minio:9000 \
+  -e MINIO_REGION=us-east-1 \
+  -e MINIO_ACCESS_KEY_ID=minioadmin \
+  -e MINIO_SECRET_ACCESS_KEY=minioadmin \
+  -e MINIO_BUCKET=mlops-datasets \
+  -e MINIO_FORCE_PATH_STYLE=true \
+  -e S3_MULTIPART_THRESHOLD_BYTES=1000000000 \
+  ghcr.io/takanotaiga/mlops-cloud-ui:main
+```
+
+In Compose, prefer service names for `SURREAL_URL`/`MINIO_ENDPOINT_INTERNAL` (e.g., `ws://surreal:8000/rpc`, `http://minio:9000`). Do not bake real keys into the image.
+
+## Docker Compose
+
+An example Compose file is provided at `docker-compose.example.yml` that starts the UI, SurrealDB, and MinIO together.
+
+Quick start:
+
+```
+cp docker-compose.example.yml docker-compose.yml
+docker compose up -d --build
+```
+
+
+Services:
+- `surreal`: WebSocket RPC at `ws://localhost:8000/rpc` (inside Compose: `ws://surreal:8000/rpc`)
+- `minio`: S3-compatible at `http://localhost:9000` (console at `http://localhost:9001`); healthcheck waits for readiness
+- `app`: UI at `http://localhost:3000`
+
+The UI calls Surreal/S3 via server-side API routes. Ensure the server envs in the Compose file reflect your desired bucket and credentials. For large uploads, tune `S3_MULTIPART_THRESHOLD_BYTES`.
+
+If you see `S3: Error (minio not found)` in the UI:
+- Ensure Compose is running all services: `docker compose ps`
+- Verify app can resolve the service name: services are on the same Compose network; `MINIO_ENDPOINT_INTERNAL` must be `http://minio:9000` (not localhost)
+- MinIO may still be starting; the provided healthcheck should gate the app start, but a browser refresh after 5–10s can help
+- Check logs: `docker compose logs minio -f` and `docker compose logs app -f`

@@ -1,0 +1,63 @@
+version: "3.9"
+
+services:
+  surreal:
+    image: surrealdb/surrealdb:latest
+    command: start --log info --bind 0.0.0.0:8000 --user root --pass root memory
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    restart: unless-stopped
+
+  app:
+    build: .
+    # Alternatively, use a published image:
+    # image: ghcr.io/takanotaiga/mlops-cloud-ui:main
+    depends_on:
+      - surreal
+      - minio
+    environment:
+      # Public (client) envs used in the browser
+      NEXT_PUBLIC_SURREAL_URL: ws://surreal:8000/rpc
+      NEXT_PUBLIC_SURREAL_NS: mlops
+      NEXT_PUBLIC_SURREAL_DB: cloud_ui
+      NEXT_PUBLIC_SURREAL_USER: root
+      NEXT_PUBLIC_SURREAL_PASS: root
+
+      # Server-side Surreal connection
+      SURREAL_URL: ws://surreal:8000/rpc
+      SURREAL_NS: mlops
+      SURREAL_DB: cloud_ui
+      SURREAL_USER: root
+      SURREAL_PASS: root
+
+      # Server-side MinIO/S3 connection
+      MINIO_ENDPOINT_INTERNAL: http://minio:9000
+      MINIO_REGION: us-east-1
+      MINIO_ACCESS_KEY_ID: minioadmin
+      MINIO_SECRET_ACCESS_KEY: minioadmin
+      MINIO_BUCKET: mlops-datasets
+      MINIO_FORCE_PATH_STYLE: "true"
+
+      # Use PutObject below this size (bytes); above uses multipart
+      S3_MULTIPART_THRESHOLD_BYTES: "1000000000"
+
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+volumes:
+  minio-data:
+

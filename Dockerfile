@@ -39,7 +39,25 @@ FROM node:18-bookworm-slim AS runner
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    PORT=3000
+    PORT=3000 \
+    \
+    # Server-side SurrealDB connection (override at runtime)
+    SURREAL_URL=ws://surreal:8000/rpc \
+    SURREAL_NS=mlops \
+    SURREAL_DB=cloud_ui \
+    SURREAL_USER=root \
+    SURREAL_PASS=root \
+    \
+    # Server-side MinIO/S3 connection (override at runtime)
+    MINIO_ENDPOINT_INTERNAL=http://minio:9000 \
+    MINIO_REGION=us-east-1 \
+    MINIO_ACCESS_KEY_ID=minioadmin \
+    MINIO_SECRET_ACCESS_KEY=minioadmin \
+    MINIO_BUCKET=mlops-datasets \
+    MINIO_FORCE_PATH_STYLE=true \
+    \
+    # Use PutObject for files below this size (in bytes); higher uses multipart
+    S3_MULTIPART_THRESHOLD_BYTES=1000000000
 
 WORKDIR /app
 

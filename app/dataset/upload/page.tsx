@@ -23,10 +23,7 @@ import {
 
 import { LuUpload , LuCloudUpload, LuPartyPopper, LuSparkles, LuCheck } from "react-icons/lu";
 
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import { Upload as S3MultipartUpload } from "@aws-sdk/lib-storage";
-import { MINIO_CONFIG } from "@/app/secrets/minio-config";
-import { ensureBucketExists } from "@/components/minio/ensure-bucket";
+// S3 upload is now proxied via Next.js API routes.
 import { useState, useCallback, useRef, useEffect } from "react";
 import NextLink from "next/link";
 import { useI18n } from "@/components/i18n/LanguageProvider";
@@ -100,6 +97,7 @@ export default function Page() {
   const [hasLongVideo15, setHasLongVideo15] = useState<boolean>(false);
   const [view, setView] = useState<"form" | "progress" | "done">("form");
   const [progress, setProgress] = useState<number[]>([]);
+  const [uploadedInfos, setUploadedInfos] = useState<Array<{ bucket: string; key: string } | null>>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // Track explicitly removed files and generate deterministic keys for dedupe
   const removedKeysRef = useRef<Set<string>>(new Set());
@@ -328,24 +326,8 @@ export default function Page() {
     setTitleInvalid(false);
     // Start real upload to MinIO (URL unchanged)
     setProgress(new Array(selectedFiles.length).fill(0));
+    setUploadedInfos(new Array(selectedFiles.length).fill(null));
     setView("progress");
-    const client = new S3Client({
-      region: MINIO_CONFIG.region,
-      endpoint: MINIO_CONFIG.endpoint,
-      forcePathStyle: MINIO_CONFIG.forcePathStyle,
-      credentials: {
-        accessKeyId: MINIO_CONFIG.accessKeyId,
-        secretAccessKey: MINIO_CONFIG.secretAccessKey,
-      },
-    });
-
-    try {
-      await ensureBucketExists(client, MINIO_CONFIG.bucket, MINIO_CONFIG.region);
-    } catch (e: any) {
-      setError(`Failed to ensure bucket: ${e?.message || String(e)}`);
-      setView("form");
-      return;
-    }
 
     const toUint8Array = (dataUrl: string): Uint8Array => {
       // data:[<mediatype>][;base64],<data>
@@ -357,64 +339,70 @@ export default function Page() {
       return bytes;
     };
 
-    const getThumbKeyFor = (dataset: string, name: string) => {
-      const base = name.replace(/\/+$/, "");
-      return `${dataset}/.thumbs/${base}.jpg`;
-    };
+    const getThumbNameFor = (name: string) => `${name.replace(/\/+$/, "")}.jpg`;
 
-    const tasks = selectedFiles.map((file, idx) => () => {
-      const Key = `${title}/${file.name}`;
-      const uploader = new S3MultipartUpload({
-        client,
-        params: {
-          Bucket: MINIO_CONFIG.bucket,
-          Key,
-          Body: file,
-          ContentType: file.type || "application/octet-stream",
-        },
-        queueSize: 3,
-        partSize: 100 * 1024 * 1024,
-        leavePartsOnError: false,
-      });
-
-      uploader.on("httpUploadProgress", (evt: any) => {
-        const loaded = evt.loaded ?? 0;
-        const total = evt.total ?? file.size;
-        const pct = total ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
-        setProgress((prev) => {
-          const next = [...prev];
-          next[idx] = Math.max(next[idx] ?? 0, pct);
-          return next;
-        });
-      });
-
-      return uploader.done().then(async () => {
-        // If this is a video and we have a generated thumbnail, upload it too
-        if (file.type.startsWith("video/")) {
-          const thumbDataUrl = videoThumbs[idx];
-          if (thumbDataUrl) {
+    const uploadViaApi = (file: File, idx: number) => {
+      return new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/storage/upload");
+        xhr.upload.onprogress = (evt) => {
+          const loaded = evt.loaded ?? 0;
+          const total = evt.total ?? file.size;
+          const pct = total ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+          setProgress((prev) => {
+            const next = [...prev];
+            next[idx] = Math.max(next[idx] ?? 0, pct);
+            return next;
+          });
+        };
+        xhr.onerror = () => reject(new Error("network error"));
+        xhr.onload = async () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
             try {
-              const Body = toUint8Array(thumbDataUrl);
-              const ThumbKey = getThumbKeyFor(title, file.name);
-              await client.send(new PutObjectCommand({
-                Bucket: MINIO_CONFIG.bucket,
-                Key: ThumbKey,
-                Body,
-                ContentType: "image/jpeg",
-              }));
-            } catch (e) {
-              // Non-fatal: continue even if thumbnail upload fails
-              console.warn("Thumbnail upload failed for", file.name, e);
+              const data = JSON.parse(xhr.responseText || "{}");
+              if (data && data.bucket && data.key) {
+                setUploadedInfos((prev) => { const next = [...prev]; next[idx] = { bucket: String(data.bucket), key: String(data.key) }; return next; });
+              }
+            } catch { /* ignore */ }
+            // Upload thumbnail if present (non-blocking errors)
+            if (file.type.startsWith("video/")) {
+              const thumbDataUrl = videoThumbs[idx];
+              if (thumbDataUrl) {
+                try {
+                  const form = new FormData();
+                  form.set("file", new Blob([toUint8Array(thumbDataUrl)], { type: "image/jpeg" }), getThumbNameFor(file.name));
+                  form.set("dataset", title);
+                  form.set("filename", getThumbNameFor(file.name));
+                  form.set("contentType", "image/jpeg");
+                  form.set("isThumb", "true");
+                  await fetch("/api/storage/upload", { method: "POST", body: form });
+                } catch (e) {
+                  console.warn("Thumbnail upload failed for", file.name, e);
+                }
+              }
+            }
+            setProgress((prev) => { const next = [...prev]; next[idx] = 100; return next; });
+            resolve();
+          } else {
+            try {
+              const data = JSON.parse(xhr.responseText || "{}");
+              const msg = data?.error || data?.message || `upload failed: ${xhr.status}`;
+              reject(new Error(String(msg)));
+            } catch {
+              reject(new Error(`upload failed: ${xhr.status}`));
             }
           }
-        }
-        setProgress((prev) => {
-          const next = [...prev];
-          next[idx] = 100;
-          return next;
-        });
+        };
+        const form = new FormData();
+        form.set("file", file, file.name);
+        form.set("dataset", title);
+        form.set("filename", file.name);
+        if (file.type) form.set("contentType", file.type);
+        xhr.send(form);
       });
-    });
+    };
+
+    const tasks = selectedFiles.map((file, idx) => () => uploadViaApi(file, idx));
 
     const runWithConcurrency = async <T,>(jobFns: Array<() => Promise<T>>, limit: number) => {
       const results: T[] = [];
@@ -457,7 +445,7 @@ export default function Page() {
           const uploadedVideoNames: string[] = [];
           for (let i = 0; i < selectedFiles.length; i++) {
             const file = selectedFiles[i];
-            const key = `${title}/${file.name}`;
+            const key = uploadedInfos[i]?.key || `${title}/${file.name}`;
             const thumbKey = file.type.startsWith("video/") && videoThumbs[i]
               ? `${title}/.thumbs/${file.name}.jpg`
               : undefined;
@@ -467,7 +455,7 @@ export default function Page() {
                 {
                   name: file.name,
                   key,
-                  bucket: MINIO_CONFIG.bucket,
+                  bucket: uploadedInfos[i]?.bucket || "mlops-datasets",
                   size: file.size,
                   mime: file.type || "application/octet-stream",
                   dataset: title,

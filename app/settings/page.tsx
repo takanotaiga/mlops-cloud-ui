@@ -3,41 +3,8 @@
 import { Box, Heading, HStack, VStack, Text, Badge, Button, ButtonGroup, Dialog, Portal, CloseButton } from "@chakra-ui/react";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 import { useEffect, useState } from "react";
+import { getTotalCachedBytes, clearAllCached } from "@/components/utils/storage-cache";
 import AppInfoCard from "@/components/meta/AppInfoCard";
-
-async function getOpfsRoot(): Promise<any> {
-  const ns: any = (navigator as any).storage;
-  if (!ns?.getDirectory) throw new Error("OPFS not supported in this browser");
-  return await ns.getDirectory();
-}
-
-async function computeDirSizeBytes(dir: any): Promise<number> {
-  let total = 0;
-   
-  for await (const [, handle] of (dir as any).entries()) {
-    try {
-      if (handle.kind === "file") {
-        const f = await handle.getFile();
-        total += f.size || 0;
-      } else if (handle.kind === "directory") {
-        total += await computeDirSizeBytes(handle);
-      }
-    } catch { /* ignore */ }
-  }
-  return total;
-}
-
-async function clearAllEntries(dir: any): Promise<void> {
-  // Collect names first to avoid iterator invalidation
-  const names: string[] = [];
-   
-  for await (const [name] of (dir as any).entries()) names.push(name);
-  for (const name of names) {
-    try {
-      await dir.removeEntry(name, { recursive: true });
-    } catch { /* ignore */ }
-  }
-}
 
 function humanizeBytes(n: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -59,8 +26,7 @@ export default function SettingsPage() {
     setLoadingCache(true);
     setCacheError(null);
     try {
-      const root = await getOpfsRoot();
-      const total = await computeDirSizeBytes(root);
+      const total = await getTotalCachedBytes();
       setCacheBytes(total);
     } catch (e: any) {
       setCacheError(String(e?.message || e));
@@ -132,8 +98,7 @@ export default function SettingsPage() {
                             if (clearing) return;
                             setClearing(true);
                             try {
-                              const root = await getOpfsRoot();
-                              await clearAllEntries(root);
+                              await clearAllCached();
                             } catch { /* ignore */ }
                             setClearing(false);
                             refreshCacheSize();
