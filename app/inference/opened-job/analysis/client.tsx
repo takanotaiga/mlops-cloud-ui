@@ -144,6 +144,9 @@ export default function ClientDetailedAnalysisPage() {
   // X-axis filter (for line/derivative)
   const [xFilterMin, setXFilterMin] = useState<string>("");
   const [xFilterMax, setXFilterMax] = useState<string>("");
+  // Row filter expression (set/logic based)
+  const [rowFilterExpr, setRowFilterExpr] = useState<string>("");
+  const [rowFilterError, setRowFilterError] = useState<string | null>(null);
   const [freqCol, setFreqCol] = useState<string>("");
   const [freqTopN, setFreqTopN] = useState<number>(20);
   const [freqAsPercent, setFreqAsPercent] = useState<boolean>(false);
@@ -211,12 +214,27 @@ export default function ClientDetailedAnalysisPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pq, numericCols]);
 
+  // Build row-filter predicate from expression
+  const rowFilter = useMemo(() => {
+    const expr = rowFilterExpr?.trim() || "";
+    if (!expr) { setRowFilterError(null); return (r: any) => { void r; return true; }; }
+    try {
+      const pred = buildFilterPredicate(expr);
+      setRowFilterError(null);
+      return pred;
+    } catch (e: any) {
+      setRowFilterError(String(e?.message || e));
+      return (r: any) => { void r; return true; };
+    }
+  }, [rowFilterExpr]);
+
   // Prepare chart data and series
   const chartData = useMemo(() => {
     if (!pq || !xCol) return [];
     const rows = pq.rows;
     const out: any[] = [];
     for (const r of rows) {
+      if (!rowFilter(r)) continue;
       const xv = toFiniteNumber(r?.[xCol]);
       if (xv == null) continue; // require numeric X
       const obj: any = { [xCol]: xv };
@@ -227,7 +245,7 @@ export default function ClientDetailedAnalysisPage() {
       out.push(obj);
     }
     return out;
-  }, [pq, xCol, yCols]);
+  }, [pq, xCol, yCols, rowFilter]);
 
   const series = useMemo(() => yCols.map((name, i) => ({ name, color: COLORS[i % COLORS.length] })), [yCols]);
 
@@ -394,6 +412,19 @@ export default function ClientDetailedAnalysisPage() {
                 onChange={(e) => setXFilterMax(e.target.value)} placeholder={xDomain.ready ? String(xDomain.max) : "max"} />
               <Button size="xs" variant="outline" onClick={() => { if (xDomain.ready) { setXFilterMin(String(xDomain.min)); setXFilterMax(String(xDomain.max)); } }}>Reset</Button>
             </HStack>
+          </VStack>
+          )}
+          {(chartType === "line" || chartType === "derivative") && (
+          <VStack align="stretch" minW="420px">
+            <Text textStyle="sm" color="gray.600">Filter (rows)</Text>
+            <HStack gap="8px">
+              <Input size="sm" flex={1} value={rowFilterExpr} onChange={(e) => setRowFilterExpr(e.target.value)}
+                placeholder={"e.g. status ∈ {ok,err} ∧ score ≥ 0.8 ∪ tag = \"test\""} />
+              <Button size="xs" variant="outline" onClick={() => setRowFilterExpr("")}>Clear</Button>
+            </HStack>
+            {rowFilterError ? <Text textStyle="xs" color="red.500">{rowFilterError}</Text> : (
+              <Text textStyle="xs" color="gray.500">Supports =, ≠, ≥, ≤, &gt;, &lt;, ∈, ∉, ~, !~, ∧/∩//\\ (AND), ∨/∪/\\/ (OR), !/¬/~ (NOT); parentheses, sets {'{a,b}'}; works across all column types. Use '~' between field and value for contains, and leading '~' as TLA+ NOT.</Text>
+            )}
           </VStack>
           )}
           {(chartType === "line" || chartType === "derivative") && (
@@ -1001,6 +1032,213 @@ function applyXFilter(data: any[], xKey: string, minStr: string, maxStr: string,
     const xv = Number(r?.[xKey]);
     return Number.isFinite(xv) && xv >= lo && xv <= hi;
   });
+}
+
+// ---------------- Row filter expression parser ----------------
+// Supports:
+// - Comparators: =, ==, ≠, !=, ≥, >=, ≤, <=, >, <
+// - Membership: ∈, in, ∉, not in
+// - Substring: ~, !~ (case-insensitive contains)
+// - Logic: ∧, ∩, and, && (AND); ∨, ∪, or, || (OR); !, ¬, not (NOT)
+// - Parentheses and set literals: {a, b, 3, "x"}
+// - Works across numbers, strings, booleans, null
+type Tok = { type: string; value?: any };
+function tokenizeFilter(input: string): Tok[] {
+  const s = input;
+  const toks: Tok[] = [];
+  let i = 0;
+  const isWS = (c: string) => /\s/.test(c);
+  const peek = () => s[i];
+  const next = () => s[i++];
+  function readWhile(fn: (c: string) => boolean) {
+    let out = "";
+    while (i < s.length && fn(s[i])) out += s[i++];
+    return out;
+  }
+  function matchAhead(str: string) { return s.slice(i, i + str.length) === str; }
+  function pushOp(op: string) { toks.push({ type: op }); }
+  while (i < s.length) {
+    const c = peek();
+    if (isWS(c)) { next(); continue; }
+    // punctuation
+    if (c === '(') { toks.push({ type: 'LP' }); next(); continue; }
+    if (c === ')') { toks.push({ type: 'RP' }); next(); continue; }
+    if (c === '{') { toks.push({ type: 'LB' }); next(); continue; }
+    if (c === '}') { toks.push({ type: 'RB' }); next(); continue; }
+    if (c === ',') { toks.push({ type: 'COMMA' }); next(); continue; }
+    // multi-char operators and unicode
+    // TLA+ style logic tokens
+    if (matchAhead('/\\')) { i += 2; pushOp('AND'); continue; }
+    if (matchAhead('\\/')) { i += 2; pushOp('OR'); continue; }
+    if (matchAhead('not in')) { i += 6; pushOp('NIN'); continue; }
+    if (matchAhead('NOT IN')) { i += 6; pushOp('NIN'); continue; }
+    if (matchAhead('!=')) { i += 2; pushOp('NE'); continue; }
+    if (matchAhead('==')) { i += 2; pushOp('EQ'); continue; }
+    if (matchAhead('>=')) { i += 2; pushOp('GTE'); continue; }
+    if (matchAhead('<=')) { i += 2; pushOp('LTE'); continue; }
+    if (matchAhead('!~')) { i += 2; pushOp('NCONTAINS'); continue; }
+    if (matchAhead('&&')) { i += 2; pushOp('AND'); continue; }
+    if (matchAhead('||')) { i += 2; pushOp('OR'); continue; }
+    if (matchAhead('!in')) { i += 3; pushOp('NIN'); continue; }
+    if (matchAhead('notin')) { i += 5; pushOp('NIN'); continue; }
+    // single char ops and unicode variants
+    if (c === '=') { next(); pushOp('EQ'); continue; }
+    if (c === '>') { next(); pushOp('GT'); continue; }
+    if (c === '<') { next(); pushOp('LT'); continue; }
+    if (c === '!') { next(); pushOp('NOT'); continue; }
+    if (c === '~') { next(); pushOp('TILDE'); continue; }
+    if (c === '∈') { next(); pushOp('IN'); continue; }
+    if (c === '∉') { next(); pushOp('NIN'); continue; }
+    if (c === '≥') { next(); pushOp('GTE'); continue; }
+    if (c === '≤') { next(); pushOp('LTE'); continue; }
+    if (c === '≠') { next(); pushOp('NE'); continue; }
+    if (c === '∧' || c === '∩') { next(); pushOp('AND'); continue; }
+    if (c === '∨' || c === '∪') { next(); pushOp('OR'); continue; }
+    if (c === '¬') { next(); pushOp('NOT'); continue; }
+    // quoted strings (single, double, backtick)
+    if (c === '"' || c === '\'' || c === '`') {
+      const q = next();
+      let out = "";
+      while (i < s.length && s[i] !== q) {
+        if (s[i] === '\\' && i + 1 < s.length) { out += s[i + 1]; i += 2; }
+        else { out += s[i++]; }
+      }
+      if (i >= s.length) throw new Error('Unclosed string literal');
+      next();
+      toks.push({ type: 'STRING', value: out });
+      continue;
+    }
+    // identifiers, keywords, numbers
+    const word = readWhile((ch) => !isWS(ch) && !'(){} ,<>=!~'.includes(ch));
+    if (word.length === 0) { // fallback to single char (unexpected)
+      toks.push({ type: 'CHAR', value: next() });
+      continue;
+    }
+    const lower = word.toLowerCase();
+    if (lower === 'and') { pushOp('AND'); continue; }
+    if (lower === 'or') { pushOp('OR'); continue; }
+    if (lower === 'not') { pushOp('NOT'); continue; }
+    if (lower === 'in') { pushOp('IN'); continue; }
+    if (lower === 'true' || lower === 'false') { toks.push({ type: 'BOOL', value: lower === 'true' }); continue; }
+    if (lower === 'null' || lower === 'nil' || lower === 'none') { toks.push({ type: 'NULL', value: null }); continue; }
+    // number?
+    const num = Number(word);
+    if (!Number.isNaN(num) && /^[-+]?\d*\.?\d+(e[-+]?\d+)?$/i.test(word)) { toks.push({ type: 'NUMBER', value: num }); continue; }
+    // identifier (column name)
+    toks.push({ type: 'IDENT', value: word });
+  }
+  return toks;
+}
+
+function buildFilterPredicate(expr: string): (row: any) => boolean {
+  const toks = tokenizeFilter(expr);
+  let i = 0;
+  const peek = () => toks[i];
+  const eat = (type?: string) => {
+    const t = toks[i];
+    if (!t) return undefined as any;
+    if (!type || t.type === type) { i++; return t; }
+    return undefined as any;
+  };
+  function parseValue(): any {
+    const t = peek();
+    if (!t) throw new Error('Unexpected end');
+    if (t.type === 'NUMBER' || t.type === 'STRING' || t.type === 'BOOL' || t.type === 'NULL') { i++; return t.value; }
+    // bare identifier as string value
+    if (t.type === 'IDENT') { i++; return String(t.value); }
+    throw new Error('Expected value');
+  }
+  function parseSet(): any[] {
+    if (!eat('LB')) throw new Error('Expected {');
+    const arr: any[] = [];
+    while (i < toks.length && peek()?.type !== 'RB') {
+      arr.push(parseValue());
+      if (peek()?.type === 'COMMA') eat('COMMA');
+    }
+    if (!eat('RB')) throw new Error('Expected }');
+    return arr;
+  }
+  function eqVal(a: any, b: any): boolean {
+    const na = toFiniteNumber(a); const nb = toFiniteNumber(b);
+    if (na != null && nb != null) return na === nb;
+    if (typeof a === 'boolean' || typeof b === 'boolean') return Boolean(a) === Boolean(b);
+    if (a == null && b == null) return true;
+    return String(a) === String(b);
+  }
+  function cmpNum(op: 'GT'|'GTE'|'LT'|'LTE', a: any, b: any): boolean {
+    const na = toFiniteNumber(a); const nb = toFiniteNumber(b);
+    if (na == null || nb == null) return false;
+    if (op === 'GT') return na > nb;
+    if (op === 'GTE') return na >= nb;
+    if (op === 'LT') return na < nb;
+    return na <= nb;
+  }
+  function contains(a: any, b: any): boolean {
+    if (a == null || b == null) return false;
+    const sa = String(a).toLowerCase();
+    const sb = String(b).toLowerCase();
+    return sa.includes(sb);
+  }
+  function parsePrimary(): (row: any) => boolean {
+    const t = peek();
+    if (!t) throw new Error('Unexpected end');
+    if (t.type === 'LP') { eat('LP'); const e = parseOr(); if (!eat('RP')) throw new Error('Expected )'); return e; }
+    // comparison: IDENT op value | IDENT IN set | IDENT ~ value
+    if (t.type === 'IDENT' || t.type === 'STRING') {
+      const identTok = eat(t.type);
+      const key = String(identTok!.value);
+      const opTok = peek();
+      if (!opTok) throw new Error('Missing operator after ' + key);
+      const op = opTok.type; i++;
+      if (op === 'IN' || op === 'NIN') {
+        const arr = parseSet();
+        return (row: any) => {
+          const v = row?.[key];
+          const inSet = arr.some((x) => eqVal(v, x));
+          return op === 'IN' ? inSet : !inSet;
+        };
+      }
+      if (op === 'TILDE' || op === 'NCONTAINS') {
+        const val = parseValue();
+        return (row: any) => {
+          const v = row?.[key];
+          const ok = contains(v, val);
+          return op === 'TILDE' ? ok : !ok;
+        };
+      }
+      if (['EQ','NE','GT','GTE','LT','LTE'].includes(op)) {
+        const val = parseValue();
+        return (row: any) => {
+          const v = row?.[key];
+          let res = false;
+          if (op === 'EQ') res = eqVal(v, val);
+          else if (op === 'NE') res = !eqVal(v, val);
+          else res = cmpNum(op as any, v, val);
+          return res;
+        };
+      }
+      throw new Error('Unsupported operator: ' + op);
+    }
+    throw new Error('Expected identifier or (')
+  }
+  function parseNot(): (row: any) => boolean {
+    const t = peek();
+    if (t && (t.type === 'NOT' || t.type === 'TILDE')) { eat(t.type); const e = parseNot(); return (r) => !e(r); }
+    return parsePrimary();
+  }
+  function parseAnd(): (row: any) => boolean {
+    let left = parseNot();
+    while (peek() && peek()!.type === 'AND') { eat('AND'); const right = parseNot(); const l = left; left = (r) => l(r) && right(r); }
+    return left;
+  }
+  function parseOr(): (row: any) => boolean {
+    let left = parseAnd();
+    while (peek() && peek()!.type === 'OR') { eat('OR'); const right = parseAnd(); const l = left; left = (r) => l(r) || right(r); }
+    return left;
+  }
+  const pred = parseOr();
+  if (i < toks.length) throw new Error('Unexpected token');
+  return pred;
 }
 
 function computeCumSum(data: any[], xKey: string, yCols: string[]) {
