@@ -81,12 +81,22 @@ export default function InferenceJobsPage() {
     return jobs.filter((j) => j.name?.toLowerCase().includes(q) || j.model?.toLowerCase().includes(q) || j.taskType?.toLowerCase().includes(q));
   }, [jobs, deferred]);
 
+  // Responsive columns defined by Chakra breakpoints. Tweak as needed.
+  // Keys: base, sm, md, lg, xl, 2xl
+  const GRID_COLUMNS = useMemo(() => ({
+    base: 1,
+    sm: 1,
+    md: 2,
+    lg: 3,
+    xl: 4,
+  }), []);
+
   return (
     <HStack justify="center">
       <VStack w="70%" align="stretch" py="24px" gap="16px">
         <HStack justify="space-between" pb="8px">
           <HStack gap="3" align="center">
-            <Heading size="2xl">{t("inference.title", "Inference Jobs 🤖")}</Heading>
+            <Heading size="2xl">{t("inference.title", "Inference 🤖")}</Heading>
             <Badge rounded="full" variant="subtle" colorPalette="teal">{t("inference.badge", "Inference")}</Badge>
           </HStack>
           <HStack>
@@ -125,9 +135,9 @@ export default function InferenceJobsPage() {
           </HStack>
         )}
 
-        <SimpleGrid columns={[1, 2, 3]} gap="16px">
+        <SimpleGrid columns={GRID_COLUMNS} gap="16px">
           {isPending ? (
-            Array.from({ length: 3 }).map((_, i) => (
+            Array.from({ length: 4 }).map((_, i) => (
               <Box key={i} rounded="md" borderWidth="1px" bg="white" p="12px">
                 <SkeletonText noOfLines={1} w="60%" />
                 <Skeleton mt="3" h="14px" w="40%" />
