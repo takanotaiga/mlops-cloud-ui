@@ -118,8 +118,7 @@ export default function ClientDetailedAnalysisPage() {
           fileBuf = await downloadAndCacheBytes(bucket, key);
         }
         await db.registerFileBuffer("current.parquet", fileBuf);
-        const LIMIT = 5000;
-        const res: any = await conn.query(`SELECT * FROM read_parquet('current.parquet') LIMIT ${LIMIT}`);
+        const res: any = await conn.query(`SELECT * FROM read_parquet('current.parquet')`);
         const rows: any[] = (res as any)?.toArray?.() ?? [];
         const cols: string[] = (res as any)?.schema?.fields?.map((f: any) => String(f.name)) ?? (rows[0] ? Object.keys(rows[0]) : []);
         await conn.close();
@@ -141,9 +140,6 @@ export default function ClientDetailedAnalysisPage() {
   const [maWindow, setMaWindow] = useState<number>(1);
   const [yAxisMode, setYAxisMode] = useState<"auto" | "zeroToMax">("auto");
   const [logY, setLogY] = useState<boolean>(false);
-  // X-axis filter (for line/derivative)
-  const [xFilterMin, setXFilterMin] = useState<string>("");
-  const [xFilterMax, setXFilterMax] = useState<string>("");
   // Row filter expression (set/logic based)
   const [rowFilterExpr, setRowFilterExpr] = useState<string>("");
   const [rowFilterError, setRowFilterError] = useState<string | null>(null);
@@ -228,7 +224,7 @@ export default function ClientDetailedAnalysisPage() {
     }
   }, [rowFilterExpr]);
 
-  // Prepare chart data and series
+  // Prepare chart data and series (sorted + optional downsampling for very large datasets)
   const chartData = useMemo(() => {
     if (!pq || !xCol) return [];
     const rows = pq.rows;
@@ -244,33 +240,17 @@ export default function ClientDetailedAnalysisPage() {
       }
       out.push(obj);
     }
-    return out;
+    // sort by X ascending
+    out.sort((a, b) => (a[xCol] as number) - (b[xCol] as number));
+    // downsample to keep performance on 1M+ rows
+    const MAX_POINTS = 2000; // per chart, approximate
+    if (out.length <= MAX_POINTS) return out;
+    return downsampleBins(out, xCol, yCols, MAX_POINTS);
   }, [pq, xCol, yCols, rowFilter]);
 
   const series = useMemo(() => yCols.map((name, i) => ({ name, color: COLORS[i % COLORS.length] })), [yCols]);
 
-  // X domain for current xCol
-  const xDomain = useMemo(() => {
-    if (!pq || !xCol) return { min: 0, max: 1, ready: false };
-    let min = Number.POSITIVE_INFINITY;
-    let max = Number.NEGATIVE_INFINITY;
-    for (const r of pq.rows) {
-      const v = toFiniteNumber(r?.[xCol]);
-      if (v == null) continue;
-      if (v < min) min = v;
-      if (v > max) max = v;
-    }
-    if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: 0, max: 1, ready: false };
-    if (max === min) { max = min + 1; }
-    return { min, max, ready: true };
-  }, [pq, xCol]);
-
-  // Initialize filter to domain when xCol/domain changes
-  useEffect(() => {
-    if (!xDomain.ready) return;
-    setXFilterMin(String(xDomain.min));
-    setXFilterMax(String(xDomain.max));
-  }, [xDomain.min, xDomain.max, xDomain.ready]);
+  // No X Range restriction; render entire domain
 
   // Frequency data for bar chart
   const allCols = pq?.cols ?? [];
@@ -401,19 +381,7 @@ export default function ClientDetailedAnalysisPage() {
             </Select.Root>
           </VStack>
           )}
-          {(chartType === "line" || chartType === "derivative") && (
-          <VStack align="stretch" minW="300px">
-            <Text textStyle="sm" color="gray.600">X Range</Text>
-            <HStack>
-              <Input size="sm" width="120px" type="number" value={xFilterMin}
-                onChange={(e) => setXFilterMin(e.target.value)} placeholder={xDomain.ready ? String(xDomain.min) : "min"} />
-              <Text>~</Text>
-              <Input size="sm" width="120px" type="number" value={xFilterMax}
-                onChange={(e) => setXFilterMax(e.target.value)} placeholder={xDomain.ready ? String(xDomain.max) : "max"} />
-              <Button size="xs" variant="outline" onClick={() => { if (xDomain.ready) { setXFilterMin(String(xDomain.min)); setXFilterMax(String(xDomain.max)); } }}>Reset</Button>
-            </HStack>
-          </VStack>
-          )}
+          
           {(chartType === "line" || chartType === "derivative") && (
           <VStack align="stretch" minW="420px">
             <Text textStyle="sm" color="gray.600">Filter (rows)</Text>
@@ -811,9 +779,9 @@ export default function ClientDetailedAnalysisPage() {
           ) : !pq || !xCol || yCols.length === 0 ? (
             <Text color="gray.600">Select axes to render the chart.</Text>
           ) : chartType === "line" ? (
-            <SimpleLineChart data={applyXFilter(chartData, xCol, xFilterMin, xFilterMax, xDomain)} xKey={xCol} series={series} maWindow={maWindow} yAxisMode={yAxisMode} logY={logY} />
+            <SimpleLineChart data={chartData} xKey={xCol} series={series} maWindow={maWindow} yAxisMode={yAxisMode} logY={logY} />
           ) : chartType === "derivative" ? (
-            <SimpleLineChart data={computeDerivative(applyXFilter(chartData, xCol, xFilterMin, xFilterMax, xDomain), xCol, yCols)} xKey={xCol} series={series} maWindow={maWindow} yAxisMode={yAxisMode} logY={logY} />
+            <SimpleLineChart data={computeDerivative(chartData, xCol, yCols)} xKey={xCol} series={series} maWindow={maWindow} yAxisMode={yAxisMode} logY={logY} />
           ) : chartType === "frequency" ? (
             <SimpleBarChart data={freqData} asPercent={freqAsPercent} />
           ) : chartType === "histogram" ? (
@@ -1020,18 +988,38 @@ function computeDerivative(data: any[], xKey: string, yCols: string[]) {
   return out;
 }
 
-function applyXFilter(data: any[], xKey: string, minStr: string, maxStr: string, domain: { min: number; max: number; ready: boolean }) {
-  if (!Array.isArray(data) || data.length === 0) return data;
-  const minParsed = Number(minStr);
-  const maxParsed = Number(maxStr);
-  const min = Number.isFinite(minParsed) ? minParsed : (domain.ready ? domain.min : Number.NEGATIVE_INFINITY);
-  const max = Number.isFinite(maxParsed) ? maxParsed : (domain.ready ? domain.max : Number.POSITIVE_INFINITY);
-  const lo = Math.min(min, max);
-  const hi = Math.max(min, max);
-  return data.filter((r) => {
-    const xv = Number(r?.[xKey]);
-    return Number.isFinite(xv) && xv >= lo && xv <= hi;
-  });
+// Downsample huge line-series by binning and averaging values per bin
+function downsampleBins(data: any[], xKey: string, yCols: string[], maxPoints: number) {
+  const n = data.length;
+  if (n <= maxPoints) return data;
+  const bins = Math.max(1, Math.min(maxPoints, n));
+  const binSize = n / bins;
+  const out: any[] = [];
+  for (let b = 0; b < bins; b++) {
+    const start = Math.floor(b * binSize);
+    const end = Math.min(n, Math.floor((b + 1) * binSize));
+    if (end <= start) continue;
+    let xSum = 0; let cnt = 0;
+    const ySum: Record<string, number> = {};
+    const yCnt: Record<string, number> = {};
+    for (const y of yCols) { ySum[y] = 0; yCnt[y] = 0; }
+    for (let i = start; i < end; i++) {
+      const row = data[i];
+      const xv = Number(row?.[xKey]);
+      if (Number.isFinite(xv)) { xSum += xv; cnt++; }
+      for (const y of yCols) {
+        const v = Number(row?.[y]);
+        if (Number.isFinite(v)) { ySum[y] += v; yCnt[y]++; }
+      }
+    }
+    const xAvg = cnt > 0 ? xSum / cnt : Number(data[Math.floor((start + end) / 2)]?.[xKey]) || 0;
+    const obj: any = { [xKey]: xAvg };
+    for (const y of yCols) {
+      obj[y] = yCnt[y] > 0 ? (ySum[y] / yCnt[y]) : NaN;
+    }
+    out.push(obj);
+  }
+  return out;
 }
 
 // ---------------- Row filter expression parser ----------------
