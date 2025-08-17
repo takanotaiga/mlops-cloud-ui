@@ -3,7 +3,7 @@
 import { Box, Heading, VStack, HStack, Text } from "@chakra-ui/react";
 
 export const APP_NAME = "MLOps Cloud";
-export const APP_VERSION = "Beta 1.0";
+export const APP_VERSION = "1.3";
 export const APP_VARIANT = "main";
 export const APP_COPYRIGHT = "Taiga Takano";
 

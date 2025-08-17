@@ -45,12 +45,24 @@ function classifyMediaByNameOrMime(mime?: string, nameOrKey?: string): MediaType
   return "Other";
 }
 
+// Removed custom viewport hook; Chakra responsive props handle breakpoints SSR-safely.
+
 export default function DatasetListPage() {
   const { t } = useI18n();
   const surreal = useSurrealClient();
   const { isSuccess } = useSurreal();
   const [query, setQuery] = useState<string>("");
   const deferredQuery = useDeferredValue(query);
+
+  // Responsive columns defined by Chakra breakpoints. Tweak freely.
+  // Keys: base, sm, md, lg, xl, 2xl
+  const GRID_COLUMNS = useMemo(() => ({
+    base: 1,
+    sm: 1,
+    md: 2,
+    lg: 3,
+    xl: 4,
+  }), []);
 
   const { data: datasetStats = [], isPending, isError, error, refetch } = useQuery({
     queryKey: ["datasets"],
@@ -122,9 +134,9 @@ export default function DatasetListPage() {
             <Button size="xs" variant="outline" onClick={() => refetch()}>{t("common.retry","Retry")}</Button>
           </HStack>
         )}
-        <SimpleGrid columns={[1, 2, 3]} gap="16px">
+        <SimpleGrid columns={GRID_COLUMNS} gap="16px">
           {isPending ? (
-            Array.from({ length: 3 }).map((_, i) => (
+            Array.from({ length: 4 }).map((_, i) => (
               <Box key={i} rounded="md" borderWidth="1px" bg="white" p="12px">
                 <SkeletonText noOfLines={1} w="60%" />
                 <Skeleton mt="3" h="14px" w="40%" />
@@ -158,4 +170,3 @@ export default function DatasetListPage() {
     </HStack>
   );
 }
-

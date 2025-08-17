@@ -13,6 +13,7 @@ const en: Dict = {
   "nav.inference": "Inference",
   "nav.docs": "Docs",
   "nav.playground": "Playground",
+  "nav.settings": "Settings",
 
   // Home
   "home.introducing": "Introducing",
@@ -71,7 +72,7 @@ const en: Dict = {
   "training.batch_size": "Batch Size",
 
   // Inference
-  "inference.title": "Inference Jobs 🤖",
+  "inference.title": "Inference 🤖",
   "inference.badge": "Inference",
   "inference.subtitle": "Run models on your data — fast and fun ✨",
   "inference.create.title": "Create Inference Job 🧪",
@@ -150,6 +151,7 @@ const ja: Dict = {
   "nav.training": "トレーニング",
   "nav.inference": "推論",
   "nav.docs": "ドキュメント",
+  "nav.settings": "設定",
   "nav.playground": "お試しエリア",
 
   // Home

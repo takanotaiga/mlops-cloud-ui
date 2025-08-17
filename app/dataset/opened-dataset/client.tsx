@@ -26,7 +26,7 @@ import {
   Dialog,
   Portal,
   CloseButton,
- Badge } from "@chakra-ui/react";
+ Badge, Accordion } from "@chakra-ui/react";
 import { useSearchParams , useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, Fragment } from "react";
 import { decodeBase64Utf8, encodeBase64Utf8 } from "@/components/utils/base64";
@@ -161,13 +161,12 @@ export default function ClientOpenedDatasetPage() {
   }
 
   // Label Type filtering (include / exclude / any)
-  const LABEL_TYPES = useMemo(() => ["Bounding Box", "OneShotBBox", "Text"] as const, []);
+  const LABEL_TYPES = useMemo(() => ["Bounding Box", "OneShotBBox"] as const, []);
   type LabelType = (typeof LABEL_TYPES)[number]
   type LabelMode = "any" | "has" | "no"
   const [labelFilter, setLabelFilter] = useState<Record<LabelType, LabelMode>>({
     "Bounding Box": "any",
     "OneShotBBox": "any",
-    "Text": "any",
   });
 
   // Load per-file annotation categories to determine label presence
@@ -181,14 +180,13 @@ export default function ClientOpenedDatasetPage() {
           { dataset: datasetName }
         );
         const rows = extractRows<any>(res);
-        const map: Record<string, { bbox: boolean; one: boolean; text: boolean }> = {};
+        const map: Record<string, { bbox: boolean; one: boolean }> = {};
         for (const r of rows) {
           const fid = thingToString(r?.file);
           const cats = Array.isArray(r?.cats) ? r.cats.map((c: any) => String(c)) : [];
           const bbox = cats.some((c: string) => /\bimage_bbox\b/i.test(c) || /\bbbox\b/i.test(c));
           const one = cats.some((c: string) => c === "sam2_key_bbox");
-          const text = cats.some((c: string) => /text/i.test(c));
-          map[fid] = { bbox, one, text };
+          map[fid] = { bbox, one };
         }
         return map;
       } catch {
@@ -208,7 +206,7 @@ export default function ClientOpenedDatasetPage() {
   }), []);
 
   // Media type filtering
-  const MEDIA_OPTIONS = useMemo(() => ["Video", "Image", "PointCloud", "ROSBag"] as const, []);
+  const MEDIA_OPTIONS = useMemo(() => ["Video", "Image"] as const, []);
   type MediaType = (typeof MEDIA_OPTIONS)[number]
   const [selectedMedia, setSelectedMedia] = useState<MediaType[]>([...MEDIA_OPTIONS]);
 
@@ -220,8 +218,6 @@ export default function ClientOpenedDatasetPage() {
     const key = (f.name || f.key || "").toLowerCase();
     if (key.endsWith(".jpg") || key.endsWith(".jpeg") || key.endsWith(".png") || key.endsWith(".webp") || key.endsWith(".gif") || key.endsWith(".avif")) return "Image";
     if (key.endsWith(".mp4") || key.endsWith(".mov") || key.endsWith(".mkv") || key.endsWith(".avi") || key.endsWith(".webm")) return "Video";
-    if (key.endsWith(".pcd") || key.endsWith(".ply") || key.endsWith(".las") || key.endsWith(".laz") || key.endsWith(".bin")) return "PointCloud";
-    if (key.endsWith(".bag") || key.endsWith(".mcap")) return "ROSBag";
     return "Other";
   };
 
@@ -230,13 +226,9 @@ export default function ClientOpenedDatasetPage() {
     const set = new Set(selectedMedia);
     return files.filter((f) => {
       if (!set.has(classifyMedia(f) as MediaType)) return false;
-      const pres = labelPresence[f.id] ?? { bbox: false, one: false, text: false };
+      const pres = labelPresence[f.id] ?? { bbox: false, one: false };
       // Apply include/exclude per label type (AND combination)
-      const checks: [LabelType, boolean][] = [
-        ["Bounding Box", pres.bbox],
-        ["OneShotBBox", pres.one],
-        ["Text", pres.text],
-      ];
+      const checks: [LabelType, boolean][] = [["Bounding Box", pres.bbox], ["OneShotBBox", pres.one]];
       for (const [lt, has] of checks) {
         const mode = labelFilter[lt];
         if (mode === "has" && !has) return false;
@@ -347,8 +339,117 @@ export default function ClientOpenedDatasetPage() {
 
   // mergeInfo defined above
 
+  // Responsive grid columns using Chakra breakpoints. Adjust as needed.
+  // Keys: base, sm, md, lg, xl, 2xl
+  const GRID_COLUMNS = useMemo(() => ({
+    base: 1,
+    sm: 2,
+    md: 3,
+    lg: 3,
+    xl: 4,
+  }), []);
+
+  // Responsive horizontal padding (px) for the page container
+  // Edit these values to tune per breakpoint
+  const PAGE_PX = useMemo(() => ({
+    base: "12px",
+    sm: "3%",
+    md: "5%",
+    lg: "3%",
+    xl: "5%",
+  }), []);
+
+  // Reusable filter controls (split into two blocks for accordion usage on small screens)
+  function LabelFilterControls({ showLegend = true }: { showLegend?: boolean }) {
+    return (
+      <Fieldset.Root>
+        {showLegend && (
+          <Fieldset.Legend>
+            <Text fontWeight="bold">Label Type</Text>
+          </Fieldset.Legend>
+        )}
+        <Fieldset.Content>
+          <Grid templateColumns="1fr 150px" columnGap={3} rowGap={2} alignItems="center">
+            {LABEL_TYPES.map((lt) => (
+              <Fragment key={lt}>
+                <GridItem>
+                  <Text>{lt}</Text>
+                </GridItem>
+                <GridItem>
+                  <Select.Root
+                    collection={labelModeCollection as any}
+                    size="sm"
+                    value={labelFilter[lt as LabelType] ? [labelFilter[lt as LabelType]] : []}
+                    onValueChange={(details: any) => {
+                      const value = (details?.value?.[0] ?? "any") as LabelMode;
+                      setLabelFilter((prev) => ({ ...prev, [lt as LabelType]: value }));
+                    }}
+                  >
+                    <Select.HiddenSelect />
+                    <Select.Control w="150px">
+                      <Select.Trigger>
+                        <Select.ValueText placeholder="Any" />
+                      </Select.Trigger>
+                      <Select.IndicatorGroup>
+                        <Select.Indicator />
+                      </Select.IndicatorGroup>
+                    </Select.Control>
+                    <Portal>
+                      <Select.Positioner>
+                        <Select.Content>
+                          {(labelModeCollection as any).items.map((item: any) => (
+                            <Select.Item item={item} key={item.value}>
+                              {item.label}
+                              <Select.ItemIndicator />
+                            </Select.Item>
+                          ))}
+                        </Select.Content>
+                      </Select.Positioner>
+                    </Portal>
+                  </Select.Root>
+                </GridItem>
+              </Fragment>
+            ))}
+          </Grid>
+        </Fieldset.Content>
+      </Fieldset.Root>
+    );
+  }
+
+  function MediaFilterControls({ showLegend = true }: { showLegend?: boolean }) {
+    return (
+      <Fieldset.Root>
+        {showLegend && (
+          <Fieldset.Legend>
+            <Text fontWeight="bold">Media Type</Text>
+          </Fieldset.Legend>
+        )}
+        <Fieldset.Content>
+          <CheckboxGroup
+            name="media"
+            value={selectedMedia}
+            onValueChange={(e: any) => {
+              const next = (e?.value ?? e) as string[];
+              setSelectedMedia(next.filter((v) => (MEDIA_OPTIONS as readonly string[]).includes(v)) as MediaType[]);
+            }}
+          >
+            <For each={MEDIA_OPTIONS as unknown as string[]}>
+              {(value) => (
+                <Checkbox.Root key={value} value={value}>
+                  <Checkbox.HiddenInput />
+                  <Checkbox.Control />
+                  <Checkbox.Label>{value}</Checkbox.Label>
+                </Checkbox.Root>
+              )}
+            </For>
+          </CheckboxGroup>
+        </Fieldset.Content>
+      </Fieldset.Root>
+    );
+  }
+
   return (
-    <Box px="10%" py="20px">
+    <Box px={PAGE_PX} py="20px">
       <HStack align="center" justify="space-between">
         <HStack gap="3" align="center">
           <Heading size="2xl" >
@@ -369,9 +470,6 @@ export default function ClientOpenedDatasetPage() {
         </HStack>
 
         <Box mt={8} textAlign="right" pb="10px">
-          <Button mr={4} size="sm" variant="outline" rounded="full">
-            Export Dataset
-          </Button>
           <Dialog.Root>
             <Dialog.Trigger asChild>
               <Button variant="outline" colorPalette="red" size="sm" rounded="full" disabled={removing}>
@@ -407,94 +505,53 @@ export default function ClientOpenedDatasetPage() {
         </Box>
       </HStack>
 
-      <Flex align="flex-start">
-        <VStack align="start" w="25%" gap="10px">
-          <Fieldset.Root>
-            <Fieldset.Legend>
-              <Text fontWeight="bold">Label Type</Text>
-            </Fieldset.Legend>
-            <Fieldset.Content>
-              <Grid templateColumns="1fr 150px" columnGap={3} rowGap={2} alignItems="center">
-                {LABEL_TYPES.map((lt) => (
-                  <Fragment key={lt}>
-                    <GridItem>
-                      <Text>{lt}</Text>
-                    </GridItem>
-                    <GridItem>
-                      <Select.Root
-                        collection={labelModeCollection as any}
-                        size="sm"
-                        value={labelFilter[lt as LabelType] ? [labelFilter[lt as LabelType]] : []}
-                        onValueChange={(details: any) => {
-                          const value = (details?.value?.[0] ?? "any") as LabelMode;
-                          setLabelFilter((prev) => ({ ...prev, [lt as LabelType]: value }));
-                        }}
-                      >
-                        <Select.HiddenSelect />
-                        <Select.Control w="150px">
-                          <Select.Trigger>
-                            <Select.ValueText placeholder="Any" />
-                          </Select.Trigger>
-                          <Select.IndicatorGroup>
-                            <Select.Indicator />
-                          </Select.IndicatorGroup>
-                        </Select.Control>
-                        <Portal>
-                          <Select.Positioner>
-                            <Select.Content>
-                              {(labelModeCollection as any).items.map((item: any) => (
-                                <Select.Item item={item} key={item.value}>
-                                  {item.label}
-                                  <Select.ItemIndicator />
-                                </Select.Item>
-                              ))}
-                            </Select.Content>
-                          </Select.Positioner>
-                        </Portal>
-                      </Select.Root>
-                    </GridItem>
-                  </Fragment>
-                ))}
-              </Grid>
-            </Fieldset.Content>
-          </Fieldset.Root>
+      {/* Mobile/Tablet filters (above list, collapsible) */}
+      <Box display={{ base: "block", lg: "none" }} mb={4}>
+        <Accordion.Root multiple defaultValue={[]}> 
+          <Accordion.Item value="label">
+            <Accordion.ItemTrigger>
+              <HStack justify="space-between" w="full">
+                <Text fontWeight="bold">Label Type</Text>
+                <Accordion.ItemIndicator />
+              </HStack>
+            </Accordion.ItemTrigger>
+            <Accordion.ItemContent>
+              <Accordion.ItemBody>
+                <LabelFilterControls showLegend={false} />
+              </Accordion.ItemBody>
+            </Accordion.ItemContent>
+          </Accordion.Item>
+          <Accordion.Item value="media">
+            <Accordion.ItemTrigger>
+              <HStack justify="space-between" w="full">
+                <Text fontWeight="bold">Media Type</Text>
+                <Accordion.ItemIndicator />
+              </HStack>
+            </Accordion.ItemTrigger>
+            <Accordion.ItemContent>
+              <Accordion.ItemBody>
+                <MediaFilterControls showLegend={false} />
+              </Accordion.ItemBody>
+            </Accordion.ItemContent>
+          </Accordion.Item>
+        </Accordion.Root>
+      </Box>
 
-          <Fieldset.Root>
-            <Fieldset.Legend>
-              <Text fontWeight="bold">Media Type</Text>
-            </Fieldset.Legend>
-            <Fieldset.Content>
-              <CheckboxGroup
-                name="media"
-                value={selectedMedia}
-                onValueChange={(e: any) => {
-                  const next = (e?.value ?? e) as string[];
-                  // Coerce to MediaType[], filter out unknowns
-                  setSelectedMedia(next.filter((v) => (MEDIA_OPTIONS as readonly string[]).includes(v)) as MediaType[]);
-                }}
-              >
-                <For each={MEDIA_OPTIONS as unknown as string[]}>
-                  {(value) => (
-                    <Checkbox.Root key={value} value={value}>
-                      <Checkbox.HiddenInput />
-                      <Checkbox.Control />
-                      <Checkbox.Label>{value}</Checkbox.Label>
-                    </Checkbox.Root>
-                  )}
-                </For>
-              </CheckboxGroup>
-            </Fieldset.Content>
-          </Fieldset.Root>
+      <Flex align="flex-start">
+        {/* Desktop sidebar filters */}
+        <VStack align="start" w="25%" gap="10px" display={{ base: "none", lg: "flex" }}>
+          <LabelFilterControls />
+          <MediaFilterControls />
         </VStack>
 
-        <Box flex="1" ml={8}>
+        <Box flex="1" ml={{ base: 0, lg: 8 }}>
           {isError && (
             <HStack color="red.500" justify="space-between" mb="2">
               <Box>Failed to load files: {String((error as any)?.message ?? error)}</Box>
               <Button size="xs" variant="outline" onClick={() => refetch()}>Retry</Button>
             </HStack>
           )}
-          <SimpleGrid columns={[2, 3, 4]} gap="10px">
+          <SimpleGrid columns={GRID_COLUMNS} gap="10px">
             {isPending ? (
               Array.from({ length: 4 }).map((_, i) => (
                 <Box key={i} bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">
@@ -512,8 +569,7 @@ export default function ClientOpenedDatasetPage() {
               const mParam = encodeURIComponent(selectedMedia.join(","));
               const lb = encodeURIComponent(labelFilter["Bounding Box"]); // any|has|no
               const lo = encodeURIComponent(labelFilter["OneShotBBox"]); // any|has|no
-              const lt = encodeURIComponent(labelFilter["Text"]); // any|has|no
-              const href = `/dataset/opened-dataset/object-card?d=${encodeBase64Utf8(datasetName)}&id=${encodeBase64Utf8(f.id)}&n=${encodeBase64Utf8(f.name || f.key)}&b=${encodeBase64Utf8(f.bucket)}&k=${encodeBase64Utf8(f.key)}&m=${mParam}&lb=${lb}&lo=${lo}&lt=${lt}`;
+              const href = `/dataset/opened-dataset/object-card?d=${encodeBase64Utf8(datasetName)}&id=${encodeBase64Utf8(f.id)}&n=${encodeBase64Utf8(f.name || f.key)}&b=${encodeBase64Utf8(f.bucket)}&k=${encodeBase64Utf8(f.key)}&m=${mParam}&lb=${lb}&lo=${lo}`;
               return (
                 <NextLink key={f.id} href={href}>
                   <Box bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">
