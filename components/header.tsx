@@ -1,13 +1,23 @@
 "use client";
 
-import { Box, HStack, Heading, Text, LinkBox, LinkOverlay, Badge, IconButton } from "@chakra-ui/react";
+import { Box, HStack, Heading, Text, LinkBox, LinkOverlay, Badge, IconButton, Drawer, Button, Portal, CloseButton, VStack, Link } from "@chakra-ui/react";
 import { LuMenu } from "react-icons/lu";
+import NextLink from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import ConnectionStatus from "./status/connection-status";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 
 export default function Header() {
     const { t } = useI18n();
+    const pathname = usePathname();
+    const [open, setOpen] = useState(false);
+
+    useEffect(() => {
+        // Close the drawer on route changes
+        setOpen(false);
+    }, [pathname]);
     return (
         <Box
             as="header"
@@ -22,10 +32,7 @@ export default function Header() {
             <HStack justify="space-between" align="center" w="85%" maxW="7xl" mx="auto">
                 <LinkBox h="25px">
                     <LinkOverlay href="/" >
-                        <HStack>
-                            <Heading size="md" >MLOps Cloud</Heading>
-                            <Badge size="md" rounded="full" colorPalette="purple" variant="subtle">Beta 1.0</Badge>
-                        </HStack>
+                        <Heading size="md" >MLOps Cloud</Heading>
                     </LinkOverlay>
                 </LinkBox>
 
@@ -33,37 +40,91 @@ export default function Header() {
                     <ConnectionStatus />
                 </Box>
 
-                <LinkBox px="10px" h="25px">
-                    <LinkOverlay href="/dataset" >
-                        <Text textStyle="sm">{t("nav.datasets", "Datasets")}</Text>
-                    </LinkOverlay>
-                </LinkBox>
+                {/* Desktop nav */}
+                <HStack display={{ base: "none", md: "flex" }}>
+                    <LinkBox px="10px" h="25px">
+                        <LinkOverlay href="/dataset" >
+                            <Text textStyle="sm">{t("nav.datasets", "Datasets")}</Text>
+                        </LinkOverlay>
+                    </LinkBox>
+                    <LinkBox px="10px" h="25px">
+                        <LinkOverlay href="/inference" >
+                            <Text textStyle="sm">{t("nav.inference", "Inference")}</Text>
+                        </LinkOverlay>
+                    </LinkBox>
+                    <LinkBox px="10px" h="25px">
+                        <LinkOverlay href="/docs" >
+                            <Text textStyle="sm">{t("nav.docs", "Docs")}</Text>
+                        </LinkOverlay>
+                    </LinkBox>
+                    <LinkBox px="10px" h="25px">
+                        <LinkOverlay href="/settings" >
+                            <Text textStyle="sm">{t("nav.settings", "Settings")}</Text>
+                        </LinkOverlay>
+                    </LinkBox>
+                </HStack>
 
-                {/* <LinkBox px="10px" h="25px">
-                    <LinkOverlay href="/training">
-                        <Text textStyle="sm">{t("nav.training", "Training")}</Text>
-                    </LinkOverlay>
-                </LinkBox> */}
-
-                <LinkBox px="10px" h="25px">
-                    <LinkOverlay href="/inference" >
-                        <Text textStyle="sm">{t("nav.inference", "Inference")}</Text>
-                    </LinkOverlay>
-                </LinkBox>
-
-                <LinkBox px="10px" h="25px">
-                    <LinkOverlay href="/docs" >
-                        <Text textStyle="sm">{t("nav.docs", "Docs")}</Text>
-                    </LinkOverlay>
-                </LinkBox>
-
-                <LinkBox h="25px" px="6px">
-                    <LinkOverlay href="/settings" aria-label="Settings">
-                        <IconButton aria-label="Settings" size="xs" variant="ghost" p={1} mt="-2px">
+                {/* Mobile nav (Drawer) */}
+                <Drawer.Root open={open} onOpenChange={(e: any) => setOpen(!!e.open)}>
+                    <Drawer.Trigger asChild>
+                        <IconButton
+                            aria-label="Open menu"
+                            variant="outline"
+                            size="sm"
+                            display={{ base: "inline-flex", md: "none" }}
+                            onClick={() => setOpen(true)}
+                        >
                             <LuMenu />
                         </IconButton>
-                    </LinkOverlay>
-                </LinkBox>
+                    </Drawer.Trigger>
+                    <Portal>
+                        <Drawer.Backdrop />
+                        <Drawer.Positioner>
+                            <Drawer.Content>
+                                <Drawer.Header>
+                                    <Drawer.Title>{t("nav.menu", "Menu")}</Drawer.Title>
+                                </Drawer.Header>
+                                <Drawer.Body>
+                                    <VStack align="stretch" gap={2}>
+                                        <Link asChild>
+                                            <NextLink href="/dataset">
+                                                <Button variant="ghost" justifyContent="flex-start" onClick={() => setOpen(false)}>
+                                                    {t("nav.datasets", "Datasets")}
+                                                </Button>
+                                            </NextLink>
+                                        </Link>
+                                        <Link asChild>
+                                            <NextLink href="/inference">
+                                                <Button variant="ghost" justifyContent="flex-start" onClick={() => setOpen(false)}>
+                                                    {t("nav.inference", "Inference")}
+                                                </Button>
+                                            </NextLink>
+                                        </Link>
+                                        <Link asChild>
+                                            <NextLink href="/docs">
+                                                <Button variant="ghost" justifyContent="flex-start" onClick={() => setOpen(false)}>
+                                                    {t("nav.docs", "Docs")}
+                                                </Button>
+                                            </NextLink>
+                                        </Link>
+                                        <Link asChild>
+                                            <NextLink href="/settings">
+                                                <Button variant="ghost" justifyContent="flex-start" onClick={() => setOpen(false)}>
+                                                    {t("nav.settings", "Settings")}
+                                                </Button>
+                                            </NextLink>
+                                        </Link>
+                                    </VStack>
+                                </Drawer.Body>
+                                <Drawer.Footer>
+                                    <Drawer.CloseTrigger asChild>
+                                        <CloseButton size="sm" />
+                                    </Drawer.CloseTrigger>
+                                </Drawer.Footer>
+                            </Drawer.Content>
+                        </Drawer.Positioner>
+                    </Portal>
+                </Drawer.Root>
             </HStack>
         </Box>
     );
