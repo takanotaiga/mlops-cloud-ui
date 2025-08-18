@@ -239,24 +239,24 @@ export default function HardwareMetricPage() {
           return { x: r._t!, y };
         })
       });
-      gpuSeries[`temp_${gi}`] = [pick((g) => g.temperature_c, "#ef4444", `Temp C`)];
-      gpuSeries[`power_${gi}`] = [pick((g) => g.power_watts, "#f59e0b", `Power W`)];
-      gpuSeries[`fan_${gi}`] = [pick((g) => g.fan_speed_percent, "#22c55e", `Fan %`)];
+      gpuSeries[`temp_${gi}`] = [pick((g) => g.temperature_c, "#ef4444", "Temp C")];
+      gpuSeries[`power_${gi}`] = [pick((g) => g.power_watts, "#f59e0b", "Power W")];
+      gpuSeries[`fan_${gi}`] = [pick((g) => g.fan_speed_percent, "#22c55e", "Fan %")];
       gpuSeries[`util_${gi}`] = [
-        pick((g) => g.utilization?.gpu_percent, "#0ea5e9", `GPU %`),
-        pick((g) => g.utilization?.memory_percent, "#a855f7", `VRAM %`),
+        pick((g) => g.utilization?.gpu_percent, "#0ea5e9", "GPU %"),
+        pick((g) => g.utilization?.memory_percent, "#a855f7", "VRAM %"),
       ];
       gpuSeries[`clock_${gi}`] = [
-        pick((g) => g.clocks_mhz?.sm, "#10b981", `SM MHz`),
-        pick((g) => g.clocks_mhz?.mem, "#6366f1", `Mem MHz`),
+        pick((g) => g.clocks_mhz?.sm, "#10b981", "SM MHz"),
+        pick((g) => g.clocks_mhz?.mem, "#6366f1", "Mem MHz"),
       ];
       gpuSeries[`pcie_${gi}`] = [
-        pick((g) => (g.pcie?.rx_kb_s ?? NaN) / 1_000_000, "#06b6d4", `PCIe RX GB/s`),
-        pick((g) => (g.pcie?.tx_kb_s ?? NaN) / 1_000_000, "#059669", `PCIe TX GB/s`),
+        pick((g) => (g.pcie?.rx_kb_s ?? NaN) / 1_000_000, "#06b6d4", "PCIe RX GB/s"),
+        pick((g) => (g.pcie?.tx_kb_s ?? NaN) / 1_000_000, "#059669", "PCIe TX GB/s"),
       ];
       gpuSeries[`vram_${gi}`] = [
-        pick((g) => (g.memory?.used ?? NaN) / 1024 / 1024 / 1024, "#c026d3", `VRAM Used GiB`),
-        pick((g) => (g.memory?.free ?? NaN) / 1024 / 1024 / 1024, "#9333ea", `VRAM Free GiB`),
+        pick((g) => (g.memory?.used ?? NaN) / 1024 / 1024 / 1024, "#c026d3", "VRAM Used GiB"),
+        pick((g) => (g.memory?.free ?? NaN) / 1024 / 1024 / 1024, "#9333ea", "VRAM Free GiB"),
       ];
     }
 
@@ -317,13 +317,13 @@ export default function HardwareMetricPage() {
               <Badge colorPalette="purple">Index {gi}</Badge>
             </HStack>
             <SimpleGrid columns={{ base: 1, md: 2 }} gap={4}>
-              <LineChart title={`Temperature (C)`} series={points.gpuSeries[`temp_${gi}`]} unit="C" forceZeroMin />
-              <LineChart title={`Power (W)`} series={points.gpuSeries[`power_${gi}`]} unit="W" forceZeroMin />
-              <LineChart title={`Fan (%)`} series={points.gpuSeries[`fan_${gi}`]} unit="%" yMin={0} yMax={100} />
-              <LineChart title={`Utilization (%)`} series={points.gpuSeries[`util_${gi}`]} unit="%" yMin={0} yMax={100} />
-              <LineChart title={`Clocks (MHz)`} series={points.gpuSeries[`clock_${gi}`]} unit="MHz" forceZeroMin />
-              <LineChart title={`PCIe (GB/s)`} series={points.gpuSeries[`pcie_${gi}`]} unit="GB/s" forceZeroMin />
-              <LineChart title={`VRAM (GiB)`} series={points.gpuSeries[`vram_${gi}`]} unit="GiB" forceZeroMin />
+              <LineChart title="Temperature (C)" series={points.gpuSeries[`temp_${gi}`]} unit="C" forceZeroMin />
+              <LineChart title="Power (W)" series={points.gpuSeries[`power_${gi}`]} unit="W" forceZeroMin />
+              <LineChart title="Fan (%)" series={points.gpuSeries[`fan_${gi}`]} unit="%" yMin={0} yMax={100} />
+              <LineChart title="Utilization (%)" series={points.gpuSeries[`util_${gi}`]} unit="%" yMin={0} yMax={100} />
+              <LineChart title="Clocks (MHz)" series={points.gpuSeries[`clock_${gi}`]} unit="MHz" forceZeroMin />
+              <LineChart title="PCIe (GB/s)" series={points.gpuSeries[`pcie_${gi}`]} unit="GB/s" forceZeroMin />
+              <LineChart title="VRAM (GiB)" series={points.gpuSeries[`vram_${gi}`]} unit="GiB" forceZeroMin />
             </SimpleGrid>
           </VStack>
         ))}
