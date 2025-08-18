@@ -103,6 +103,34 @@ export default function ClientOpenedDatasetPage() {
 
   const [imgUrls, setImgUrls] = useState<Record<string, string>>({});
   const [removing, setRemoving] = useState(false);
+  const filesByName = useMemo(() => Object.fromEntries((files || []).map((ff) => [String(ff.name), ff])), [files]);
+
+  // Encode job status per file in this dataset
+  type EncodeStatus = "complete" | "in-progress" | "unknown";
+  const { data: encodeStatusMap = {} } = useQuery({
+    queryKey: ["encode-status", datasetName, refreshToken],
+    enabled: isSuccess && !!datasetName,
+    queryFn: async () => {
+      // Fetch latest encode job per file (order by created_at desc and take first seen)
+      const res = await surreal.query(
+        "SELECT file, status, created_at FROM encode_job WHERE file.dataset == $dataset ORDER BY created_at DESC",
+        { dataset: datasetName }
+      );
+      const rows = extractRows<any>(res);
+      const map: Record<string, EncodeStatus> = {};
+      for (const r of rows) {
+        const fid = thingToString(r?.file);
+        if (!fid || map[fid]) continue; // keep the latest seen first
+        const st = String(r?.status ?? "").toLowerCase();
+        map[fid] = st === "complete" ? "complete" : "in-progress";
+      }
+      return map;
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 5_000,
+    refetchInterval: 3_000,
+    refetchIntervalInBackground: true,
+  });
 
   function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
     return new Promise<T>((resolve, reject) => {
@@ -570,32 +598,70 @@ export default function ClientOpenedDatasetPage() {
               const lb = encodeURIComponent(labelFilter["Bounding Box"]); // any|has|no
               const lo = encodeURIComponent(labelFilter["OneShotBBox"]); // any|has|no
               const href = `/dataset/opened-dataset/object-card?d=${encodeBase64Utf8(datasetName)}&id=${encodeBase64Utf8(f.id)}&n=${encodeBase64Utf8(f.name || f.key)}&b=${encodeBase64Utf8(f.bucket)}&k=${encodeBase64Utf8(f.key)}&m=${mParam}&lb=${lb}&lo=${lo}`;
-              return (
-                <NextLink key={f.id} href={href}>
-                  <Box bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden">
-                    <Box bg="bg.subtle" style={{ aspectRatio: 1 as any }} position="relative" aria-busy={!url} userSelect="none">
-                      {url && (
-                        <Image src={url} alt={f.name} objectFit="cover" w="100%" h="100%" />
-                      )}
-                      {!url && (
-                        <Box pos="absolute" inset="0" bg="bg/80">
-                          <Center h="full">
-                            <Spinner color="teal.500" />
-                          </Center>
-                        </Box>
-                      )}
-                      {(f.encode === "video-merge") && (
-                        <Box position="absolute" top="6px" left="6px">
-                          <Badge size="sm" colorPalette="purple" variant="solid">{t("merge.badge","Merged")}</Badge>
-                        </Box>
-                      )}
-                    </Box>
-                    <Box px="8px" pt="6px">
-                      <Text fontSize="sm" style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{f.name}</Text>
-                    </Box>
+              // Determine clickability based on encode job status
+              let clickable = false;
+              let overlayText: string | null = null;
+
+              // Images are always openable regardless of encode status
+              if (isImage) {
+                clickable = true;
+                overlayText = null;
+              } else if ((f.encode || "") === "video-merge" && mergeInfo && Array.isArray(mergeInfo.members) && mergeInfo.members.length > 0) {
+                // All member videos must be complete
+                const memberFiles: FileRow[] = mergeInfo.members
+                  .map((nm: string) => filesByName[nm])
+                  .filter(Boolean);
+                const allComplete = memberFiles.length > 0 && memberFiles.every((mf) => encodeStatusMap[mf.id] === "complete");
+                clickable = allComplete;
+                if (!allComplete) overlayText = t("encode.waitingMerge", "Encoding...");
+              } else {
+                const st: EncodeStatus | undefined = encodeStatusMap[f.id];
+                clickable = st === "complete";
+                if (!clickable) {
+                  overlayText = st === "in-progress" ? t("encode.inProgress", "Encoding...") : t("encode.none", "Not encoded");
+                }
+              }
+
+              const Card = (
+                <Box bg="white" width="200px" pb="8px" rounded="md" borderWidth="1px" overflow="hidden" opacity={clickable ? 1 : 0.8} cursor={clickable ? "pointer" : "not-allowed"}>
+                  <Box bg="bg.subtle" style={{ aspectRatio: 1 as any }} position="relative" aria-busy={!url} userSelect="none">
+                    {url && (
+                      <Image src={url} alt={f.name} objectFit="cover" w="100%" h="100%" />
+                    )}
+                    {!url && (
+                      <Box pos="absolute" inset="0" bg="bg/80">
+                        <Center h="full">
+                          <Spinner color="teal.500" />
+                        </Center>
+                      </Box>
+                    )}
+                    {(f.encode === "video-merge") && (
+                      <Box position="absolute" top="6px" left="6px">
+                        <Badge size="sm" colorPalette="purple" variant="solid">{t("merge.badge","Merged")}</Badge>
+                      </Box>
+                    )}
+                    {!clickable && !isImage && (
+                      <Box pos="absolute" inset="0" bg="blackAlpha.500">
+                        <Center h="full">
+                          <HStack gap="2">
+                            <Spinner size="sm" color="teal.300" />
+                            <Text color="white" fontSize="sm">{overlayText}</Text>
+                          </HStack>
+                        </Center>
+                      </Box>
+                    )}
                   </Box>
-                </NextLink>
-                );
+                  <Box px="8px" pt="6px">
+                    <Text fontSize="sm" style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{f.name}</Text>
+                  </Box>
+                </Box>
+              );
+
+              return clickable ? (
+                <NextLink key={f.id} href={href}>{Card}</NextLink>
+              ) : (
+                <Box key={f.id}>{Card}</Box>
+              );
               })
             )}
           </SimpleGrid>

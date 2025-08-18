@@ -3,7 +3,7 @@
 import { Box, Heading, HStack, VStack, Text, Link, Badge, Select, CheckboxGroup, Checkbox, Separator, SkeletonText, Skeleton, createListCollection, Portal, Input, Button } from "@chakra-ui/react";
 import NextLink from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { decodeBase64Utf8 } from "@/components/utils/base64";
 import { getSignedObjectUrl } from "@/components/utils/minio";
 import { cacheExists, readCachedBytes, downloadAndCacheBytes } from "@/components/utils/storage-cache";
@@ -11,16 +11,7 @@ import { useI18n } from "@/components/i18n/LanguageProvider";
 
 type ChartType =
   | "line"
-  | "frequency"
   | "derivative"
-  | "histogram"
-  | "cdf"
-  | "ccdf"
-  | "scatter"
-  | "correlation"
-  | "cumsum"
-  | "pctchange"
-  | "missing"
 
 type LoadedParquet = {
   cols: string[]
@@ -118,8 +109,7 @@ export default function ClientDetailedAnalysisPage() {
           fileBuf = await downloadAndCacheBytes(bucket, key);
         }
         await db.registerFileBuffer("current.parquet", fileBuf);
-        const LIMIT = 5000;
-        const res: any = await conn.query(`SELECT * FROM read_parquet('current.parquet') LIMIT ${LIMIT}`);
+        const res: any = await conn.query("SELECT * FROM read_parquet('current.parquet')");
         const rows: any[] = (res as any)?.toArray?.() ?? [];
         const cols: string[] = (res as any)?.schema?.fields?.map((f: any) => String(f.name)) ?? (rows[0] ? Object.keys(rows[0]) : []);
         await conn.close();
@@ -141,27 +131,12 @@ export default function ClientDetailedAnalysisPage() {
   const [maWindow, setMaWindow] = useState<number>(1);
   const [yAxisMode, setYAxisMode] = useState<"auto" | "zeroToMax">("auto");
   const [logY, setLogY] = useState<boolean>(false);
-  // X-axis filter (for line/derivative)
-  const [xFilterMin, setXFilterMin] = useState<string>("");
-  const [xFilterMax, setXFilterMax] = useState<string>("");
-  const [freqCol, setFreqCol] = useState<string>("");
-  const [freqTopN, setFreqTopN] = useState<number>(20);
-  const [freqAsPercent, setFreqAsPercent] = useState<boolean>(false);
-  // Histogram/CDF/CCDF
-  const [histCol, setHistCol] = useState<string>("");
-  const [histBins, setHistBins] = useState<number>(20);
-  const [histAsPercent, setHistAsPercent] = useState<boolean>(false);
-  const [cdfCol, setCdfCol] = useState<string>("");
-  const [ccdfCol, setCcdfCol] = useState<string>("");
-  // Scatter
-  const [scatterX, setScatterX] = useState<string>("");
-  const [scatterY, setScatterY] = useState<string>("");
-  const [scatterTrend, setScatterTrend] = useState<boolean>(true);
-  const [logX, setLogX] = useState<boolean>(false);
-  // Correlation
-  const [corrCols, setCorrCols] = useState<string[]>([]);
-  // Percent change
-  const [pctMode, setPctMode] = useState<"prev" | "first">("prev");
+  // Row filter expression (set/logic based)
+  const [rowFilterExpr, setRowFilterExpr] = useState<string>("");
+  const [rowFilterError, setRowFilterError] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState<boolean>(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const chartSvgRef = useRef<SVGSVGElement | null>(null);
   // Helper defined at module scope
   // Columns that have at least one finite numeric value
   const numericCols = useMemo(() => {
@@ -199,24 +174,30 @@ export default function ClientDetailedAnalysisPage() {
     if (yCols.length === 0 && numericCols.length > 0) {
       setYCols([numericCols[0]]);
     }
-    if (!freqCol && (pq?.cols?.length ?? 0) > 0) {
-      setFreqCol(pq!.cols[0]!);
-    }
-    if (!histCol && numericCols.length > 0) setHistCol(numericCols[0]!);
-    if (!cdfCol && numericCols.length > 0) setCdfCol(numericCols[0]!);
-    if (!ccdfCol && numericCols.length > 0) setCcdfCol(numericCols[0]!);
-    if (!scatterX && numericCols.length > 1) setScatterX(numericCols[0]!);
-    if (!scatterY && numericCols.length > 1) setScatterY(numericCols[1]!);
-    if (corrCols.length === 0 && numericCols.length > 0) setCorrCols(numericCols.slice(0, Math.min(8, numericCols.length)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pq, numericCols]);
 
-  // Prepare chart data and series
+  // Build row-filter predicate from expression
+  const rowFilter = useMemo(() => {
+    const expr = rowFilterExpr?.trim() || "";
+    if (!expr) { setRowFilterError(null); return (r: any) => { void r; return true; }; }
+    try {
+      const pred = buildFilterPredicate(expr);
+      setRowFilterError(null);
+      return pred;
+    } catch (e: any) {
+      setRowFilterError(String(e?.message || e));
+      return (r: any) => { void r; return true; };
+    }
+  }, [rowFilterExpr]);
+
+  // Prepare chart data and series (sorted + optional downsampling for very large datasets)
   const chartData = useMemo(() => {
     if (!pq || !xCol) return [];
     const rows = pq.rows;
     const out: any[] = [];
     for (const r of rows) {
+      if (!rowFilter(r)) continue;
       const xv = toFiniteNumber(r?.[xCol]);
       if (xv == null) continue; // require numeric X
       const obj: any = { [xCol]: xv };
@@ -226,74 +207,42 @@ export default function ClientDetailedAnalysisPage() {
       }
       out.push(obj);
     }
-    return out;
-  }, [pq, xCol, yCols]);
+    // sort by X ascending
+    out.sort((a, b) => (a[xCol] as number) - (b[xCol] as number));
+    // downsample to keep performance on 1M+ rows
+    const MAX_POINTS = 2000; // per chart, approximate
+    if (out.length <= MAX_POINTS) return out;
+    return downsampleBins(out, xCol, yCols, MAX_POINTS);
+  }, [pq, xCol, yCols, rowFilter]);
 
   const series = useMemo(() => yCols.map((name, i) => ({ name, color: COLORS[i % COLORS.length] })), [yCols]);
 
-  // X domain for current xCol
-  const xDomain = useMemo(() => {
-    if (!pq || !xCol) return { min: 0, max: 1, ready: false };
-    let min = Number.POSITIVE_INFINITY;
-    let max = Number.NEGATIVE_INFINITY;
-    for (const r of pq.rows) {
-      const v = toFiniteNumber(r?.[xCol]);
-      if (v == null) continue;
-      if (v < min) min = v;
-      if (v > max) max = v;
-    }
-    if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: 0, max: 1, ready: false };
-    if (max === min) { max = min + 1; }
-    return { min, max, ready: true };
-  }, [pq, xCol]);
-
-  // Initialize filter to domain when xCol/domain changes
-  useEffect(() => {
-    if (!xDomain.ready) return;
-    setXFilterMin(String(xDomain.min));
-    setXFilterMax(String(xDomain.max));
-  }, [xDomain.min, xDomain.max, xDomain.ready]);
-
-  // Frequency data for bar chart
-  const allCols = pq?.cols ?? [];
-  const freqData = useMemo(() => {
-    if (!pq || !freqCol) return [] as { label: string; value: number }[];
-    const map = new Map<string, number>();
-    let total = 0;
-    for (const r of pq.rows) {
-      const v = r?.[freqCol];
-      let key: string;
-      if (v == null) key = "null";
-      else if (typeof v === "string") key = v;
-      else if (typeof v === "number" || typeof v === "bigint" || typeof v === "boolean") key = String(v);
-      else {
-        try { key = JSON.stringify(v); } catch { key = String(v); }
+  // Pre-downsampling data (used for export)
+  const exportRows = useMemo(() => {
+    if (!pq || !xCol) return [] as any[];
+    const rows = pq.rows;
+    const out: any[] = [];
+    for (const r of rows) {
+      if (!rowFilter(r)) continue;
+      const xv = toFiniteNumber(r?.[xCol]);
+      if (xv == null) continue;
+      const obj: Record<string, number | null> = { [xCol]: xv } as any;
+      for (const y of yCols) {
+        const yv = toFiniteNumber(r?.[y]);
+        obj[y] = yv == null ? null : yv;
       }
-      map.set(key, (map.get(key) ?? 0) + 1);
-      total += 1;
+      out.push(obj);
     }
-    const arr = Array.from(map.entries()).map(([label, count]) => ({ label, value: freqAsPercent ? (count / Math.max(1, total)) : count }));
-    arr.sort((a, b) => b.value - a.value);
-    const top = arr.slice(0, Math.max(1, freqTopN));
-    if (arr.length > top.length) {
-      const restSum = arr.slice(top.length).reduce((s, x) => s + x.value, 0);
-      top.push({ label: "Others", value: restSum });
-    }
-    return top;
-  }, [pq, freqCol, freqTopN, freqAsPercent]);
+    // Sort by X
+    out.sort((a: any, b: any) => (Number(a[xCol]) - Number(b[xCol])));
+    return out;
+  }, [pq, xCol, yCols, rowFilter]);
+
+  // No X Range restriction; render entire domain
 
   const chartTypeItems = useMemo(() => ([
     { label: t("chart.type.line", "Line"), value: "line" },
-    { label: t("chart.type.frequency", "Frequency"), value: "frequency" },
     { label: t("chart.type.derivative", "Derivative"), value: "derivative" },
-    { label: t("chart.type.histogram", "Histogram"), value: "histogram" },
-    { label: t("chart.type.cdf", "CDF"), value: "cdf" },
-    { label: t("chart.type.ccdf", "CCDF"), value: "ccdf" },
-    { label: t("chart.type.scatter", "Scatter"), value: "scatter" },
-    { label: t("chart.type.correlation", "Correlation"), value: "correlation" },
-    { label: t("chart.type.cumsum", "Cumulative Sum"), value: "cumsum" },
-    { label: t("chart.type.pctchange", "% Change"), value: "pctchange" },
-    { label: t("chart.type.missing", "Missing Profile"), value: "missing" },
   ]), [t]);
 
   return (
@@ -316,456 +265,183 @@ export default function ClientDetailedAnalysisPage() {
         <Separator />
 
         {/* Controls */}
-        <HStack gap="16px" align="flex-start" wrap="wrap">
-          <VStack align="stretch" minW="220px">
-            <Text textStyle="sm" color="gray.600">Chart type</Text>
-            <Select.Root
-              size="sm"
-              width="100%"
-              collection={createListCollection({ items: chartTypeItems })}
-              value={[chartType]}
-              onValueChange={(d: any) => setChartType((d?.value?.[0] ?? "line") as ChartType)}
-            >
-              <Select.HiddenSelect />
-              <Select.Control>
-                <Select.Trigger>
-                  <Select.ValueText placeholder="Chart type" />
-                </Select.Trigger>
-                <Select.IndicatorGroup>
-                  <Select.Indicator />
-                </Select.IndicatorGroup>
-              </Select.Control>
-              <Portal>
-                <Select.Positioner>
-                  <Select.Content>
+        <HStack gap="16px" align="stretch" wrap="wrap">
+          {/* Chart & Axes */}
+          <Box minW="360px" flexShrink={0} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
+            <VStack align="stretch" gap="10px">
+              <Text textStyle="sm" fontWeight="semibold" color="gray.700">Chart & Axes</Text>
+              <VStack align="stretch">
+                <Text textStyle="sm" color="gray.600">Chart type</Text>
+                <Select.Root size="sm" width="100%"
+                  collection={createListCollection({ items: chartTypeItems })}
+                  value={[chartType]}
+                  onValueChange={(d: any) => setChartType((d?.value?.[0] ?? "line") as ChartType)}
+                >
+                  <Select.HiddenSelect />
+                  <Select.Control>
+                    <Select.Trigger>
+                      <Select.ValueText placeholder="Chart type" />
+                    </Select.Trigger>
+                    <Select.IndicatorGroup><Select.Indicator /></Select.IndicatorGroup>
+                  </Select.Control>
+                  <Portal><Select.Positioner><Select.Content>
                     {chartTypeItems.map((it) => (
-                      <Select.Item key={it.value} item={it}>
-                        {it.label}
-                        <Select.ItemIndicator />
-                      </Select.Item>
+                      <Select.Item key={it.value} item={it}>{it.label}<Select.ItemIndicator /></Select.Item>
                     ))}
-                  </Select.Content>
-                </Select.Positioner>
-              </Portal>
-            </Select.Root>
-          </VStack>
-          {(chartType === "line" || chartType === "derivative") && (
-          <VStack align="stretch" minW="240px">
-            <Text textStyle="sm" color="gray.600">X Axis</Text>
-            <Select.Root
-              size="sm"
-              width="100%"
-              collection={createListCollection({ items: numericCols.map((c) => ({ label: c, value: c })) })}
-              value={xCol ? [xCol] : []}
-              onValueChange={(d: any) => setXCol(d?.value?.[0] ?? "")}
-            >
-              <Select.HiddenSelect />
-              <Select.Control>
-                <Select.Trigger>
-                  <Select.ValueText placeholder="Select X axis" />
-                </Select.Trigger>
-                <Select.IndicatorGroup>
-                  <Select.Indicator />
-                </Select.IndicatorGroup>
-              </Select.Control>
-              <Portal>
-                <Select.Positioner>
-                  <Select.Content>
-                    {numericCols.map((c) => (
-                      <Select.Item key={c} item={{ label: c, value: c }}>
-                        {c}
-                        <Select.ItemIndicator />
-                      </Select.Item>
-                    ))}
-                  </Select.Content>
-                </Select.Positioner>
-              </Portal>
-            </Select.Root>
-          </VStack>
-          )}
-          {(chartType === "line" || chartType === "derivative") && (
-          <VStack align="stretch" minW="300px">
-            <Text textStyle="sm" color="gray.600">X Range</Text>
-            <HStack>
-              <Input size="sm" width="120px" type="number" value={xFilterMin}
-                onChange={(e) => setXFilterMin(e.target.value)} placeholder={xDomain.ready ? String(xDomain.min) : "min"} />
-              <Text>~</Text>
-              <Input size="sm" width="120px" type="number" value={xFilterMax}
-                onChange={(e) => setXFilterMax(e.target.value)} placeholder={xDomain.ready ? String(xDomain.max) : "max"} />
-              <Button size="xs" variant="outline" onClick={() => { if (xDomain.ready) { setXFilterMin(String(xDomain.min)); setXFilterMax(String(xDomain.max)); } }}>Reset</Button>
-            </HStack>
-          </VStack>
-          )}
-          {(chartType === "line" || chartType === "derivative") && (
-          <VStack align="stretch" minW="280px">
-            <Text textStyle="sm" color="gray.600">Y Axis (multiple)</Text>
-            <CheckboxGroup value={yCols} onValueChange={(v: any) => setYCols((v?.value ?? v) as string[])}>
-              <VStack align="stretch" h="110px" overflowY="auto" borderWidth="1px" rounded="md" p="8px" bg="bg.panel" style={{ scrollbarGutter: "stable both-edges" }}>
-                {numericCols.map((c) => (
-                  <Checkbox.Root key={c} value={c}>
-                    <Checkbox.HiddenInput />
-                    <Checkbox.Control />
-                    <Checkbox.Label>{c}</Checkbox.Label>
-                  </Checkbox.Root>
-                ))}
-                {numericCols.length === 0 && (
-                  <Text textStyle="xs" color="gray.500">No numeric columns</Text>
-                )}
+                  </Select.Content></Select.Positioner></Portal>
+                </Select.Root>
               </VStack>
-            </CheckboxGroup>
-          </VStack>
-          )}
-          {(chartType === "line" || chartType === "derivative") && (
-          <VStack align="stretch" minW="200px">
-            <Text textStyle="sm" color="gray.600">Moving average</Text>
-            <Select.Root
-              size="sm"
-              width="100%"
-              collection={createListCollection({ items: [1,3,5,7,9,11].map((n) => ({ label: n === 1 ? "None" : `${n}`, value: String(n) })) })}
-              value={[String(maWindow)]}
-              onValueChange={(d: any) => {
-                const v = Number(d?.value?.[0] ?? "1");
-                setMaWindow(!Number.isFinite(v) || v < 1 ? 1 : v);
-              }}
-            >
-              <Select.HiddenSelect />
-              <Select.Control>
-                <Select.Trigger>
-                  <Select.ValueText placeholder="Window" />
-                </Select.Trigger>
-                <Select.IndicatorGroup>
-                  <Select.Indicator />
-                </Select.IndicatorGroup>
-              </Select.Control>
-              <Portal>
-                <Select.Positioner>
-                  <Select.Content>
-                    {[1,3,5,7,9,11].map((n) => (
-                      <Select.Item key={n} item={{ label: n === 1 ? "None" : `${n}`, value: String(n) }}>
-                        {n === 1 ? "None" : `${n}`}
-                        <Select.ItemIndicator />
-                      </Select.Item>
-                    ))}
-                  </Select.Content>
-                </Select.Positioner>
-              </Portal>
-            </Select.Root>
-          </VStack>
-          )}
-          {(chartType === "line" || chartType === "derivative") && (
-          <VStack align="stretch" minW="200px">
-            <Text textStyle="sm" color="gray.600">Y Axis</Text>
-            <Select.Root
-              size="sm"
-              width="100%"
-              collection={createListCollection({ items: [
-                { label: "Auto", value: "auto" },
-                { label: "0 to Max", value: "zeroToMax" },
-              ] })}
-              value={[yAxisMode]}
-              onValueChange={(d: any) => setYAxisMode(((d?.value?.[0] ?? "auto") as any))}
-            >
-              <Select.HiddenSelect />
-              <Select.Control>
-                <Select.Trigger>
-                  <Select.ValueText placeholder="Y axis mode" />
-                </Select.Trigger>
-                <Select.IndicatorGroup>
-                  <Select.Indicator />
-                </Select.IndicatorGroup>
-              </Select.Control>
-              <Portal>
-                <Select.Positioner>
-                  <Select.Content>
-                    {[
+              {(chartType === "line" || chartType === "derivative") && (
+                <VStack align="stretch">
+                  <Text textStyle="sm" color="gray.600">X Axis</Text>
+                  <Select.Root size="sm" width="100%"
+                    collection={createListCollection({ items: numericCols.map((c) => ({ label: c, value: c })) })}
+                    value={xCol ? [xCol] : []}
+                    onValueChange={(d: any) => setXCol(d?.value?.[0] ?? "")}
+                  >
+                    <Select.HiddenSelect />
+                    <Select.Control><Select.Trigger><Select.ValueText placeholder="Select X axis" /></Select.Trigger><Select.IndicatorGroup><Select.Indicator /></Select.IndicatorGroup></Select.Control>
+                    <Portal><Select.Positioner><Select.Content>
+                      {numericCols.map((c) => (<Select.Item key={c} item={{ label: c, value: c }}>{c}<Select.ItemIndicator /></Select.Item>))}
+                    </Select.Content></Select.Positioner></Portal>
+                  </Select.Root>
+                </VStack>
+              )}
+              {(chartType === "line" || chartType === "derivative") && (
+                <VStack align="stretch">
+                  <Text textStyle="sm" color="gray.600">Y Axis (multiple)</Text>
+                  <CheckboxGroup value={yCols} onValueChange={(v: any) => setYCols((v?.value ?? v) as string[])}>
+                    <VStack align="stretch" h="140px" overflowY="auto" borderWidth="1px" rounded="md" p="8px" bg="bg.canvas" style={{ scrollbarGutter: "stable both-edges" }}>
+                      {numericCols.map((c) => (
+                        <Checkbox.Root key={c} value={c}>
+                          <Checkbox.HiddenInput />
+                          <Checkbox.Control />
+                          <Checkbox.Label>{c}</Checkbox.Label>
+                        </Checkbox.Root>
+                      ))}
+                      {numericCols.length === 0 && (<Text textStyle="xs" color="gray.500">No numeric columns</Text>)}
+                    </VStack>
+                  </CheckboxGroup>
+                </VStack>
+              )}
+            </VStack>
+          </Box>
+
+          {/* Scale & Smoothing */}
+          <Box minW="280px" flexShrink={0} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
+            <VStack align="stretch" gap="10px">
+              <Text textStyle="sm" fontWeight="semibold" color="gray.700">Scale & Smoothing</Text>
+              {(chartType === "line" || chartType === "derivative") && (
+                <VStack align="stretch">
+                  <Text textStyle="sm" color="gray.600">Moving average</Text>
+                  <Select.Root size="sm" width="100%"
+                    collection={createListCollection({ items: [1,3,5,7,9,11].map((n) => ({ label: n === 1 ? "None" : `${n}`, value: String(n) })) })}
+                    value={[String(maWindow)]}
+                    onValueChange={(d: any) => { const v = Number(d?.value?.[0] ?? "1"); setMaWindow(!Number.isFinite(v) || v < 1 ? 1 : v); }}
+                  >
+                    <Select.HiddenSelect />
+                    <Select.Control><Select.Trigger><Select.ValueText placeholder="Window" /></Select.Trigger><Select.IndicatorGroup><Select.Indicator /></Select.IndicatorGroup></Select.Control>
+                    <Portal><Select.Positioner><Select.Content>
+                      {[1,3,5,7,9,11].map((n) => (<Select.Item key={n} item={{ label: n === 1 ? "None" : `${n}`, value: String(n) }}>{n === 1 ? "None" : `${n}`}<Select.ItemIndicator /></Select.Item>))}
+                    </Select.Content></Select.Positioner></Portal>
+                  </Select.Root>
+                </VStack>
+              )}
+              {(chartType === "line" || chartType === "derivative") && (
+                <VStack align="stretch">
+                  <Text textStyle="sm" color="gray.600">Y Axis</Text>
+                  <Select.Root size="sm" width="100%"
+                    collection={createListCollection({ items: [
                       { label: "Auto", value: "auto" },
                       { label: "0 to Max", value: "zeroToMax" },
-                    ].map((it) => (
-                      <Select.Item key={it.value} item={it}>
-                        {it.label}
-                        <Select.ItemIndicator />
-                      </Select.Item>
-                    ))}
-                  </Select.Content>
-                </Select.Positioner>
-              </Portal>
-            </Select.Root>
-          </VStack>
-          )}
-          {(chartType === "line" || chartType === "derivative") && (
-          <VStack align="stretch" minW="180px">
-            <Text textStyle="sm" color="gray.600">Log Y</Text>
-            <Checkbox.Root checked={logY} onCheckedChange={(e: any) => setLogY(!!(e?.checked ?? e))}>
-              <Checkbox.HiddenInput />
-              <Checkbox.Control />
-              <Checkbox.Label>Use log scale</Checkbox.Label>
-            </Checkbox.Root>
-          </VStack>
-          )}
-          {chartType === "frequency" && (
-            <>
-              <VStack align="stretch" minW="240px">
-                <Text textStyle="sm" color="gray.600">Column</Text>
-                <Select.Root
-                  size="sm"
-                  width="100%"
-                  collection={createListCollection({ items: allCols.map((c) => ({ label: c, value: c })) })}
-                  value={freqCol ? [freqCol] : []}
-                  onValueChange={(d: any) => setFreqCol(d?.value?.[0] ?? "")}
-                >
-                  <Select.HiddenSelect />
-                  <Select.Control>
-                    <Select.Trigger>
-                      <Select.ValueText placeholder="Select column" />
-                    </Select.Trigger>
-                    <Select.IndicatorGroup>
-                      <Select.Indicator />
-                    </Select.IndicatorGroup>
-                  </Select.Control>
-                  <Portal>
-                    <Select.Positioner>
-                      <Select.Content>
-                        {allCols.map((c) => (
-                          <Select.Item key={c} item={{ label: c, value: c }}>
-                            {c}
-                            <Select.ItemIndicator />
-                          </Select.Item>
-                        ))}
-                      </Select.Content>
-                    </Select.Positioner>
-                  </Portal>
-                </Select.Root>
-              </VStack>
-              <VStack align="stretch" minW="180px">
-                <Text textStyle="sm" color="gray.600">Top N</Text>
-                <Select.Root
-                  size="sm"
-                  width="100%"
-                  collection={createListCollection({ items: [5,10,20,30,50].map((n) => ({ label: String(n), value: String(n) })) })}
-                  value={[String(freqTopN)]}
-                  onValueChange={(d: any) => setFreqTopN(Number(d?.value?.[0] ?? "20"))}
-                >
-                  <Select.HiddenSelect />
-                  <Select.Control>
-                    <Select.Trigger>
-                      <Select.ValueText placeholder="Top N" />
-                    </Select.Trigger>
-                    <Select.IndicatorGroup>
-                      <Select.Indicator />
-                    </Select.IndicatorGroup>
-                  </Select.Control>
-                  <Portal>
-                    <Select.Positioner>
-                      <Select.Content>
-                        {[5,10,20,30,50].map((n) => (
-                          <Select.Item key={n} item={{ label: String(n), value: String(n) }}>
-                            {n}
-                            <Select.ItemIndicator />
-                          </Select.Item>
-                        ))}
-                      </Select.Content>
-                    </Select.Positioner>
-                  </Portal>
-                </Select.Root>
-              </VStack>
-              <VStack align="stretch" minW="200px">
-                <Text textStyle="sm" color="gray.600">Normalize (%)</Text>
-                <Checkbox.Root checked={freqAsPercent} onCheckedChange={(e: any) => setFreqAsPercent(!!(e?.checked ?? e))}>
-                  <Checkbox.HiddenInput />
-                  <Checkbox.Control />
-                  <Checkbox.Label>Show as percentage</Checkbox.Label>
-                </Checkbox.Root>
-              </VStack>
-            </>
-          )}
-          {chartType === "histogram" && (
-            <>
-              <VStack align="stretch" minW="240px">
-                <Text textStyle="sm" color="gray.600">Column</Text>
-                <Select.Root size="sm" width="100%"
-                  collection={createListCollection({ items: numericCols.map((c) => ({ label: c, value: c })) })}
-                  value={histCol ? [histCol] : []}
-                  onValueChange={(d: any) => setHistCol(d?.value?.[0] ?? "")}
-                >
-                  <Select.HiddenSelect />
-                  <Select.Control>
-                    <Select.Trigger>
-                      <Select.ValueText placeholder="Select column" />
-                    </Select.Trigger>
-                    <Select.IndicatorGroup>
-                      <Select.Indicator />
-                    </Select.IndicatorGroup>
-                  </Select.Control>
-                  <Portal>
-                    <Select.Positioner>
-                      <Select.Content>
-                        {numericCols.map((c) => (
-                          <Select.Item key={c} item={{ label: c, value: c }}>
-                            {c}
-                            <Select.ItemIndicator />
-                          </Select.Item>
-                        ))}
-                      </Select.Content>
-                    </Select.Positioner>
-                  </Portal>
-                </Select.Root>
-              </VStack>
-              <VStack align="stretch" minW="160px">
-                <Text textStyle="sm" color="gray.600">Bins</Text>
-                <Select.Root size="sm" width="100%"
-                  collection={createListCollection({ items: [10,20,30,50].map((n) => ({ label: String(n), value: String(n) })) })}
-                  value={[String(histBins)]}
-                  onValueChange={(d: any) => setHistBins(Number(d?.value?.[0] ?? "20"))}
-                >
-                  <Select.HiddenSelect />
-                  <Select.Control>
-                    <Select.Trigger>
-                      <Select.ValueText placeholder="Bin count" />
-                    </Select.Trigger>
-                    <Select.IndicatorGroup>
-                      <Select.Indicator />
-                    </Select.IndicatorGroup>
-                  </Select.Control>
-                  <Portal>
-                    <Select.Positioner>
-                      <Select.Content>
-                        {[10,20,30,50].map((n) => (
-                          <Select.Item key={n} item={{ label: String(n), value: String(n) }}>
-                            {n}
-                            <Select.ItemIndicator />
-                          </Select.Item>
-                        ))}
-                      </Select.Content>
-                    </Select.Positioner>
-                  </Portal>
-                </Select.Root>
-              </VStack>
-              <VStack align="stretch" minW="200px">
-                <Text textStyle="sm" color="gray.600">Normalize (%)</Text>
-                <Checkbox.Root checked={histAsPercent} onCheckedChange={(e: any) => setHistAsPercent(!!(e?.checked ?? e))}>
-                  <Checkbox.HiddenInput />
-                  <Checkbox.Control />
-                  <Checkbox.Label>Show as percentage</Checkbox.Label>
-                </Checkbox.Root>
-              </VStack>
-            </>
-          )}
-          {(chartType === "cdf" || chartType === "ccdf") && (
-            <VStack align="stretch" minW="240px">
-              <Text textStyle="sm" color="gray.600">Column</Text>
-              <Select.Root size="sm" width="100%"
-                collection={createListCollection({ items: numericCols.map((c) => ({ label: c, value: c })) })}
-                value={chartType === "cdf" ? (cdfCol ? [cdfCol] : []) : (ccdfCol ? [ccdfCol] : [])}
-                onValueChange={(d: any) => (chartType === "cdf" ? setCdfCol : setCcdfCol)(d?.value?.[0] ?? "")}
-              >
-                <Select.HiddenSelect />
-                <Select.Control>
-                  <Select.Trigger>
-                    <Select.ValueText placeholder="Select column" />
-                  </Select.Trigger>
-                  <Select.IndicatorGroup>
-                    <Select.Indicator />
-                  </Select.IndicatorGroup>
-                </Select.Control>
-                <Portal>
-                  <Select.Positioner>
-                    <Select.Content>
-                      {numericCols.map((c) => (
-                        <Select.Item key={c} item={{ label: c, value: c }}>
-                          {c}
-                          <Select.ItemIndicator />
-                        </Select.Item>
-                      ))}
-                    </Select.Content>
-                  </Select.Positioner>
-                </Portal>
-              </Select.Root>
-            </VStack>
-          )}
-          {chartType === "scatter" && (
-            <>
-              <VStack align="stretch" minW="220px">
-                <Text textStyle="sm" color="gray.600">X</Text>
-                <Select.Root size="sm" width="100%"
-                  collection={createListCollection({ items: numericCols.map((c) => ({ label: c, value: c })) })}
-                  value={scatterX ? [scatterX] : []}
-                  onValueChange={(d: any) => setScatterX(d?.value?.[0] ?? "")}
-                >
-                  <Select.HiddenSelect />
-                  <Select.Control><Select.Trigger><Select.ValueText placeholder="X" /></Select.Trigger><Select.IndicatorGroup><Select.Indicator /></Select.IndicatorGroup></Select.Control>
-                  <Portal><Select.Positioner><Select.Content>
-                    {numericCols.map((c) => (<Select.Item key={c} item={{ label: c, value: c }}>{c}<Select.ItemIndicator /></Select.Item>))}
-                  </Select.Content></Select.Positioner></Portal>
-                </Select.Root>
-              </VStack>
-              <VStack align="stretch" minW="220px">
-                <Text textStyle="sm" color="gray.600">Y</Text>
-                <Select.Root size="sm" width="100%"
-                  collection={createListCollection({ items: numericCols.map((c) => ({ label: c, value: c })) })}
-                  value={scatterY ? [scatterY] : []}
-                  onValueChange={(d: any) => setScatterY(d?.value?.[0] ?? "")}
-                >
-                  <Select.HiddenSelect />
-                  <Select.Control><Select.Trigger><Select.ValueText placeholder="Y" /></Select.Trigger><Select.IndicatorGroup><Select.Indicator /></Select.IndicatorGroup></Select.Control>
-                  <Portal><Select.Positioner><Select.Content>
-                    {numericCols.map((c) => (<Select.Item key={c} item={{ label: c, value: c }}>{c}<Select.ItemIndicator /></Select.Item>))}
-                  </Select.Content></Select.Positioner></Portal>
-                </Select.Root>
-              </VStack>
-              <VStack align="stretch" minW="160px">
-                <Text textStyle="sm" color="gray.600">Trendline</Text>
-                <Checkbox.Root checked={scatterTrend} onCheckedChange={(e: any) => setScatterTrend(!!(e?.checked ?? e))}>
-                  <Checkbox.HiddenInput /><Checkbox.Control /><Checkbox.Label>Show OLS</Checkbox.Label>
-                </Checkbox.Root>
-              </VStack>
-              <VStack align="stretch" minW="180px">
-                <Text textStyle="sm" color="gray.600">Log Scale</Text>
-                <Checkbox.Root checked={logX} onCheckedChange={(e: any) => setLogX(!!(e?.checked ?? e))}>
-                  <Checkbox.HiddenInput /><Checkbox.Control /><Checkbox.Label>Log X</Checkbox.Label>
-                </Checkbox.Root>
-                <Checkbox.Root checked={logY} onCheckedChange={(e: any) => setLogY(!!(e?.checked ?? e))}>
-                  <Checkbox.HiddenInput /><Checkbox.Control /><Checkbox.Label>Log Y</Checkbox.Label>
-                </Checkbox.Root>
-              </VStack>
-            </>
-          )}
-          {chartType === "correlation" && (
-            <VStack align="stretch" minW="280px">
-              <Text textStyle="sm" color="gray.600">Columns</Text>
-              <CheckboxGroup value={corrCols} onValueChange={(v: any) => setCorrCols((v?.value ?? v) as string[])}>
-                <VStack align="stretch" h="140px" overflowY="auto" borderWidth="1px" rounded="md" p="8px" bg="bg.panel" style={{ scrollbarGutter: "stable both-edges" }}>
-                  {numericCols.map((c) => (
-                    <Checkbox.Root key={c} value={c}>
-                      <Checkbox.HiddenInput />
-                      <Checkbox.Control />
-                      <Checkbox.Label>{c}</Checkbox.Label>
-                    </Checkbox.Root>
-                  ))}
+                    ] })}
+                    value={[yAxisMode]}
+                    onValueChange={(d: any) => setYAxisMode(((d?.value?.[0] ?? "auto") as any))}
+                  >
+                    <Select.HiddenSelect />
+                    <Select.Control><Select.Trigger><Select.ValueText placeholder="Y axis mode" /></Select.Trigger><Select.IndicatorGroup><Select.Indicator /></Select.IndicatorGroup></Select.Control>
+                    <Portal><Select.Positioner><Select.Content>
+                      {[{label:"Auto",value:"auto"},{label:"0 to Max",value:"zeroToMax"}].map((it) => (<Select.Item key={it.value} item={it}>{it.label}<Select.ItemIndicator /></Select.Item>))}
+                    </Select.Content></Select.Positioner></Portal>
+                  </Select.Root>
                 </VStack>
-              </CheckboxGroup>
+              )}
+              {(chartType === "line" || chartType === "derivative") && (
+                <VStack align="stretch">
+                  <Text textStyle="sm" color="gray.600">Log Y</Text>
+                  <Checkbox.Root checked={logY} onCheckedChange={(e: any) => setLogY(!!(e?.checked ?? e))}>
+                    <Checkbox.HiddenInput /><Checkbox.Control /><Checkbox.Label>Use log scale</Checkbox.Label>
+                  </Checkbox.Root>
+                </VStack>
+              )}
             </VStack>
-          )}
-          {chartType === "pctchange" && (
-            <VStack align="stretch" minW="200px">
-              <Text textStyle="sm" color="gray.600">Baseline</Text>
-              <Select.Root size="sm" width="100%"
-                collection={createListCollection({ items: [
-                  { label: "Previous", value: "prev" },
-                  { label: "First", value: "first" },
-                ] })}
-                value={[pctMode]}
-                onValueChange={(d: any) => setPctMode(((d?.value?.[0] ?? "prev") as any))}
-              >
-                <Select.HiddenSelect />
-                <Select.Control><Select.Trigger><Select.ValueText placeholder="Baseline" /></Select.Trigger><Select.IndicatorGroup><Select.Indicator /></Select.IndicatorGroup></Select.Control>
-                <Portal><Select.Positioner><Select.Content>
-                  {[{label:"Previous",value:"prev"},{label:"First",value:"first"}].map((it) => (
-                    <Select.Item key={it.value} item={it}>{it.label}<Select.ItemIndicator /></Select.Item>
-                  ))}
-                </Select.Content></Select.Positioner></Portal>
-              </Select.Root>
+          </Box>
+
+          {/* Filter */}
+          <Box minW="420px" flex={1} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
+            <VStack align="stretch" gap="10px">
+              <Text textStyle="sm" fontWeight="semibold" color="gray.700">Filter</Text>
+              {(chartType === "line" || chartType === "derivative") && (
+                <VStack align="stretch">
+                  <Text textStyle="sm" color="gray.600">Filter (rows)</Text>
+                  <HStack gap="8px">
+                    <Input size="sm" flex={1} value={rowFilterExpr} onChange={(e) => setRowFilterExpr(e.target.value)} placeholder={"e.g. status ∈ {ok,err} ∧ score ≥ 0.8 ∪ tag = \"test\""} />
+                    <Button size="xs" variant="outline" onClick={() => setRowFilterExpr("")}>Clear</Button>
+                  </HStack>
+                  {rowFilterError ? <Text textStyle="xs" color="red.500">{rowFilterError}</Text> : (
+                    <Text textStyle="xs" color="gray.500">Supports =, ≠, ≥, ≤, &gt;, &lt;, ∈, ∉, ~, !~, ∧/∩//\\ (AND), ∨/∪/\\/ (OR), !/¬/~ (NOT); parentheses, sets {"{a,b}"}; works across all column types. Use &quot;~&quot; between field and value for contains, and leading &quot;~&quot; as TLA+ NOT.</Text>
+                  )}
+                </VStack>
+              )}
             </VStack>
-          )}
+          </Box>
+
+          {/* Export */}
+          <Box minW="420px" flex={1} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
+            <VStack align="stretch" gap="10px">
+              <Text textStyle="sm" fontWeight="semibold" color="gray.700">Export</Text>
+              {(chartType === "line" || chartType === "derivative") && (
+                <VStack align="stretch">
+                  <HStack gap="8px" wrap="wrap">
+                    <Button size="sm" variant="outline" onClick={async () => {
+                      if (!xCol || yCols.length === 0) return;
+                      setExportError(null); setExportBusy(true);
+                      try {
+                        let rows: any[] = exportRows;
+                        if (chartType === "derivative") { rows = computeDerivative(exportRows, xCol, yCols); }
+                        const cols = [xCol, ...yCols];
+                        const csv = toCSV(rows, cols);
+                        downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), suggestFilename(`${jobName || "export"}_${chartType}.csv`));
+                      } catch (e: any) { setExportError(String(e?.message || e)); }
+                      finally { setExportBusy(false); }
+                    }} disabled={exportBusy || !xCol || yCols.length === 0}>{exportBusy ? "Exporting…" : "Export CSV"}</Button>
+                    <Button size="sm" variant="solid" colorPalette="teal" onClick={async () => {
+                      if (!xCol || yCols.length === 0) return;
+                      setExportError(null); setExportBusy(true);
+                      try {
+                        let rows: any[] = exportRows;
+                        if (chartType === "derivative") { rows = computeDerivative(exportRows, xCol, yCols); }
+                        const cols = [xCol, ...yCols];
+                        const csv = toCSV(rows, cols);
+                        const buf = await csvToParquetViaDuckDB(csv);
+                        downloadBlob(new Blob([buf], { type: "application/octet-stream" }), suggestFilename(`${jobName || "export"}_${chartType}.parquet`));
+                      } catch (e: any) { setExportError(String(e?.message || e)); }
+                      finally { setExportBusy(false); }
+                    }} disabled={exportBusy || !xCol || yCols.length === 0}>Export Parquet</Button>
+                    <Button size="sm" variant="outline" onClick={() => {
+                      const svg = chartSvgRef.current; if (!svg) return;
+                      try { const blob = svgToBlob(svg); downloadBlob(blob, suggestFilename(`${jobName || "export"}_${chartType}.svg`)); } catch (e: any) { setExportError(String(e?.message || e)); }
+                    }}>Export SVG</Button>
+                    <Button size="sm" variant="outline" onClick={async () => {
+                      const svg = chartSvgRef.current; if (!svg) return;
+                      try { const blob = await svgToPngBlob(svg, 2); downloadBlob(blob, suggestFilename(`${jobName || "export"}_${chartType}.png`)); } catch (e: any) { setExportError(String(e?.message || e)); }
+                    }}>Export PNG (2x)</Button>
+                  </HStack>
+                  {exportError && <Text textStyle="xs" color="red.500">{exportError}</Text>}
+                </VStack>
+              )}
+            </VStack>
+          </Box>
         </HStack>
 
         {/* Chart */}
@@ -780,27 +456,9 @@ export default function ClientDetailedAnalysisPage() {
           ) : !pq || !xCol || yCols.length === 0 ? (
             <Text color="gray.600">Select axes to render the chart.</Text>
           ) : chartType === "line" ? (
-            <SimpleLineChart data={applyXFilter(chartData, xCol, xFilterMin, xFilterMax, xDomain)} xKey={xCol} series={series} maWindow={maWindow} yAxisMode={yAxisMode} logY={logY} />
+            <SimpleLineChart svgRef={chartSvgRef} data={chartData} xKey={xCol} series={series} maWindow={maWindow} yAxisMode={yAxisMode} logY={logY} />
           ) : chartType === "derivative" ? (
-            <SimpleLineChart data={computeDerivative(applyXFilter(chartData, xCol, xFilterMin, xFilterMax, xDomain), xCol, yCols)} xKey={xCol} series={series} maWindow={maWindow} yAxisMode={yAxisMode} logY={logY} />
-          ) : chartType === "frequency" ? (
-            <SimpleBarChart data={freqData} asPercent={freqAsPercent} />
-          ) : chartType === "histogram" ? (
-            <SimpleHistogramChart values={(pq?.rows ?? []).map((r) => toFiniteNumber(r?.[histCol])) as (number|null)[]} bins={histBins} asPercent={histAsPercent} />
-          ) : chartType === "cdf" ? (
-            <SimpleLineChart data={computeCdfLike((pq?.rows ?? []).map((r) => toFiniteNumber(r?.[cdfCol])) as (number|null)[], false)} xKey={"value"} series={[{ name: "cdf", color: COLORS[0] }]} maWindow={1} yAxisMode={"auto"} />
-          ) : chartType === "ccdf" ? (
-            <SimpleLineChart data={computeCdfLike((pq?.rows ?? []).map((r) => toFiniteNumber(r?.[ccdfCol])) as (number|null)[], true)} xKey={"value"} series={[{ name: "ccdf", color: COLORS[0] }]} maWindow={1} yAxisMode={"auto"} />
-          ) : chartType === "scatter" ? (
-            <SimpleScatterChart data={pq?.rows ?? []} xKey={scatterX} yKey={scatterY} logX={logX} logY={logY} trendline={scatterTrend} />
-          ) : chartType === "correlation" ? (
-            <SimpleCorrelationHeatmap data={pq?.rows ?? []} cols={corrCols} />
-          ) : chartType === "cumsum" ? (
-            <SimpleLineChart data={computeCumSum(chartData, xCol, yCols)} xKey={xCol} series={series} maWindow={1} yAxisMode={"auto"} />
-          ) : chartType === "pctchange" ? (
-            <SimpleLineChart data={computePctChange(chartData, xCol, yCols, pctMode)} xKey={xCol} series={series} maWindow={1} yAxisMode={"auto"} />
-          ) : chartType === "missing" ? (
-            <SimpleBarChart data={computeMissingProfile(pq)} asPercent={true} />
+            <SimpleLineChart svgRef={chartSvgRef} data={computeDerivative(chartData, xCol, yCols)} xKey={xCol} series={series} maWindow={maWindow} yAxisMode={yAxisMode} logY={logY} />
           ) : null}
         </Box>
       </VStack>
@@ -817,7 +475,20 @@ const COLORS = [
   "#38A169", // green.500
 ];
 
-function SimpleLineChart({ data, xKey, series, maWindow = 1, yAxisMode = "auto", logY = false }: { data: any[]; xKey: string; series: { name: string; color: string }[]; maWindow?: number; yAxisMode?: "auto" | "zeroToMax"; logY?: boolean }) {
+function SimpleLegend({ series }: { series: { name: string; color: string }[] }) {
+  return (
+    <HStack justify="flex-end" wrap="wrap" gap="10px" mb="6px">
+      {series.map((s) => (
+        <HStack key={s.name} gap="6px">
+          <Box w="10px" h="10px" bg={s.color} borderRadius="2px" borderWidth="1px" borderColor="gray.300" />
+          <Text textStyle="xs" color="gray.700">{s.name}</Text>
+        </HStack>
+      ))}
+    </HStack>
+  );
+}
+
+function SimpleLineChart({ svgRef, data, xKey, series, maWindow = 1, yAxisMode = "auto", logY = false }: { svgRef?: React.Ref<SVGSVGElement>; data: any[]; xKey: string; series: { name: string; color: string }[]; maWindow?: number; yAxisMode?: "auto" | "zeroToMax"; logY?: boolean }) {
   const width = 1000;
   const height = 360;
   const padding = { left: 50, right: 10, top: 10, bottom: 40 };
@@ -920,49 +591,52 @@ function SimpleLineChart({ data, xKey, series, maWindow = 1, yAxisMode = "auto",
   })();
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="360">
-      <rect x={padding.left} y={padding.top} width={plotW} height={plotH} fill="#ffffff" stroke="#E2E8F0" />
-      {/* Grid + Y ticks */}
-      {yTickVals.map((v, i) => {
-        const y = yScale(v);
-        return (
-          <g key={`y${i}`}>
-            <line x1={padding.left} x2={padding.left + plotW} y1={y} y2={y} stroke="#EDF2F7" />
-            <text x={padding.left - 8} y={y} textAnchor="end" dominantBaseline="middle" fontSize="10" fill="#4A5568">
-              {Math.round(v * 100) / 100}
-            </text>
-          </g>
-        );
-      })}
-      {/* X ticks */}
-      {xTickIdxs.map((idx, i) => {
-        const xv = xVals[idx];
-        const x = xScale(xv);
-        const label = isNumericX ? String(Math.round(xv * 100) / 100) : String(xs[idx]);
-        return (
-          <g key={`x${i}`}>
-            <line x1={x} x2={x} y1={padding.top + plotH} y2={padding.top + plotH + 4} stroke="#A0AEC0" />
-            <text x={x} y={padding.top + plotH + 16} textAnchor="middle" fontSize="10" fill="#4A5568">
-              {label}
-            </text>
-          </g>
-        );
-      })}
-      {/* Series lines */}
-      {series.map((s) => {
-        const pts: string[] = [];
-        const ys = yBySeries.get(s.name)!;
-        for (let i = 0; i < data.length; i++) {
-          const xv = xVals[i];
-          const yv = ys[i];
-          if (!Number.isFinite(yv)) continue;
+    <Box>
+      <SimpleLegend series={series} />
+      <svg ref={svgRef as any} viewBox={`0 0 ${width} ${height}`} width="100%" height="360">
+        <rect x={padding.left} y={padding.top} width={plotW} height={plotH} fill="#ffffff" stroke="#E2E8F0" />
+        {/* Grid + Y ticks */}
+        {yTickVals.map((v, i) => {
+          const y = yScale(v);
+          return (
+            <g key={`y${i}`}>
+              <line x1={padding.left} x2={padding.left + plotW} y1={y} y2={y} stroke="#EDF2F7" />
+              <text x={padding.left - 8} y={y} textAnchor="end" dominantBaseline="middle" fontSize="10" fill="#4A5568">
+                {Math.round(v * 100) / 100}
+              </text>
+            </g>
+          );
+        })}
+        {/* X ticks */}
+        {xTickIdxs.map((idx, i) => {
+          const xv = xVals[idx];
           const x = xScale(xv);
-          const y = yScale(yv);
-          pts.push(`${x},${y}`);
-        }
-        return <polyline key={s.name} fill="none" stroke={s.color} strokeWidth={2} points={pts.join(" ")} />;
-      })}
-    </svg>
+          const label = isNumericX ? String(Math.round(xv * 100) / 100) : String(xs[idx]);
+          return (
+            <g key={`x${i}`}>
+              <line x1={x} x2={x} y1={padding.top + plotH} y2={padding.top + plotH + 4} stroke="#A0AEC0" />
+              <text x={x} y={padding.top + plotH + 16} textAnchor="middle" fontSize="10" fill="#4A5568">
+                {label}
+              </text>
+            </g>
+          );
+        })}
+        {/* Series lines */}
+        {series.map((s) => {
+          const pts: string[] = [];
+          const ys = yBySeries.get(s.name)!;
+          for (let i = 0; i < data.length; i++) {
+            const xv = xVals[i];
+            const yv = ys[i];
+            if (!Number.isFinite(yv)) continue;
+            const x = xScale(xv);
+            const y = yScale(yv);
+            pts.push(`${x},${y}`);
+          }
+          return <polyline key={s.name} fill="none" stroke={s.color} strokeWidth={2} points={pts.join(" ")} />;
+        })}
+      </svg>
+    </Box>
   );
 }
 
@@ -989,275 +663,341 @@ function computeDerivative(data: any[], xKey: string, yCols: string[]) {
   return out;
 }
 
-function applyXFilter(data: any[], xKey: string, minStr: string, maxStr: string, domain: { min: number; max: number; ready: boolean }) {
-  if (!Array.isArray(data) || data.length === 0) return data;
-  const minParsed = Number(minStr);
-  const maxParsed = Number(maxStr);
-  const min = Number.isFinite(minParsed) ? minParsed : (domain.ready ? domain.min : Number.NEGATIVE_INFINITY);
-  const max = Number.isFinite(maxParsed) ? maxParsed : (domain.ready ? domain.max : Number.POSITIVE_INFINITY);
-  const lo = Math.min(min, max);
-  const hi = Math.max(min, max);
-  return data.filter((r) => {
-    const xv = Number(r?.[xKey]);
-    return Number.isFinite(xv) && xv >= lo && xv <= hi;
-  });
-}
-
-function computeCumSum(data: any[], xKey: string, yCols: string[]) {
-  const out: any[] = [];
-  const sums: Record<string, number> = {};
-  for (const y of yCols) sums[y] = 0;
-  for (const r of data) {
-    const row: any = { [xKey]: r?.[xKey] };
-    for (const y of yCols) {
-      const n = Number(r?.[y]);
-      if (Number.isFinite(n)) sums[y] += n;
-      row[y] = Number.isFinite(sums[y]) ? sums[y] : NaN;
-    }
-    out.push(row);
-  }
-  return out;
-}
-
-function computePctChange(data: any[], xKey: string, yCols: string[], mode: "prev" | "first") {
-  const out: any[] = [];
-  const base: Record<string, number> = {};
-  for (const r of data) {
-    const row: any = { [xKey]: r?.[xKey] };
-    for (const y of yCols) {
-      const n = Number(r?.[y]);
-      if (!Number.isFinite(n)) { row[y] = NaN; continue; }
-      if (mode === "first") {
-        if (!Number.isFinite(base[y])) base[y] = n;
-        const b = base[y];
-        row[y] = b === 0 ? NaN : ((n - b) / Math.abs(b)) * 100;
-      } else {
-        const b = Number.isFinite(base[y]) ? base[y] : n;
-        row[y] = b === 0 ? NaN : ((n - b) / Math.abs(b)) * 100;
-        base[y] = n;
-      }
-    }
-    out.push(row);
-  }
-  return out;
-}
-
-function computeMissingProfile(pq: LoadedParquet | null): { label: string; value: number }[] {
-  if (!pq) return [];
-  const total = pq.rows.length;
-  return (pq.cols || []).map((c) => {
-    let missing = 0;
-    for (const r of pq.rows) {
-      const v = r?.[c];
-      if (v == null || (typeof v === "number" && !Number.isFinite(v))) missing++;
-      else if (typeof v === "string" && (v.trim() === "" || v.toLowerCase() === "nan")) missing++;
-    }
-    return { label: c, value: total === 0 ? 0 : (missing / total) };
-  });
-}
-
-function computeCdfLike(values: (number | null)[], ccdf: boolean) {
-  const xs = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v)).sort((a,b)=>a-b);
-  const n = xs.length;
-  const data: any[] = [];
-  for (let i = 0; i < n; i++) {
-    const v = xs[i];
-    const frac = (i + 1) / n;
-    data.push({ value: v, [ccdf ? "ccdf" : "cdf"]: ccdf ? (1 - frac) : frac });
-  }
-  return data;
-}
-
-function SimpleHistogramChart({ values, bins = 20, asPercent = false }: { values: (number | null)[]; bins?: number; asPercent?: boolean }) {
-  const width = 1000; const height = 360;
-  const padding = { left: 50, right: 10, top: 10, bottom: 40 };
-  const plotW = width - padding.left - padding.right;
-  const plotH = height - padding.top - padding.bottom;
-  const xs = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
-  if (xs.length === 0) return <Text>No numeric data</Text> as any;
-  const min = Math.min(...xs); let max = Math.max(...xs);
-  if (max === min) { max = min + 1; }
-  const bw = (max - min) / Math.max(1, bins);
-  const counts = new Array(bins).fill(0);
-  for (const v of xs) {
-    let idx = Math.floor((v - min) / bw);
-    if (idx >= bins) idx = bins - 1;
-    if (idx < 0) idx = 0;
-    counts[idx]++;
-  }
-  const total = xs.length;
-  const vals = counts.map((c) => (asPercent ? c / total : c));
-  const vmax = Math.max(1e-9, ...vals);
-  const yScale = (v: number) => padding.top + (1 - v / vmax) * plotH;
-  const xScale = (i: number) => padding.left + (i / bins) * plotW;
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="360">
-      <rect x={padding.left} y={padding.top} width={plotW} height={plotH} fill="#ffffff" stroke="#E2E8F0" />
-      {counts.map((_, i) => {
-        const v = vals[i];
-        const x = xScale(i);
-        const w = plotW / bins - 2;
-        const y = yScale(v);
-        const h = padding.top + plotH - y;
-        return <rect key={i} x={x + 1} y={y} width={w} height={h} fill={COLORS[0]} />;
-      })}
-      <text x={padding.left} y={height - 10} fontSize="10" fill="#4A5568">{`min ${Math.round(min*100)/100}`}</text>
-      <text x={padding.left + plotW} y={height - 10} fontSize="10" fill="#4A5568" textAnchor="end">{`max ${Math.round(max*100)/100}`}</text>
-    </svg>
-  );
-}
-
-function SimpleScatterChart({ data, xKey, yKey, logX = false, logY = false, trendline = true }: { data: any[]; xKey: string; yKey: string; logX?: boolean; logY?: boolean; trendline?: boolean }) {
-  const width = 1000; const height = 360;
-  const padding = { left: 50, right: 10, top: 10, bottom: 40 };
-  const plotW = width - padding.left - padding.right;
-  const plotH = height - padding.top - padding.bottom;
-  const pts = data.map((r) => ({ x: toFiniteNumber(r?.[xKey]), y: toFiniteNumber(r?.[yKey]) })).filter((p) => p.x != null && p.y != null) as {x:number;y:number}[];
-  if (pts.length === 0) return <Text>No numeric data</Text> as any;
-  const xVals = pts.map(p=>p.x);
-  const yVals = pts.map(p=>p.y);
-  const xMin0 = Math.min(...xVals), xMax0 = Math.max(...xVals);
-  const yMin0 = Math.min(...yVals), yMax0 = Math.max(...yVals);
-  const lxMin = logX ? Math.log10(Math.max(Number.MIN_VALUE, xMin0 > 0 ? xMin0 : Number.MIN_VALUE)) : xMin0;
-  const lxMax = logX ? Math.log10(Math.max(Number.MIN_VALUE*10, xMax0)) : xMax0;
-  const lyMin = logY ? Math.log10(Math.max(Number.MIN_VALUE, yMin0 > 0 ? yMin0 : Number.MIN_VALUE)) : yMin0;
-  const lyMax = logY ? Math.log10(Math.max(Number.MIN_VALUE*10, yMax0)) : yMax0;
-  const scaleX = (v: number) => {
-    const val = logX ? Math.log10(v <= 0 ? Number.MIN_VALUE : v) : v;
-    return padding.left + ((val - lxMin) / Math.max(1e-12, (lxMax - lxMin))) * plotW;
-  };
-  const scaleY = (v: number) => {
-    const val = logY ? Math.log10(v <= 0 ? Number.MIN_VALUE : v) : v;
-    return padding.top + (1 - (val - lyMin) / Math.max(1e-12, (lyMax - lyMin))) * plotH;
-  };
-  // OLS fit y = a + b x (in linear space, not log)
-  let ols: { a: number; b: number } | null = null;
-  if (trendline && pts.length >= 2) {
-    let sx=0, sy=0, sxx=0, sxy=0; const n=pts.length;
-    for (const p of pts) { sx += p.x; sy += p.y; sxx += p.x*p.x; sxy += p.x*p.y; }
-    const denom = (n*sxx - sx*sx);
-    if (Math.abs(denom) > 1e-12) {
-      const b = (n*sxy - sx*sy) / denom;
-      const a = (sy - b*sx) / n;
-      ols = { a, b };
-    }
-  }
-  const linePts = ols ? [
-    { x: xMin0, y: ols.a + ols.b * xMin0 },
-    { x: xMax0, y: ols.a + ols.b * xMax0 },
-  ] : [];
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="360">
-      <rect x={padding.left} y={padding.top} width={plotW} height={plotH} fill="#ffffff" stroke="#E2E8F0" />
-      {pts.map((p, i) => (
-        <circle key={i} cx={scaleX(p.x)} cy={scaleY(p.y)} r={2} fill="#2D3748" />
-      ))}
-      {ols && (
-        <polyline fill="none" stroke={COLORS[0]} strokeWidth={2} points={linePts.map((p)=>`${scaleX(p.x)},${scaleY(p.y)}`).join(" ")} />
-      )}
-    </svg>
-  );
-}
-
-function SimpleCorrelationHeatmap({ data, cols }: { data: any[]; cols: string[] }) {
-  const width = 1000; const height = 360;
-  const padding = { left: 120, right: 10, top: 40, bottom: 10 };
-  const plotW = width - padding.left - padding.right;
-  const plotH = height - padding.top - padding.bottom;
-  const n = cols.length;
-  if (n === 0) return <Text>Select columns</Text> as any;
-  // compute correlation matrix
-  const vals = cols.map((c) => data.map((r) => toFiniteNumber(r?.[c])).filter((v): v is number => v != null));
-  const means = vals.map((a) => a.reduce((s, v) => s + v, 0) / Math.max(1, a.length));
-  const stds = vals.map((a, i) => Math.sqrt(a.reduce((s, v) => s + Math.pow(v - means[i], 2), 0) / Math.max(1, (a.length - 1))))
-    .map((s) => (s === 0 ? 1 : s));
-  const corr: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
-  for (let i = 0; i < n; i++) {
-    for (let j = 0; j < n; j++) {
-      if (i === j) { corr[i][j] = 1; continue; }
-      let sum = 0; const len = Math.min(vals[i].length, vals[j].length);
-      for (let k = 0; k < len; k++) {
-        const vi = vals[i][k] - means[i];
-        const vj = vals[j][k] - means[j];
-        sum += (vi / stds[i]) * (vj / stds[j]);
-      }
-      corr[i][j] = len > 1 ? sum / (len - 1) : 0;
-    }
-  }
-  const cellSize = Math.min(plotW / n, plotH / n);
-  const x0 = padding.left, y0 = padding.top;
-  const color = (r: number) => {
-    const t = Math.max(-1, Math.min(1, r));
-    const pos = t > 0 ? t : 0;
-    const neg = t < 0 ? -t : 0;
-    const rC = Math.round(255 * neg);
-    const bC = Math.round(255 * pos);
-    return `rgb(${rC},${Math.round(255*(1-Math.max(pos,neg)))},${bC})`;
-  };
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="360">
-      <rect x={x0} y={y0} width={cellSize*n} height={cellSize*n} fill="#ffffff" stroke="#E2E8F0" />
-      {corr.map((row, i) => row.map((v, j) => (
-        <g key={`${i}-${j}`}>
-          <rect x={x0 + j*cellSize} y={y0 + i*cellSize} width={cellSize} height={cellSize} fill={color(v)} />
-          <text x={x0 + j*cellSize + cellSize/2} y={y0 + i*cellSize + cellSize/2} textAnchor="middle" dominantBaseline="middle" fontSize="10" fill="#1A202C">
-            {Math.round(v*100)/100}
-          </text>
-        </g>
-      )))}
-      {/* labels */}
-      {cols.map((c, i) => (
-        <text key={`yl${i}`} x={padding.left - 6} y={y0 + i*cellSize + cellSize/2} textAnchor="end" dominantBaseline="middle" fontSize="10">{c}</text>
-      ))}
-      {cols.map((c, j) => (
-        <text key={`xl${j}`} x={x0 + j*cellSize + cellSize/2} y={padding.top - 8} textAnchor="middle" dominantBaseline="baseline" fontSize="10" transform={`rotate(-45 ${x0 + j*cellSize + cellSize/2} ${padding.top - 8})`}>{c}</text>
-      ))}
-    </svg>
-  );
-}
-
-function SimpleBarChart({ data, asPercent = false }: { data: { label: string; value: number }[]; asPercent?: boolean }) {
-  const width = 1000;
-  const height = 360;
-  const padding = { left: 50, right: 10, top: 10, bottom: 70 };
-  const plotW = width - padding.left - padding.right;
-  const plotH = height - padding.top - padding.bottom;
+// Downsample huge line-series by binning and averaging values per bin
+function downsampleBins(data: any[], xKey: string, yCols: string[], maxPoints: number) {
   const n = data.length;
-  const maxV = Math.max(1, ...data.map((d) => Number(d.value) || 0));
-  const barW = n > 0 ? plotW / n : plotW;
-  const yScale = (v: number) => padding.top + (1 - (v / maxV)) * plotH;
-  const yTicks = 5;
-  const yTickVals = Array.from({ length: yTicks }, (_, i) => (maxV * i) / (yTicks - 1));
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="360">
-      <rect x={padding.left} y={padding.top} width={plotW} height={plotH} fill="#ffffff" stroke="#E2E8F0" />
-      {yTickVals.map((v, i) => {
-        const y = yScale(v);
-        return (
-          <g key={`y${i}`}>
-            <line x1={padding.left} x2={padding.left + plotW} y1={y} y2={y} stroke="#EDF2F7" />
-            <text x={padding.left - 8} y={y} textAnchor="end" dominantBaseline="middle" fontSize="10" fill="#4A5568">
-              {asPercent ? `${Math.round((v * 100 + Number.EPSILON) ) / 100}%` : Math.round(v * 100) / 100}
-            </text>
-          </g>
-        );
-      })}
-      {data.map((d, i) => {
-        const x = padding.left + i * barW + 2;
-        const w = Math.max(0, barW - 4);
-        const v = Number(d.value) || 0;
-        const y = yScale(v);
-        const h = padding.top + plotH - y;
-        return (
-          <g key={`b${i}`}>
-            <rect x={x} y={y} width={w} height={h} fill={COLORS[0]} />
-            <text x={x + w / 2} y={padding.top + plotH + 14} textAnchor="middle" fontSize="10" fill="#4A5568">
-              {d.label}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
-  );
+  if (n <= maxPoints) return data;
+  const bins = Math.max(1, Math.min(maxPoints, n));
+  const binSize = n / bins;
+  const out: any[] = [];
+  for (let b = 0; b < bins; b++) {
+    const start = Math.floor(b * binSize);
+    const end = Math.min(n, Math.floor((b + 1) * binSize));
+    if (end <= start) continue;
+    let xSum = 0; let cnt = 0;
+    const ySum: Record<string, number> = {};
+    const yCnt: Record<string, number> = {};
+    for (const y of yCols) { ySum[y] = 0; yCnt[y] = 0; }
+    for (let i = start; i < end; i++) {
+      const row = data[i];
+      const xv = Number(row?.[xKey]);
+      if (Number.isFinite(xv)) { xSum += xv; cnt++; }
+      for (const y of yCols) {
+        const v = Number(row?.[y]);
+        if (Number.isFinite(v)) { ySum[y] += v; yCnt[y]++; }
+      }
+    }
+    const xAvg = cnt > 0 ? xSum / cnt : Number(data[Math.floor((start + end) / 2)]?.[xKey]) || 0;
+    const obj: any = { [xKey]: xAvg };
+    for (const y of yCols) {
+      obj[y] = yCnt[y] > 0 ? (ySum[y] / yCnt[y]) : NaN;
+    }
+    out.push(obj);
+  }
+  return out;
 }
+
+// ------- Export helpers -------
+function toCSV(rows: any[], cols: string[]): string {
+  const esc = (v: any) => {
+    if (v == null || (typeof v === "number" && !Number.isFinite(v))) return "";
+    const s = String(v);
+    if (/[",\n]/.test(s)) return "\"" + s.replace(/"/g, "\"\"") + "\"";
+    return s;
+  };
+  const header = cols.join(",");
+  const lines = rows.map((r) => cols.map((c) => esc(r?.[c])).join(","));
+  return [header, ...lines].join("\n");
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.style.display = "none";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function suggestFilename(base: string): string {
+  return base.replace(/[^a-zA-Z0-9._-]+/g, "_");
+}
+
+async function csvToParquetViaDuckDB(csv: string): Promise<Uint8Array> {
+  const importer = new Function("u", "return import(u)") as (u: string) => Promise<any>;
+  let mod: any;
+  try { mod = await importer("https://esm.sh/@duckdb/duckdb-wasm@1.28.0/dist/duckdb-browser.mjs"); } catch {
+    mod = await importer("https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/dist/duckdb-browser.mjs");
+  }
+  const bundles = mod.getJsDelivrBundles();
+  const bundle = (bundles && (bundles.mvp || bundles.standalone || bundles["mvp"])) || (await mod.selectBundle(bundles));
+  const workerUrl = bundle.mainWorker || bundle.worker;
+  let worker: Worker;
+  try {
+    const resp = await fetch(workerUrl, { mode: "cors" });
+    const scriptText = await resp.text();
+    const blobUrl = URL.createObjectURL(new Blob([scriptText], { type: "text/javascript" }));
+    worker = new Worker(blobUrl);
+  } catch {
+    worker = new Worker(workerUrl);
+  }
+  const logger = new mod.ConsoleLogger();
+  const db = new mod.AsyncDuckDB(logger, worker);
+  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+  const conn = await db.connect();
+  const encoder = new TextEncoder();
+  await db.registerFileBuffer("filtered.csv", encoder.encode(csv));
+  await conn.query("CREATE TABLE t AS SELECT * FROM read_csv_auto('filtered.csv', header=true)");
+  await conn.query("COPY t TO 'export.parquet' (FORMAT PARQUET)");
+  const buf: Uint8Array = await db.copyFileToBuffer("export.parquet");
+  await conn.close();
+  await db.terminate();
+  return buf;
+}
+
+function svgToBlob(svg: SVGSVGElement): Blob {
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+  const serializer = new XMLSerializer();
+  const str = serializer.serializeToString(clone);
+  return new Blob(["<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n", str], { type: "image/svg+xml;charset=utf-8" });
+}
+
+async function svgToPngBlob(svg: SVGSVGElement, scale: number = 1): Promise<Blob> {
+  const blob = svgToBlob(svg);
+  const url = URL.createObjectURL(blob);
+  try {
+    const vb = svg.viewBox && svg.viewBox.baseVal ? svg.viewBox.baseVal : null as any;
+    const w = vb && vb.width ? vb.width : (svg.clientWidth || 1000);
+    const h = vb && vb.height ? vb.height : (svg.clientHeight || 360);
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = (e) => reject(e);
+      image.src = url;
+    });
+    const canvas = document.createElement("canvas");
+    const s = Math.max(1, scale);
+    canvas.width = Math.ceil(w * s);
+    canvas.height = Math.ceil(h * s);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D context not available");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((b) => b ? resolve(b) : reject(new Error("Failed to encode PNG")), "image/png");
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// ---------------- Row filter expression parser ----------------
+// Supports:
+// - Comparators: =, ==, ≠, !=, ≥, >=, ≤, <=, >, <
+// - Membership: ∈, in, ∉, not in
+// - Substring: ~, !~ (case-insensitive contains)
+// - Logic: ∧, ∩, and, && (AND); ∨, ∪, or, || (OR); !, ¬, not (NOT)
+// - Parentheses and set literals: {a, b, 3, "x"}
+// - Works across numbers, strings, booleans, null
+type Tok = { type: string; value?: any };
+function tokenizeFilter(input: string): Tok[] {
+  const s = input;
+  const toks: Tok[] = [];
+  let i = 0;
+  const isWS = (c: string) => /\s/.test(c);
+  const peek = () => s[i];
+  const next = () => s[i++];
+  function readWhile(fn: (c: string) => boolean) {
+    let out = "";
+    while (i < s.length && fn(s[i])) out += s[i++];
+    return out;
+  }
+  function matchAhead(str: string) { return s.slice(i, i + str.length) === str; }
+  function pushOp(op: string) { toks.push({ type: op }); }
+  while (i < s.length) {
+    const c = peek();
+    if (isWS(c)) { next(); continue; }
+    // punctuation
+    if (c === "(") { toks.push({ type: "LP" }); next(); continue; }
+    if (c === ")") { toks.push({ type: "RP" }); next(); continue; }
+    if (c === "{") { toks.push({ type: "LB" }); next(); continue; }
+    if (c === "}") { toks.push({ type: "RB" }); next(); continue; }
+    if (c === ",") { toks.push({ type: "COMMA" }); next(); continue; }
+    // multi-char operators and unicode
+    // TLA+ style logic tokens
+    if (matchAhead("/\\")) { i += 2; pushOp("AND"); continue; }
+    if (matchAhead("\\/")) { i += 2; pushOp("OR"); continue; }
+    if (matchAhead("not in")) { i += 6; pushOp("NIN"); continue; }
+    if (matchAhead("NOT IN")) { i += 6; pushOp("NIN"); continue; }
+    if (matchAhead("!=")) { i += 2; pushOp("NE"); continue; }
+    if (matchAhead("==")) { i += 2; pushOp("EQ"); continue; }
+    if (matchAhead(">=")) { i += 2; pushOp("GTE"); continue; }
+    if (matchAhead("<=")) { i += 2; pushOp("LTE"); continue; }
+    if (matchAhead("!~")) { i += 2; pushOp("NCONTAINS"); continue; }
+    if (matchAhead("&&")) { i += 2; pushOp("AND"); continue; }
+    if (matchAhead("||")) { i += 2; pushOp("OR"); continue; }
+    if (matchAhead("!in")) { i += 3; pushOp("NIN"); continue; }
+    if (matchAhead("notin")) { i += 5; pushOp("NIN"); continue; }
+    // single char ops and unicode variants
+    if (c === "=") { next(); pushOp("EQ"); continue; }
+    if (c === ">") { next(); pushOp("GT"); continue; }
+    if (c === "<") { next(); pushOp("LT"); continue; }
+    if (c === "!") { next(); pushOp("NOT"); continue; }
+    if (c === "~") { next(); pushOp("TILDE"); continue; }
+    if (c === "∈") { next(); pushOp("IN"); continue; }
+    if (c === "∉") { next(); pushOp("NIN"); continue; }
+    if (c === "≥") { next(); pushOp("GTE"); continue; }
+    if (c === "≤") { next(); pushOp("LTE"); continue; }
+    if (c === "≠") { next(); pushOp("NE"); continue; }
+    if (c === "∧" || c === "∩") { next(); pushOp("AND"); continue; }
+    if (c === "∨" || c === "∪") { next(); pushOp("OR"); continue; }
+    if (c === "¬") { next(); pushOp("NOT"); continue; }
+    // quoted strings (single, double, backtick)
+    if (c === "\"" || c === "'" || c === "`") {
+      const q = next();
+      let out = "";
+      while (i < s.length && s[i] !== q) {
+        if (s[i] === "\\" && i + 1 < s.length) { out += s[i + 1]; i += 2; }
+        else { out += s[i++]; }
+      }
+      if (i >= s.length) throw new Error("Unclosed string literal");
+      next();
+      toks.push({ type: "STRING", value: out });
+      continue;
+    }
+    // identifiers, keywords, numbers
+    const word = readWhile((ch) => !isWS(ch) && !"(){} ,<>=!~".includes(ch));
+    if (word.length === 0) { // fallback to single char (unexpected)
+      toks.push({ type: "CHAR", value: next() });
+      continue;
+    }
+    const lower = word.toLowerCase();
+    if (lower === "and") { pushOp("AND"); continue; }
+    if (lower === "or") { pushOp("OR"); continue; }
+    if (lower === "not") { pushOp("NOT"); continue; }
+    if (lower === "in") { pushOp("IN"); continue; }
+    if (lower === "true" || lower === "false") { toks.push({ type: "BOOL", value: lower === "true" }); continue; }
+    if (lower === "null" || lower === "nil" || lower === "none") { toks.push({ type: "NULL", value: null }); continue; }
+    // number?
+    const num = Number(word);
+    if (!Number.isNaN(num) && /^[-+]?\d*\.?\d+(e[-+]?\d+)?$/i.test(word)) { toks.push({ type: "NUMBER", value: num }); continue; }
+    // identifier (column name)
+    toks.push({ type: "IDENT", value: word });
+  }
+  return toks;
+}
+
+function buildFilterPredicate(expr: string): (row: any) => boolean {
+  const toks = tokenizeFilter(expr);
+  let i = 0;
+  const peek = () => toks[i];
+  const eat = (type?: string) => {
+    const t = toks[i];
+    if (!t) return undefined as any;
+    if (!type || t.type === type) { i++; return t; }
+    return undefined as any;
+  };
+  function parseValue(): any {
+    const t = peek();
+    if (!t) throw new Error("Unexpected end");
+    if (t.type === "NUMBER" || t.type === "STRING" || t.type === "BOOL" || t.type === "NULL") { i++; return t.value; }
+    // bare identifier as string value
+    if (t.type === "IDENT") { i++; return String(t.value); }
+    throw new Error("Expected value");
+  }
+  function parseSet(): any[] {
+    if (!eat("LB")) throw new Error("Expected {");
+    const arr: any[] = [];
+    while (i < toks.length && peek()?.type !== "RB") {
+      arr.push(parseValue());
+      if (peek()?.type === "COMMA") eat("COMMA");
+    }
+    if (!eat("RB")) throw new Error("Expected }");
+    return arr;
+  }
+  function eqVal(a: any, b: any): boolean {
+    const na = toFiniteNumber(a); const nb = toFiniteNumber(b);
+    if (na != null && nb != null) return na === nb;
+    if (typeof a === "boolean" || typeof b === "boolean") return Boolean(a) === Boolean(b);
+    if (a == null && b == null) return true;
+    return String(a) === String(b);
+  }
+function cmpNum(op: "GT"|"GTE"|"LT"|"LTE", a: any, b: any): boolean {
+  const na = toFiniteNumber(a); const nb = toFiniteNumber(b);
+  if (na == null || nb == null) return false;
+  if (op === "GT") return na > nb;
+  if (op === "GTE") return na >= nb;
+  if (op === "LT") return na < nb;
+  return na <= nb;
+}
+  function contains(a: any, b: any): boolean {
+    if (a == null || b == null) return false;
+    const sa = String(a).toLowerCase();
+    const sb = String(b).toLowerCase();
+    return sa.includes(sb);
+  }
+  function parsePrimary(): (row: any) => boolean {
+    const t = peek();
+    if (!t) throw new Error("Unexpected end");
+    if (t.type === "LP") { eat("LP"); const e = parseOr(); if (!eat("RP")) throw new Error("Expected )"); return e; }
+    // comparison: IDENT op value | IDENT IN set | IDENT ~ value
+    if (t.type === "IDENT" || t.type === "STRING") {
+      const identTok = eat(t.type);
+      const key = String(identTok!.value);
+      const opTok = peek();
+      if (!opTok) throw new Error("Missing operator after " + key);
+      const op = opTok.type; i++;
+      if (op === "IN" || op === "NIN") {
+        const arr = parseSet();
+        return (row: any) => {
+          const v = row?.[key];
+          const inSet = arr.some((x) => eqVal(v, x));
+          return op === "IN" ? inSet : !inSet;
+        };
+      }
+      if (op === "TILDE" || op === "NCONTAINS") {
+        const val = parseValue();
+        return (row: any) => {
+          const v = row?.[key];
+          const ok = contains(v, val);
+          return op === "TILDE" ? ok : !ok;
+        };
+      }
+      if (["EQ","NE","GT","GTE","LT","LTE"].includes(op)) {
+        const val = parseValue();
+        return (row: any) => {
+          const v = row?.[key];
+          let res = false;
+          if (op === "EQ") res = eqVal(v, val);
+          else if (op === "NE") res = !eqVal(v, val);
+          else res = cmpNum(op as any, v, val);
+          return res;
+        };
+      }
+      throw new Error("Unsupported operator: " + op);
+    }
+    throw new Error("Expected identifier or (");
+  }
+  function parseNot(): (row: any) => boolean {
+    const t = peek();
+    if (t && (t.type === "NOT" || t.type === "TILDE")) { eat(t.type); const e = parseNot(); return (r) => !e(r); }
+    return parsePrimary();
+  }
+  function parseAnd(): (row: any) => boolean {
+    let left = parseNot();
+    while (peek() && peek()!.type === "AND") { eat("AND"); const right = parseNot(); const l = left; left = (r) => l(r) && right(r); }
+    return left;
+  }
+  function parseOr(): (row: any) => boolean {
+    let left = parseAnd();
+    while (peek() && peek()!.type === "OR") { eat("OR"); const right = parseAnd(); const l = left; left = (r) => l(r) || right(r); }
+    return left;
+  }
+  const pred = parseOr();
+  if (i < toks.length) throw new Error("Unexpected token");
+  return pred;
+}
+
+// Removed other chart helpers for simplicity (only line/derivative remain)
