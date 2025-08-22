@@ -1,5 +1,4 @@
-import { NextRequest } from "next/server";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getS3Client } from "@/lib/server/s3";
 import { GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { Readable } from "node:stream";
@@ -18,16 +17,20 @@ export async function GET(req: NextRequest) {
   try {
     const { bucket, key } = getParams(req);
     const s3 = getS3Client();
-    const out = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    const range = req.headers.get("range") || undefined;
+    const out = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key, Range: range } as any));
     const body = out.Body as any;
     const nodeStream: any = (body?.pipe ? body : Readable.from(body)) as Readable;
     const webStream = (Readable as any).toWeb ? (Readable as any).toWeb(nodeStream) : (nodeStream as any);
     const headers: Record<string, string> = {};
+    headers["Accept-Ranges"] = "bytes";
     if (out.ContentType) headers["Content-Type"] = out.ContentType;
     if (out.ContentLength != null) headers["Content-Length"] = String(out.ContentLength);
+    if ((out as any).ContentRange) headers["Content-Range"] = String((out as any).ContentRange);
     if (out.ETag) headers["ETag"] = out.ETag;
     if (out.LastModified) headers["Last-Modified"] = new Date(out.LastModified).toUTCString();
-    return new Response(webStream as any, { headers });
+    const status = range ? 206 : 200;
+    return new Response(webStream as any, { headers, status });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || String(e) }, { status: 500 });
   }
@@ -59,4 +62,3 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: e?.message || String(e) }, { status: 500 });
   }
 }
-

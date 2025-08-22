@@ -329,6 +329,17 @@ export default function ClientObjectCardPage() {
     return `/dataset/opened-dataset/object-card?d=${dEnc}&id=${idEnc}&n=${nEnc}&b=${bEnc}&k=${kEnc}&m=${m}&lb=${lbp}&lo=${lop}&lt=${ltp}`;
   }
 
+  function makePlayerHref(): string | null {
+    const did = file?.id || fileId || "";
+    if (!did) return null;
+    const dEnc = encodeBase64Utf8(datasetName);
+    const idEnc = encodeBase64Utf8(did);
+    const nEnc = encodeBase64Utf8(file?.name || objectName || "");
+    const bEnc = encodeBase64Utf8(file?.bucket || fallbackBucket || "");
+    const kEnc = encodeBase64Utf8(file?.key || fallbackKey || "");
+    return `/dataset/opened-dataset/object-card/player?d=${dEnc}&id=${idEnc}&n=${nEnc}&b=${bEnc}&k=${kEnc}`;
+  }
+
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewSize, setPreviewSize] = useState<number | undefined>(undefined);
   const [previewLoading, setPreviewLoading] = useState<boolean>(false);
@@ -671,6 +682,18 @@ export default function ClientObjectCardPage() {
           >
             {t("common.next","Next")}
           </Button>
+
+          {isVideoType && (
+            <Button
+              size="sm"
+              variant="solid"
+              rounded="full"
+              onClick={() => { const href = makePlayerHref(); if (href) router.push(href); }}
+              disabled={!(file?.id || fileId)}
+            >
+              {t("object.play","Play")}
+            </Button>
+          )}
 
           <Box w="10px" />
           <Dialog.Root>
