@@ -83,7 +83,15 @@ export default function DatasetListPage() {
         map.set(ds, entry);
       }
       const list = Array.from(map.entries()).map(([name, v]) => ({ name, count: v.count, createdAt: v.createdAt, media: Array.from(v.mediaSet).filter((m) => m !== "Other") }));
-      list.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }));
+      // Sort by creation date (newest first). Fallback to name when dates are equal/absent.
+      list.sort((a, b) => {
+        const ta = a.createdAt ? Date.parse(a.createdAt) : Number.NEGATIVE_INFINITY;
+        const tb = b.createdAt ? Date.parse(b.createdAt) : Number.NEGATIVE_INFINITY;
+        const aTime = Number.isFinite(ta) ? ta : Number.NEGATIVE_INFINITY;
+        const bTime = Number.isFinite(tb) ? tb : Number.NEGATIVE_INFINITY;
+        if (bTime !== aTime) return bTime - aTime; // newer first
+        return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
+      });
       return list;
     },
     staleTime: 10_000,
