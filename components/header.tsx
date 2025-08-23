@@ -38,8 +38,12 @@ export default function Header() {
                     </LinkOverlay>
                 </LinkBox>
 
-                <Box h="25px" px="30px" display="flex" alignItems="center" marginEnd="auto">
-                    <ConnectionStatus />
+                {/* Connection status: dot on small screens, full on md+ */}
+                <Box h="25px" px="30px" display={{ base: "flex", md: "none" }} alignItems="center" marginEnd="auto">
+                    <ConnectionStatus variant="dot" />
+                </Box>
+                <Box h="25px" px="30px" display={{ base: "none", md: "flex" }} alignItems="center" marginEnd="auto">
+                    <ConnectionStatus variant="full" />
                 </Box>
 
                 {/* Desktop nav */}
