@@ -34,7 +34,7 @@ import NextLink from "next/link";
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { extractRows } from "@/components/surreal/normalize";
-import { getObjectUrlPreferPresign, deleteObjectFromS3 } from "@/components/utils/minio";
+import { getObjectUrlPreferPresign } from "@/components/utils/minio";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 
 export default function ClientOpenedDatasetPage() {
@@ -67,6 +67,7 @@ export default function ClientOpenedDatasetPage() {
     size?: number
     uploadedAt?: string
     thumbKey?: string
+    dead?: boolean
   }
 
   // Normalize SurrealDB Thing values (e.g., id) to strings for safe usage
@@ -89,7 +90,7 @@ export default function ClientOpenedDatasetPage() {
     enabled: isSuccess && !!datasetName,
     queryFn: async () => {
       const res = await surreal.query("SELECT * FROM file WHERE dataset == $dataset ORDER BY name ASC", { dataset: datasetName });
-      const rows = extractRows<any>(res);
+      const rows = extractRows<any>(res).filter((r: any) => r?.dead !== true);
       // Ensure id (and dataset if needed) are strings
       return rows.map((r: any) => ({
         ...r,
@@ -144,38 +145,8 @@ export default function ClientOpenedDatasetPage() {
     setRemoving(true);
     try {
       await withTimeout((async () => {
-        // Collect encoded_segment objects to delete from S3 (do this before DB deletion)
-        let segmentObjects: { bucket: string; key: string }[] = [];
-        try {
-          const res = await surreal.query(
-            "SELECT bucket, key FROM encoded_segment WHERE file.dataset == $dataset",
-            { dataset: datasetName }
-          );
-          const rows = extractRows<any>(res);
-          segmentObjects = rows
-            .map((r: any) => ({ bucket: String(r?.bucket || ""), key: String(r?.key || "") }))
-            .filter((o: any) => o.bucket && o.key);
-        } catch { /* ignore */ }
-
-        // 1) Delete dataset-scoped related rows first (annotations, encode jobs, segments, labels, merge groups)
-        try { await surreal.query("DELETE annotation WHERE file.dataset == $dataset", { dataset: datasetName }); } catch { /* ignore */ }
-        try { await surreal.query("DELETE encode_job WHERE file.dataset == $dataset", { dataset: datasetName }); } catch { /* ignore */ }
-        try { await surreal.query("DELETE encoded_segment WHERE file.dataset == $dataset", { dataset: datasetName }); } catch { /* ignore */ }
-        try { await surreal.query("DELETE label WHERE dataset == $dataset", { dataset: datasetName }); } catch { /* ignore */ }
-        try { await surreal.query("DELETE merge_group WHERE dataset == $dataset", { dataset: datasetName }); } catch { /* ignore */ }
-        // 2) Delete all file rows for this dataset
-        await surreal.query("DELETE file WHERE dataset = $dataset", { dataset: datasetName });
-        // 3) Delete all objects from S3 (best-effort)
-        for (const f of files) {
-          try { await deleteObjectFromS3(f.bucket, f.key); } catch { /* ignore */ }
-          if (f.thumbKey) {
-            try { await deleteObjectFromS3(f.bucket, f.thumbKey); } catch { /* ignore */ }
-          }
-        }
-        // 3b) Delete encoded_segment objects from S3 (best-effort)
-        try {
-          await Promise.all(segmentObjects.map((o) => deleteObjectFromS3(o.bucket, o.key).catch(() => {})));
-        } catch { /* ignore */ }
+        // Soft-delete: mark files as dead within this dataset. No S3 or other table deletions.
+        await surreal.query("UPDATE file SET dead = true WHERE dataset = $dataset", { dataset: datasetName });
       })(), 3000);
     } catch {
       // timeout or error: continue navigation without blocking the user
@@ -512,15 +483,15 @@ export default function ClientOpenedDatasetPage() {
                     <Dialog.Title>Delete Dataset</Dialog.Title>
                   </Dialog.Header>
                   <Dialog.Body>
-                    <Text>データセット「{datasetName}」を丸ごと削除します。よろしいですか？</Text>
-                    <Text mt={2} color="gray.600">メタデータ（DB）削除後、MinIOのオブジェクトも削除します。</Text>
+                    <Text>データセット「{datasetName}」配下のファイルに削除フラグを付けます。よろしいですか？</Text>
+                    <Text mt={2} color="gray.600">S3 や他のテーブルの実体は削除しません（ソフト削除）。</Text>
                   </Dialog.Body>
                   <Dialog.Footer>
                     <Dialog.ActionTrigger asChild>
                       <Button variant="outline">Cancel</Button>
                     </Dialog.ActionTrigger>
                     <Button onClick={handleRemoveDataset} disabled={removing} colorPalette="red">
-                      {removing ? "Removing..." : "Delete"}
+                      {removing ? "Processing..." : "Delete"}
                     </Button>
                   </Dialog.Footer>
                   <Dialog.CloseTrigger asChild>

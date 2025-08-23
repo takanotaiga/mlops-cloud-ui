@@ -52,7 +52,7 @@ export default function InferenceJobsPage() {
     enabled: isSuccess,
     queryFn: async (): Promise<JobRow[]> => {
       const res = await surreal.query("SELECT * FROM inference_job ORDER BY updatedAt DESC");
-      const rows = extractRows<any>(res);
+      const rows = extractRows<any>(res).filter((r: any) => r?.dead !== true);
       return rows.map((r: any) => ({
         id: thingToString(r?.id),
         name: String(r?.name ?? ""),

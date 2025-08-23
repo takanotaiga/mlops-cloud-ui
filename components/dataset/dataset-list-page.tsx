@@ -22,7 +22,7 @@ import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvid
 import { extractRows } from "@/components/surreal/normalize";
 import { encodeBase64Utf8 } from "@/components/utils/base64";
 
-type FileRow = { dataset: string; uploadedAt?: string; mime?: string; name?: string; key: string }
+type FileRow = { dataset: string; uploadedAt?: string; mime?: string; name?: string; key: string; dead?: boolean }
 
 function formatTimestamp(ts?: string): string {
   if (!ts) return "";
@@ -68,8 +68,8 @@ export default function DatasetListPage() {
     queryKey: ["datasets"],
     enabled: isSuccess,
     queryFn: async (): Promise<{ name: string; count: number; createdAt?: string; media: MediaType[] }[]> => {
-      const res = await surreal.query("SELECT dataset, uploadedAt, mime, name, key FROM file");
-      const rows = extractRows<FileRow>(res);
+      const res = await surreal.query("SELECT dataset, uploadedAt, mime, name, key, dead FROM file");
+      const rows = extractRows<FileRow>(res).filter((r) => r?.dead !== true);
       const map = new Map<string, { count: number; createdAt?: string; mediaSet: Set<MediaType> }>();
       for (const r of rows) {
         const ds = r.dataset || "";

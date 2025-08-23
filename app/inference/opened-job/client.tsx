@@ -9,8 +9,8 @@ import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvid
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { extractRows } from "@/components/surreal/normalize";
 import { useI18n } from "@/components/i18n/LanguageProvider";
-import { getSignedObjectUrl, deleteObjectFromS3 } from "@/components/utils/minio";
-import { cacheExists, downloadAndCacheBytes, deleteCached, readCachedBytes } from "@/components/utils/storage-cache";
+import { getSignedObjectUrl } from "@/components/utils/minio";
+import { cacheExists, downloadAndCacheBytes, readCachedBytes } from "@/components/utils/storage-cache";
 import { LuChevronLeft, LuChevronRight } from "react-icons/lu";
 
 type JobRow = {
@@ -331,41 +331,11 @@ export default function ClientOpenedInferenceJobPage() {
     if (!jobName || removing) return;
     setRemoving(true);
     try {
-      // Collect related inference_result objects for S3/OPFS cleanup
-      let objects: { bucket: string; key: string }[] = [];
-      try {
-        if (job?.id) {
-          const res = await surreal.query("SELECT bucket, key FROM inference_result WHERE job == <record> $job", { job: job.id });
-          const rows = extractRows<any>(res);
-          objects = rows.map((r: any) => ({ bucket: String(r?.bucket || ""), key: String(r?.key || "") }))
-            .filter((o: any) => o.bucket && o.key);
-        }
-      } catch { /* ignore */ }
-
-      // Delete S3 objects (best-effort)
-      try {
-        await Promise.all(objects.map((o) => deleteObjectFromS3(o.bucket, o.key).catch(() => {})));
-      } catch { /* ignore */ }
-
-      // Delete related inference_result rows first
-      try {
-        if (job?.id) {
-          await surreal.query("DELETE inference_result WHERE job == <record> $job", { job: job.id });
-        }
-      } catch { /* ignore */ }
-
-      // Remove cached OPFS files (videos/parquet) for this job's results
-      try {
-        await Promise.all(objects.map((o) => deleteCached(o.bucket, o.key)));
-      } catch { /* ignore */ }
-
-      // Revoke any blob URL we created
-      try {
-        // no-op for HLS
-      } catch { /* ignore */ }
-
-      // Finally remove the job itself
-      await surreal.query("DELETE inference_job WHERE name == $name", { name: jobName });
+      // Soft-delete: mark this inference job as dead. Do not delete S3 or other tables.
+      await surreal.query(
+        "UPDATE inference_job SET dead = true, updatedAt = time::now() WHERE name == $name",
+        { name: jobName }
+      );
       // Invalidate job list and navigate with refresh token to force reload
       queryClient.invalidateQueries({ queryKey: ["inference-jobs"] });
       const r = Date.now().toString();

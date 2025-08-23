@@ -120,7 +120,7 @@ export default function Page() {
         "SELECT * FROM inference_job WHERE name == $name ORDER BY updatedAt DESC LIMIT 1",
         { name: trimmedJobName },
       );
-      const rows = extractRows<any>(res);
+      const rows = extractRows<any>(res).filter((r: any) => r?.dead !== true);
       return rows[0] || null;
     },
     staleTime: 2000,
@@ -141,16 +141,16 @@ export default function Page() {
       datasets: selectedDatasets,
     };
     try {
-      const check = await surreal.query("SELECT id FROM inference_job WHERE name == $name LIMIT 1", { name: trimmedJobName });
+      const check = await surreal.query("SELECT id, dead FROM inference_job WHERE name == $name LIMIT 1", { name: trimmedJobName });
       const rows = extractRows<any>(check);
       if (rows.length > 0) {
         await surreal.query(
-          "UPDATE inference_job SET status = 'ProcessWaiting', taskType = $taskType, model = $model, modelSource = $modelSource, datasets = $datasets, updatedAt = time::now() WHERE name == $name",
+          "UPDATE inference_job SET dead = false, status = 'ProcessWaiting', taskType = $taskType, model = $model, modelSource = $modelSource, datasets = $datasets, updatedAt = time::now() WHERE name == $name",
           { name: trimmedJobName, ...payload },
         );
       } else {
         await surreal.query(
-          "CREATE inference_job CONTENT { name: $name, status: 'ProcessWaiting', taskType: $taskType, model: $model, modelSource: $modelSource, datasets: $datasets, createdAt: time::now(), updatedAt: time::now() }",
+          "CREATE inference_job CONTENT { name: $name, dead: false, status: 'ProcessWaiting', taskType: $taskType, model: $model, modelSource: $modelSource, datasets: $datasets, createdAt: time::now(), updatedAt: time::now() }",
           { name: trimmedJobName, ...payload },
         );
       }
