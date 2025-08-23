@@ -245,8 +245,18 @@ export default function Page() {
       setTitleRuleError("Must not contain 'BASE64-'.");
       return;
     }
-    // Leading/trailing whitespace or control characters
-    if (/^[\s\u0000-\u001F\u007F]|[\s\u0000-\u001F\u007F]$/.test(name)) {
+    // Leading/trailing whitespace or control characters (checked without control-char regex)
+    const isControl = (cp: number) => cp <= 0x1f || cp === 0x7f;
+    const startsWithWhitespace = name !== name.replace(/^\s+/u, "");
+    const endsWithWhitespace = name !== name.replace(/\s+$/u, "");
+    const firstCp = name.codePointAt(0);
+    const lastCp = name.codePointAt(name.length - 1);
+    if (
+      startsWithWhitespace ||
+      endsWithWhitespace ||
+      (firstCp !== undefined && isControl(firstCp)) ||
+      (lastCp !== undefined && isControl(lastCp))
+    ) {
       setTitleRuleError("Must not start or end with whitespace or control characters.");
       return;
     }
