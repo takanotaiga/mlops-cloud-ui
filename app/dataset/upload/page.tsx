@@ -100,6 +100,7 @@ export default function Page() {
   const [view, setView] = useState<"form" | "progress" | "done">("form");
   const [progress, setProgress] = useState<number[]>([]);
   const [uploadedInfos, setUploadedInfos] = useState<Array<{ bucket: string; key: string } | null>>([]);
+  const [titleRuleError, setTitleRuleError] = useState<string | null>(null);
   const titleCheckSeq = useRef(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // Track explicitly removed files and generate deterministic keys for dedupe
@@ -226,6 +227,32 @@ export default function Page() {
   }, [selectedFiles, previewUrls]);
   // uploading state omitted; we infer from view/progress
 
+  // Validate dataset title rules on change
+  useEffect(() => {
+    const name = title;
+    if (!name) {
+      setTitleRuleError(null);
+      return;
+    }
+    // Length check (code points)
+    const cpLen = Array.from(name).length;
+    if (cpLen > 128) {
+      setTitleRuleError("Maximum length is 128 characters.");
+      return;
+    }
+    // Forbidden marker
+    if (/base64-/i.test(name)) {
+      setTitleRuleError("Must not contain 'BASE64-'.");
+      return;
+    }
+    // Leading/trailing whitespace or control characters
+    if (/^[\s\u0000-\u001F\u007F]|[\s\u0000-\u001F\u007F]$/.test(name)) {
+      setTitleRuleError("Must not start or end with whitespace or control characters.");
+      return;
+    }
+    setTitleRuleError(null);
+  }, [title]);
+
   // Live check: dataset title uniqueness while typing (debounced)
   useEffect(() => {
     const trimmed = title.trim();
@@ -351,6 +378,7 @@ export default function Page() {
       invalid = true;
     }
     if (invalid) return;
+    if (titleRuleError) return; // block when local rules fail
 
     // Check for existing dataset title to ensure uniqueness
     try {
@@ -694,7 +722,7 @@ export default function Page() {
 
             <HStack alignSelf="flex-start" pb="30px">
               <Text w="200px" ml="30px">Dataset title</Text>
-              <Field.Root invalid={titleInvalid || titleExists}>
+              <Field.Root invalid={titleInvalid || titleExists || !!titleRuleError}>
                 <Input
                   ml="30px"
                   placeholder="Write here"
@@ -709,7 +737,10 @@ export default function Page() {
                 {titleInvalid && (
                   <Field.ErrorText ml="30px">This field is required</Field.ErrorText>
                 )}
-                {titleExists && !titleInvalid && (
+                {!titleInvalid && titleRuleError && (
+                  <Field.ErrorText ml="30px">{titleRuleError}</Field.ErrorText>
+                )}
+                {titleExists && !titleInvalid && !titleRuleError && (
                   <Field.ErrorText ml="30px">Dataset title already exists</Field.ErrorText>
                 )}
               </Field.Root>
