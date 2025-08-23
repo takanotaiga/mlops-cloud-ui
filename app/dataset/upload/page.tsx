@@ -28,6 +28,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import NextLink from "next/link";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 import { useSurrealClient } from "@/components/surreal/SurrealProvider";
+import { extractRows } from "@/components/surreal/normalize";
 import { FILE_UPLOAD_CONCURRENCY } from "@/app/dataset/upload/parameters";
 
 type EncodeModeSelectProps = {
@@ -89,6 +90,7 @@ export default function Page() {
   const [title, setTitle] = useState<string>("");
   const [titleInvalid, setTitleInvalid] = useState<boolean>(false);
   const [filesInvalid, setFilesInvalid] = useState<boolean>(false);
+  const [titleExists, setTitleExists] = useState<boolean>(false);
   const [encodeMode, setEncodeMode] = useState<string>("");
   const [encodeInvalid, setEncodeInvalid] = useState<boolean>(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -98,6 +100,7 @@ export default function Page() {
   const [view, setView] = useState<"form" | "progress" | "done">("form");
   const [progress, setProgress] = useState<number[]>([]);
   const [uploadedInfos, setUploadedInfos] = useState<Array<{ bucket: string; key: string } | null>>([]);
+  const titleCheckSeq = useRef(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // Track explicitly removed files and generate deterministic keys for dedupe
   const removedKeysRef = useRef<Set<string>>(new Set());
@@ -223,6 +226,31 @@ export default function Page() {
   }, [selectedFiles, previewUrls]);
   // uploading state omitted; we infer from view/progress
 
+  // Live check: dataset title uniqueness while typing (debounced)
+  useEffect(() => {
+    const trimmed = title.trim();
+    // If empty, clear duplication error and skip
+    if (!trimmed) {
+      setTitleExists(false);
+      return;
+    }
+    const mySeq = ++titleCheckSeq.current;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await surreal.query(
+          "SELECT id FROM file WHERE dataset = $dataset LIMIT 1",
+          { dataset: trimmed }
+        );
+        if (mySeq !== titleCheckSeq.current) return; // stale
+        const rows = extractRows<any>(res);
+        setTitleExists(rows.length > 0);
+      } catch {
+        // Silently ignore during typing; the upload-time check will handle hard failures
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [title, surreal]);
+
   const handleFileChange = useCallback<React.ChangeEventHandler<HTMLInputElement>>(
     (e) => {
       const pickedRaw = e.target.files ? Array.from(e.target.files) : [];
@@ -323,6 +351,24 @@ export default function Page() {
       invalid = true;
     }
     if (invalid) return;
+
+    // Check for existing dataset title to ensure uniqueness
+    try {
+      const res = await surreal.query(
+        "SELECT id FROM file WHERE dataset = $dataset LIMIT 1",
+        { dataset: title }
+      );
+      const rows = extractRows<any>(res);
+      if (rows.length > 0) {
+        setTitleExists(true);
+        return; // block upload
+      }
+      setTitleExists(false);
+    } catch (e) {
+      setError("データセット名の重複確認に失敗しました。接続を確認してください。");
+      return;
+    }
+
     setTitleInvalid(false);
     // Start real upload to MinIO (URL unchanged)
     setProgress(new Array(selectedFiles.length).fill(0));
@@ -648,7 +694,7 @@ export default function Page() {
 
             <HStack alignSelf="flex-start" pb="30px">
               <Text w="200px" ml="30px">Dataset title</Text>
-              <Field.Root invalid={titleInvalid}>
+              <Field.Root invalid={titleInvalid || titleExists}>
                 <Input
                   ml="30px"
                   placeholder="Write here"
@@ -657,10 +703,14 @@ export default function Page() {
                   onChange={(e) => {
                     setTitle(e.target.value);
                     if (titleInvalid && e.target.value.trim()) setTitleInvalid(false);
+                    if (titleExists) setTitleExists(false);
                   }}
                 />
                 {titleInvalid && (
                   <Field.ErrorText ml="30px">This field is required</Field.ErrorText>
+                )}
+                {titleExists && !titleInvalid && (
+                  <Field.ErrorText ml="30px">Dataset title already exists</Field.ErrorText>
                 )}
               </Field.Root>
             </HStack>
