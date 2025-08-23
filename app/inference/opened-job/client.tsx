@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table, Separator, Steps, Accordion } from "@chakra-ui/react";
+import { Box, Heading, HStack, VStack, Stack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table, Separator, Steps, Accordion } from "@chakra-ui/react";
 import NextLink from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -495,7 +495,7 @@ export default function ClientOpenedInferenceJobPage() {
 
   return (
     <Box px="10%" py="20px">
-      <HStack align="center" justify="space-between">
+      <Stack direction={{ base: "column", md: "row" }} align="stretch" justify="space-between" gap="8px">
         <HStack gap="3" align="center">
           <Heading size="2xl">
             <Link asChild color="black" _hover={{ textDecoration: "none", color: "black" }}>
@@ -506,9 +506,9 @@ export default function ClientOpenedInferenceJobPage() {
           </Heading>
           <Badge rounded="full" variant="subtle" colorPalette="teal">{t("inference.badge", "Inference")}</Badge>
         </HStack>
-        <HStack>
+        <HStack gap="8px" flexWrap="wrap" justify={{ base: "flex-start", md: "flex-end" }}>
           {job?.status === "ProcessWaiting" && (
-            <Button size="sm" rounded="full" variant="outline" onClick={async () => {
+            <Button size={{ base: "xs", md: "sm" }} rounded="full" variant="outline" onClick={async () => {
               if (!jobName) return;
               try {
                 await surreal.query("UPDATE inference_job SET status = 'StopInterrept', updatedAt = time::now() WHERE name == $name", { name: jobName });
@@ -520,7 +520,7 @@ export default function ClientOpenedInferenceJobPage() {
           {job && job.status !== "ProcessWaiting" && (
             (job.status === "StopInterrept" || job.status === "Complete" || job.status === "Completed" || job.status === "Failed" || job.status === "Faild" || job.status === "Error")
           ) && (
-              <Button size="sm" rounded="full" variant="outline" disabled={copying} onClick={async () => {
+              <Button size={{ base: "xs", md: "sm" }} rounded="full" variant="outline" disabled={copying} onClick={async () => {
                 if (!jobName || !job) return;
                 setCopying(true);
                 try {
@@ -542,7 +542,7 @@ export default function ClientOpenedInferenceJobPage() {
             )}
           <Dialog.Root>
             <Dialog.Trigger asChild>
-              <Button size="sm" rounded="full" colorPalette="red" disabled={removing}>{t("common.remove_job", "Remove Job")}</Button>
+              <Button size={{ base: "xs", md: "sm" }} rounded="full" colorPalette="red" disabled={removing}>{t("common.remove_job", "Remove Job")}</Button>
             </Dialog.Trigger>
             <Portal>
               <Dialog.Backdrop />
@@ -568,9 +568,9 @@ export default function ClientOpenedInferenceJobPage() {
             </Portal>
           </Dialog.Root>
         </HStack>
-      </HStack>
+      </Stack>
 
-      <HStack align="flex-start" gap="16px" mt="16px">
+      <Stack direction={{ base: "column", md: "row" }} align="stretch" gap="16px" mt="16px" w="100%">
         <Box w={{ base: "100%", md: "420px" }} flexShrink={0} rounded="md" borderWidth="1px" bg="bg.panel" p="16px">
           {isPending ? (
             <>
@@ -726,7 +726,7 @@ export default function ClientOpenedInferenceJobPage() {
           )}
         </Box>
 
-        <Box flex="1" rounded="md" borderWidth="1px" bg="bg.panel" p="16px" minH="240px">
+        <Box flex="1" w={{ base: "100%", md: "auto" }} rounded="md" borderWidth="1px" bg="bg.panel" p="16px" minH="240px">
 
           {job && (job.status === "Complete" || job.status === "Completed") && job.taskType === "one-shot-object-detection" ? (
             <VStack align="stretch" gap={3}>
@@ -921,7 +921,7 @@ export default function ClientOpenedInferenceJobPage() {
             <Text color="gray.500">Inference charts / logs can appear here.</Text>
           )}
         </Box>
-      </HStack>
+      </Stack>
     </Box>
   );
 }
