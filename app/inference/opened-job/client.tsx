@@ -1,16 +1,16 @@
 "use client";
 
-import { Box, Heading, HStack, VStack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table, Separator, Steps, Accordion } from "@chakra-ui/react";
+import { Box, Heading, HStack, VStack, Stack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table, Separator, Steps, Accordion } from "@chakra-ui/react";
 import NextLink from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { decodeBase64Utf8 } from "@/components/utils/base64";
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { extractRows } from "@/components/surreal/normalize";
 import { useI18n } from "@/components/i18n/LanguageProvider";
-import { getSignedObjectUrl, deleteObjectFromS3 } from "@/components/utils/minio";
-import { cacheExists, getCachedBlobUrl, downloadAndCacheWithProgress, downloadAndCacheBytes, deleteCached, readCachedBytes } from "@/components/utils/storage-cache";
+import { getSignedObjectUrl } from "@/components/utils/minio";
+import { cacheExists, downloadAndCacheBytes, readCachedBytes } from "@/components/utils/storage-cache";
 import { LuChevronLeft, LuChevronRight } from "react-icons/lu";
 
 type JobRow = {
@@ -64,11 +64,11 @@ export default function ClientOpenedInferenceJobPage() {
   const { isSuccess } = useSurreal();
   const [removing, setRemoving] = useState(false);
   const [copying, setCopying] = useState(false);
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<boolean>(false);
   const [downloadPct, setDownloadPct] = useState<number>(0);
-  const [checkingLocal, setCheckingLocal] = useState<boolean>(false);
   const [checkingParquetLocal, setCheckingParquetLocal] = useState<boolean>(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const hlsRef = useRef<any>(null);
 
   const { data: job, isPending, isError, error, refetch } = useQuery({
     queryKey: ["inference-job-detail", jobName],
@@ -168,7 +168,6 @@ export default function ClientOpenedInferenceJobPage() {
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   useEffect(() => {
     setSelectedIndex(0);
-    setVideoUrl(null);
   }, [results.length]);
   const current = useMemo(() => (results && results.length > 0 ? results[Math.min(results.length - 1, Math.max(0, selectedIndex))] : undefined), [results, selectedIndex]);
 
@@ -202,48 +201,92 @@ export default function ClientOpenedInferenceJobPage() {
     return ext === "parquet";
   }
 
-  // Cache helpers (OPFS or Cache API)
-  async function ensureVideoCachedAndUrl(bucket: string, key: string, expectedSize?: number): Promise<string> {
-    // If already cached, return blob URL
-    if (await cacheExists(bucket, key)) {
-      const u = await getCachedBlobUrl(bucket, key);
-      if (u) return u;
-    }
-    // Download to cache with progress and return URL
-    return await downloadAndCacheWithProgress(bucket, key, expectedSize, (p) => setDownloadPct(p));
-  }
+  // HLS playlist for current video result
+  type HlsPlaylist = { bucket: string; key: string; totalSegments?: number };
+  const { data: playlist, isPending: playlistLoading } = useQuery({
+    queryKey: ["hls-playlist-inference", current?.id],
+    enabled: isSuccess && !!current?.id && isVideoResult(current),
+    queryFn: async (): Promise<HlsPlaylist | null> => {
+      if (!current?.id) return null;
+      const res = await surreal.query(
+        "SELECT * FROM hls_playlist WHERE file = <record> $id LIMIT 1;",
+        { id: current.id }
+      );
+      const rows = extractRows<any>(res);
+      const row = rows?.[0];
+      if (!row) return null;
+      return {
+        bucket: String(row.bucket || ""),
+        key: String(row.key || ""),
+        totalSegments: row?.meta?.totalSegments ?? undefined,
+      };
+    },
+    refetchOnWindowFocus: false,
+    staleTime: 10_000,
+  });
 
-  // On page/result change, if exists in OPFS already (videos), open it immediately and hide download button
+  // Build proxied m3u8 URL
+  const m3u8Url = useMemo(() => {
+    if (!playlist?.bucket || !playlist?.key) return null;
+    return `/api/storage/hls/playlist?b=${encodeURIComponent(playlist.bucket)}&k=${encodeURIComponent(playlist.key)}`;
+  }, [playlist?.bucket, playlist?.key]);
+
+  // Attach source: native HLS or hls.js
   useEffect(() => {
-    let cancelled = false;
-    async function run() {
-      if (!current?.key || !(job && (job.status === "Complete" || job.status === "Completed") && job.taskType === "one-shot-object-detection")) return;
-      if (!isVideoResult(current)) return;
-      setCheckingLocal(true);
-      try {
-        const exists = await cacheExists(current.bucket, current.key);
-        if (exists) {
-          const url = await getCachedBlobUrl(current.bucket, current.key);
-          if (!cancelled) setVideoUrl((prev) => { if (prev && prev.startsWith("blob:")) { try { URL.revokeObjectURL(prev); } catch { void 0; } } return url; });
-        } else {
-          if (!cancelled) setVideoUrl(null);
-          // Auto-download video to OPFS for local cache
-          if (!downloading) {
-            try {
-              const url = await ensureVideoCachedAndUrl(current.bucket, current.key, current.size);
-              if (!cancelled) setVideoUrl((prev) => { if (prev && prev.startsWith("blob:")) { try { URL.revokeObjectURL(prev); } catch { void 0; } } return url; });
-            } catch { /* ignore */ }
-          }
-        }
-      } catch {
-        if (!cancelled) setVideoUrl(null);
-      } finally {
-        if (!cancelled) setCheckingLocal(false);
-      }
+    const video = videoRef.current;
+    if (!video) return;
+    if (!m3u8Url) return;
+    const canNativeHls = video.canPlayType("application/vnd.apple.mpegurl") !== "" ||
+      video.canPlayType("application/x-mpegURL") !== "";
+    if (canNativeHls) {
+      if (hlsRef.current) { try { hlsRef.current.destroy(); } catch { /* noop */ } hlsRef.current = null; }
+      video.src = m3u8Url;
+      return;
     }
-    run();
-    return () => { cancelled = true; };
-  }, [current?.key, job?.status, job?.taskType]);
+    const cancelled = false;
+    (async () => {
+      try {
+        const mod = await import("hls.js");
+        const Hls = (mod as any).default || (mod as any);
+        if (!Hls?.isSupported?.()) {
+          video.removeAttribute("src");
+          try { video.load(); } catch { /* noop */ }
+          return;
+        }
+        if (cancelled) return;
+        if (hlsRef.current) { try { hlsRef.current.destroy(); } catch { /* noop */ } }
+        const hls = new Hls({ lowLatencyMode: false });
+        hlsRef.current = hls;
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+          if (cancelled) return;
+          hls.loadSource(m3u8Url);
+        });
+        hls.on(Hls.Events.ERROR, (_e: any, data: any) => {
+          if (data?.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                hls.recoverMediaError();
+                break;
+              default:
+                try { hls.destroy(); } catch { /* noop */ }
+                hlsRef.current = null;
+                break;
+            }
+          }
+        });
+      } catch {
+        video.removeAttribute("src");
+        try { video.load(); } catch { /* noop */ }
+      }
+    })();
+    return () => {
+      if (hlsRef.current) { try { hlsRef.current.destroy(); } catch { /* noop */ } hlsRef.current = null; }
+    };
+  }, [m3u8Url]);
 
   // For parquet: check OPFS cache presence when selected and auto-download if missing
   useEffect(() => {
@@ -288,46 +331,11 @@ export default function ClientOpenedInferenceJobPage() {
     if (!jobName || removing) return;
     setRemoving(true);
     try {
-      // Collect related inference_result objects for S3/OPFS cleanup
-      let objects: { bucket: string; key: string }[] = [];
-      try {
-        if (job?.id) {
-          const res = await surreal.query("SELECT bucket, key FROM inference_result WHERE job == <record> $job", { job: job.id });
-          const rows = extractRows<any>(res);
-          objects = rows.map((r: any) => ({ bucket: String(r?.bucket || ""), key: String(r?.key || "") }))
-            .filter((o: any) => o.bucket && o.key);
-        }
-      } catch { /* ignore */ }
-
-      // Delete S3 objects (best-effort)
-      try {
-        await Promise.all(objects.map((o) => deleteObjectFromS3(o.bucket, o.key).catch(() => {})));
-      } catch { /* ignore */ }
-
-      // Delete related inference_result rows first
-      try {
-        if (job?.id) {
-          await surreal.query("DELETE inference_result WHERE job == <record> $job", { job: job.id });
-        }
-      } catch { /* ignore */ }
-
-      // Remove cached OPFS files (videos/parquet) for this job's results
-      try {
-        await Promise.all(objects.map((o) => deleteCached(o.bucket, o.key)));
-      } catch { /* ignore */ }
-
-      // Revoke any blob URL we created
-      try {
-        setVideoUrl((prev) => {
-          if (prev && prev.startsWith("blob:")) {
-            try { URL.revokeObjectURL(prev); } catch { /* ignore */ }
-          }
-          return null;
-        });
-      } catch { /* ignore */ }
-
-      // Finally remove the job itself
-      await surreal.query("DELETE inference_job WHERE name == $name", { name: jobName });
+      // Soft-delete: mark this inference job as dead. Do not delete S3 or other tables.
+      await surreal.query(
+        "UPDATE inference_job SET dead = true, updatedAt = time::now() WHERE name == $name",
+        { name: jobName }
+      );
       // Invalidate job list and navigate with refresh token to force reload
       queryClient.invalidateQueries({ queryKey: ["inference-jobs"] });
       const r = Date.now().toString();
@@ -487,7 +495,7 @@ export default function ClientOpenedInferenceJobPage() {
 
   return (
     <Box px="10%" py="20px">
-      <HStack align="center" justify="space-between">
+      <Stack direction={{ base: "column", md: "row" }} align="stretch" justify="space-between" gap="8px">
         <HStack gap="3" align="center">
           <Heading size="2xl">
             <Link asChild color="black" _hover={{ textDecoration: "none", color: "black" }}>
@@ -498,9 +506,9 @@ export default function ClientOpenedInferenceJobPage() {
           </Heading>
           <Badge rounded="full" variant="subtle" colorPalette="teal">{t("inference.badge", "Inference")}</Badge>
         </HStack>
-        <HStack>
+        <HStack gap="8px" flexWrap="wrap" justify={{ base: "flex-start", md: "flex-end" }}>
           {job?.status === "ProcessWaiting" && (
-            <Button size="sm" rounded="full" variant="outline" onClick={async () => {
+            <Button size={{ base: "xs", md: "sm" }} rounded="full" variant="outline" onClick={async () => {
               if (!jobName) return;
               try {
                 await surreal.query("UPDATE inference_job SET status = 'StopInterrept', updatedAt = time::now() WHERE name == $name", { name: jobName });
@@ -512,7 +520,7 @@ export default function ClientOpenedInferenceJobPage() {
           {job && job.status !== "ProcessWaiting" && (
             (job.status === "StopInterrept" || job.status === "Complete" || job.status === "Completed" || job.status === "Failed" || job.status === "Faild" || job.status === "Error")
           ) && (
-              <Button size="sm" rounded="full" variant="outline" disabled={copying} onClick={async () => {
+              <Button size={{ base: "xs", md: "sm" }} rounded="full" variant="outline" disabled={copying} onClick={async () => {
                 if (!jobName || !job) return;
                 setCopying(true);
                 try {
@@ -534,7 +542,7 @@ export default function ClientOpenedInferenceJobPage() {
             )}
           <Dialog.Root>
             <Dialog.Trigger asChild>
-              <Button size="sm" rounded="full" colorPalette="red" disabled={removing}>{t("common.remove_job", "Remove Job")}</Button>
+              <Button size={{ base: "xs", md: "sm" }} rounded="full" colorPalette="red" disabled={removing}>{t("common.remove_job", "Remove Job")}</Button>
             </Dialog.Trigger>
             <Portal>
               <Dialog.Backdrop />
@@ -560,9 +568,9 @@ export default function ClientOpenedInferenceJobPage() {
             </Portal>
           </Dialog.Root>
         </HStack>
-      </HStack>
+      </Stack>
 
-      <HStack align="flex-start" gap="16px" mt="16px">
+      <Stack direction={{ base: "column", md: "row" }} align="stretch" gap="16px" mt="16px" w="100%">
         <Box w={{ base: "100%", md: "420px" }} flexShrink={0} rounded="md" borderWidth="1px" bg="bg.panel" p="16px">
           {isPending ? (
             <>
@@ -679,7 +687,7 @@ export default function ClientOpenedInferenceJobPage() {
                           <Box
                             key={r.id}
                             as="button"
-                            onClick={() => { setSelectedIndex(idx); setVideoUrl(null); setTablePage(1); }}
+                            onClick={() => { setSelectedIndex(idx); setTablePage(1); }}
                             textAlign="left"
                             rounded="md"
                             borderWidth="1px"
@@ -718,7 +726,7 @@ export default function ClientOpenedInferenceJobPage() {
           )}
         </Box>
 
-        <Box flex="1" rounded="md" borderWidth="1px" bg="bg.panel" p="16px" minH="240px">
+        <Box flex="1" w={{ base: "100%", md: "auto" }} rounded="md" borderWidth="1px" bg="bg.panel" p="16px" minH="240px">
 
           {job && (job.status === "Complete" || job.status === "Completed") && job.taskType === "one-shot-object-detection" ? (
             <VStack align="stretch" gap={3}>
@@ -752,29 +760,27 @@ export default function ClientOpenedInferenceJobPage() {
                   </HStack>
                   {/* Current Result */}
                   {current && isVideoResult(current) ? (
-                    videoUrl ? (
-                      <>
-                        <video controls style={{ width: "100%", maxHeight: "70vh" }} src={videoUrl}>
-                          <track kind="captions" />
-                        </video>
-                      </>
-                    ) : (
-                      <>
-                        {checkingLocal ? (
-                          <Text textStyle="sm" color="gray.600">Checking local cache...</Text>
-                        ) : null}
-                        {downloading && (
-                          <Box maxW="360px">
-                            <Progress.Root value={downloadPct}>
-                              <Progress.Track>
-                                <Progress.Range />
-                              </Progress.Track>
-                            </Progress.Root>
-                            <Text textStyle="xs" color="gray.600" mt={1}>{downloadPct}%</Text>
-                          </Box>
-                        )}
-                      </>
-                    )
+                    <>
+                      {playlistLoading ? (
+                        <Text textStyle="sm" color="gray.600">Loading player...</Text>
+                      ) : !playlist ? (
+                        <Box>
+                          <Text fontWeight="bold">HLS playlist not available.</Text>
+                          <Text textStyle="sm" color="gray.600" mt={1}>The video is not yet segmented or unavailable.</Text>
+                        </Box>
+                      ) : (
+                        <Box>
+                          <video
+                            ref={videoRef}
+                            controls
+                            playsInline
+                            style={{ width: "100%", maxHeight: "70vh", background: "black" }}
+                          >
+                            <track kind="captions" label="captions" srcLang="en" src="data:," />
+                          </video>
+                        </Box>
+                      )}
+                    </>
                   ) : current && isJsonResult(current) ? (
                     <>
                       {jsonLoading ? (
@@ -915,7 +921,7 @@ export default function ClientOpenedInferenceJobPage() {
             <Text color="gray.500">Inference charts / logs can appear here.</Text>
           )}
         </Box>
-      </HStack>
+      </Stack>
     </Box>
   );
 }

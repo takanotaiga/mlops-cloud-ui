@@ -3,9 +3,11 @@
 import React, { useEffect, useState } from "react";
 import { Status, Text, Tooltip, Box } from "@chakra-ui/react";
 
+type Props = { variant?: "full" | "dot" };
+
 type MinioState = { ok: boolean; loading: boolean; message?: string }
 
-export default function ConnectionStatus() {
+export default function ConnectionStatus({ variant = "full" }: Props) {
   const [dbOk, setDbOk] = useState(false);
   const [dbLoading, setDbLoading] = useState(true);
   const [dbErr, setDbErr] = useState<string | null>(null);
@@ -61,10 +63,12 @@ export default function ConnectionStatus() {
   }
 
   const content = (
-    <Box display="inline-flex" alignItems="center" h="25px" >
+    <Box display="inline-flex" alignItems="center" h="25px">
       <Status.Root colorPalette={color} display="inline-flex" alignItems="center" gap="1" lineHeight="1">
         <Status.Indicator />
-        <Text textStyle="sm" lineHeight="1">{label}</Text>
+        {variant === "full" && (
+          <Text textStyle="sm" lineHeight="1">{label}</Text>
+        )}
       </Status.Root>
     </Box>
   );

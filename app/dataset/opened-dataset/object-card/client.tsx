@@ -28,7 +28,7 @@ import { decodeBase64Utf8, encodeBase64Utf8 } from "@/components/utils/base64";
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { extractRows } from "@/components/surreal/normalize";
-import { getObjectUrlPreferPresign, deleteObjectFromS3 } from "@/components/utils/minio";
+import { getObjectUrlPreferPresign } from "@/components/utils/minio";
 
 type FileRow = {
   id: string
@@ -251,10 +251,10 @@ export default function ClientObjectCardPage() {
     enabled: isSuccess && !!datasetName,
     queryFn: async (): Promise<NavRow[]> => {
       const res = await surreal.query(
-        "SELECT id, name, key, bucket FROM file WHERE dataset == $dataset ORDER BY name ASC",
+        "SELECT id, name, key, bucket, dead FROM file WHERE dataset == $dataset ORDER BY name ASC",
         { dataset: datasetName }
       );
-      const rows = extractRows<any>(res);
+      const rows = extractRows<any>(res).filter((r: any) => r?.dead !== true);
       const mapped = rows.map((r) => ({ ...r, id: thingToString(r.id) })) as NavRow[];
       // Ensure sort order matches dataset grid: case-insensitive, numeric-aware by name fallback to key
       mapped.sort((a, b) => {
@@ -327,6 +327,17 @@ export default function ClientObjectCardPage() {
     const lop = encodeURIComponent(labelFilter.one);
     const ltp = encodeURIComponent(labelFilter.text);
     return `/dataset/opened-dataset/object-card?d=${dEnc}&id=${idEnc}&n=${nEnc}&b=${bEnc}&k=${kEnc}&m=${m}&lb=${lbp}&lo=${lop}&lt=${ltp}`;
+  }
+
+  function makePlayerHref(): string | null {
+    const did = file?.id || fileId || "";
+    if (!did) return null;
+    const dEnc = encodeBase64Utf8(datasetName);
+    const idEnc = encodeBase64Utf8(did);
+    const nEnc = encodeBase64Utf8(file?.name || objectName || "");
+    const bEnc = encodeBase64Utf8(file?.bucket || fallbackBucket || "");
+    const kEnc = encodeBase64Utf8(file?.key || fallbackKey || "");
+    return `/dataset/opened-dataset/object-card/player?d=${dEnc}&id=${idEnc}&n=${nEnc}&b=${bEnc}&k=${kEnc}`;
   }
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -463,48 +474,12 @@ export default function ClientObjectCardPage() {
     setRemoving(true);
     try {
       await withTimeout((async () => {
-        // Collect encoded_segment objects to delete from S3 before DB deletion
-        let segmentObjects: { bucket: string; key: string }[] = [];
-        try {
-          const segRes = await surreal.query(
-            "SELECT bucket, key FROM encoded_segment WHERE file == <record> $id",
-            { id: file?.id || fileId }
-          );
-          const segRows = extractRows<any>(segRes);
-          segmentObjects = segRows
-            .map((r: any) => ({ bucket: String(r?.bucket || ""), key: String(r?.key || "") }))
-            .filter((o: any) => o.bucket && o.key);
-        } catch { /* ignore */ }
-
-        // 1) Delete related rows in SurrealDB that reference this file
-        const idForRefs = file?.id || fileId;
-        if (idForRefs) {
-          try { await surreal.query("DELETE annotation WHERE file == <record> $id", { id: idForRefs }); } catch { /* ignore */ }
-          try { await surreal.query("DELETE encode_job WHERE file == <record> $id", { id: idForRefs }); } catch { /* ignore */ }
-          try { await surreal.query("DELETE encoded_segment WHERE file == <record> $id", { id: idForRefs }); } catch { /* ignore */ }
-        }
-
-        // 2) Delete file row in SurrealDB
+        // Soft-delete: mark this file as dead. Do not delete S3 or other tables.
         if (file?.id) {
-          await surreal.query("DELETE file WHERE id = <record> $id", { id: file.id });
+          await surreal.query("UPDATE file SET dead = true WHERE id = <record> $id", { id: file.id });
         } else if (datasetName && (file?.key || fallbackKey)) {
-          await surreal.query("DELETE file WHERE dataset = $dataset AND key = $key", { dataset: datasetName, key: file?.key || fallbackKey });
+          await surreal.query("UPDATE file SET dead = true WHERE dataset = $dataset AND key = $key", { dataset: datasetName, key: file?.key || fallbackKey });
         }
-
-        // 3) Delete from MinIO (object and its thumbnail if present)
-        const bucket = file?.bucket || fallbackBucket;
-        const key = file?.key || fallbackKey;
-        const thumbKey = file?.thumbKey;
-        if (bucket && key) {
-          try { await deleteObjectFromS3(bucket, key); } catch { /* ignore S3 delete errors */ }
-        }
-        if (bucket && thumbKey) {
-          try { await deleteObjectFromS3(bucket, thumbKey); } catch { /* ignore */ }
-        }
-        // 3b) Delete encoded_segment objects from S3 (best-effort)
-        try {
-          await Promise.all(segmentObjects.map((o) => deleteObjectFromS3(o.bucket, o.key).catch(() => {})));
-        } catch { /* ignore */ }
       })(), 3000);
 
       // Invalidate dataset file list and navigate back with a refresh token
@@ -672,6 +647,18 @@ export default function ClientObjectCardPage() {
             {t("common.next","Next")}
           </Button>
 
+          {isVideoType && (
+            <Button
+              size="sm"
+              variant="solid"
+              rounded="full"
+              onClick={() => { const href = makePlayerHref(); if (href) router.push(href); }}
+              disabled={!(file?.id || fileId)}
+            >
+              {t("object.play","Play")}
+            </Button>
+          )}
+
           <Box w="10px" />
           <Dialog.Root>
             <Dialog.Trigger asChild>
@@ -688,7 +675,7 @@ export default function ClientObjectCardPage() {
                   </Dialog.Header>
                   <Dialog.Body>
                     <Text>{t("object.delete_confirm","This object will be deleted. Proceed?")}</Text>
-                    <Text mt={2} color="gray.600">{t("object.delete_note","Removes DB metadata first, then deletes MinIO object.")}</Text>
+                    <Text mt={2} color="gray.600">Soft delete only: marks as removed; does not delete S3.</Text>
                   </Dialog.Body>
                   <Dialog.Footer>
                     <Dialog.ActionTrigger asChild>

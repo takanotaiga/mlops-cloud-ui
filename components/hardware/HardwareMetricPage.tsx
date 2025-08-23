@@ -1,7 +1,7 @@
 "use client";
 
 import { Box, Heading, Text, SimpleGrid, VStack, HStack, Badge } from "@chakra-ui/react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider";
 import { extractRows } from "@/components/surreal/normalize";
@@ -64,7 +64,24 @@ function LineChart({
   yMax?: number;
   forceZeroMin?: boolean;
 }) {
-  const width = 520;
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(520);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const w = Math.floor(entry.contentRect.width);
+        if (w > 0) setContainerWidth(w);
+      }
+    });
+    ro.observe(el);
+    // Initialize once
+    setContainerWidth(Math.floor(el.clientWidth || 520));
+    return () => ro.disconnect();
+  }, []);
+
+  const width = Math.max(240, containerWidth);
   const height = 160;
   const padding = { l: 40, r: 10, t: 18, b: 22 };
   const innerW = width - padding.l - padding.r;
@@ -131,10 +148,10 @@ function LineChart({
   });
 
   return (
-    <Box bg="white" rounded="md" borderWidth="1px" p={3}>
-      <HStack justify="space-between" mb={2} align="center">
+    <Box ref={containerRef} bg="white" rounded="md" borderWidth="1px" p={3} w="100%" overflowX="hidden">
+      <HStack justify="space-between" mb={2} align="center" flexWrap="wrap" gap={2}>
         <Heading size="sm">{title}</Heading>
-        <HStack gap={3} align="center">
+        <HStack gap={3} align="center" flexWrap="wrap">
           {series.map((s, i) => (
             <HStack key={i} gap={1} align="center">
               <Box w="8px" h="8px" rounded="sm" bg={s.color} />
@@ -220,8 +237,25 @@ export default function HardwareMetricPage() {
     // System series
     const sysCpu: Series = { name: "CPU %", color: "#0ea5e9", points: trows.map((r) => ({ x: r._t!, y: r.system?.cpu_percent ?? NaN })) };
     const sysMemPct: Series = { name: "Mem %", color: "#22c55e", points: trows.map((r) => ({ x: r._t!, y: r.system?.memory?.percent ?? NaN })) };
-    const sysMemUsed: Series = { name: "Mem Used GiB", color: "#16a34a", points: trows.map((r) => ({ x: r._t!, y: (r.system?.memory?.used ?? NaN) / 1024 / 1024 / 1024 })) };
-    const sysMemFree: Series = { name: "Mem Free GiB", color: "#84cc16", points: trows.map((r) => ({ x: r._t!, y: (r.system?.memory?.free ?? NaN) / 1024 / 1024 / 1024 })) };
+    // Memory usage displayed in GB (decimal)
+    const sysMemUsed: Series = { name: "Mem Used GB", color: "#16a34a", points: trows.map((r) => ({ x: r._t!, y: (r.system?.memory?.used ?? NaN) / 1_000_000_000 })) };
+    // Compute yMax as (free + used) in GB, fallback to total
+    const sysMemCapMaxGB = (() => {
+      let maxCap = -Infinity;
+      for (const r of trows) {
+        const used = r.system?.memory?.used;
+        const free = r.system?.memory?.free;
+        const total = r.system?.memory?.total;
+        let cap = Number.NaN;
+        if (Number.isFinite(used as number) || Number.isFinite(free as number)) {
+          cap = ((Number(used) || 0) + (Number(free) || 0)) / 1_000_000_000;
+        } else if (Number.isFinite(total as number)) {
+          cap = Number(total) / 1_000_000_000;
+        }
+        if (Number.isFinite(cap) && cap > maxCap) maxCap = cap;
+      }
+      return Number.isFinite(maxCap) ? maxCap : undefined;
+    })();
     const sysLoad1: Series = { name: "Load 1m", color: "#f59e0b", points: trows.map((r) => ({ x: r._t!, y: r.system?.load_average?.[0] ?? NaN })) };
     const sysLoad5: Series = { name: "Load 5m", color: "#ef4444", points: trows.map((r) => ({ x: r._t!, y: r.system?.load_average?.[1] ?? NaN })) };
     const sysLoad15: Series = { name: "Load 15m", color: "#a855f7", points: trows.map((r) => ({ x: r._t!, y: r.system?.load_average?.[2] ?? NaN })) };
@@ -229,6 +263,7 @@ export default function HardwareMetricPage() {
     // GPU indexing
     const maxGpuIdx = Math.max(0, ...trows.flatMap((r) => (r.gpus || []).map((g) => g.index ?? 0)));
     const gpuSeries: Record<string, Series[]> = {};
+    const gpuVramYMax: Record<number, number | undefined> = {};
     for (let gi = 0; gi <= maxGpuIdx; gi++) {
       const pick = (mapper: (g: any) => number | undefined, color: string, label: string): Series => ({
         name: `${label} (#${gi})`,
@@ -255,14 +290,33 @@ export default function HardwareMetricPage() {
         pick((g) => (g.pcie?.tx_kb_s ?? NaN) / 1_000_000, "#059669", "PCIe TX GB/s"),
       ];
       gpuSeries[`vram_${gi}`] = [
-        pick((g) => (g.memory?.used ?? NaN) / 1024 / 1024 / 1024, "#c026d3", "VRAM Used GiB"),
-        pick((g) => (g.memory?.free ?? NaN) / 1024 / 1024 / 1024, "#9333ea", "VRAM Free GiB"),
+        // VRAM usage in GB (decimal)
+        pick((g) => (g.memory?.used ?? NaN) / 1_000_000_000, "#c026d3", "VRAM Used GB"),
       ];
+      // yMax for VRAM as (free + used) in GB, fallback to total
+      let maxCap = -Infinity;
+      for (const r of trows) {
+        const gpu = (r.gpus || []).find((g) => (g.index ?? 0) === gi);
+        if (!gpu) continue;
+        const used = gpu.memory?.used;
+        const free = gpu.memory?.free;
+        const total = gpu.memory?.total;
+        let cap = Number.NaN;
+        if (Number.isFinite(used as number) || Number.isFinite(free as number)) {
+          cap = ((Number(used) || 0) + (Number(free) || 0)) / 1_000_000_000;
+        } else if (Number.isFinite(total as number)) {
+          cap = Number(total) / 1_000_000_000;
+        }
+        if (Number.isFinite(cap) && cap > maxCap) maxCap = cap;
+      }
+      gpuVramYMax[gi] = Number.isFinite(maxCap) ? maxCap : undefined;
     }
 
     return {
-      sys: { sysCpu, sysMemPct, sysMemUsed, sysMemFree, sysLoad1, sysLoad5, sysLoad15 },
+      sys: { sysCpu, sysMemPct, sysMemUsed, sysLoad1, sysLoad5, sysLoad15 },
       gpuSeries,
+      sysMemYMax: sysMemCapMaxGB,
+      gpuVramYMax,
     };
   }, [rows]);
 
@@ -294,7 +348,7 @@ export default function HardwareMetricPage() {
         <SimpleGrid columns={{ base: 1, md: 2 }} gap={4}>
           <LineChart title="CPU Utilization" series={[points.sys.sysCpu]} unit="%" yMin={0} yMax={100} />
           <LineChart title="Memory Percent" series={[points.sys.sysMemPct]} unit="%" yMin={0} yMax={100} />
-          <LineChart title="Memory (GiB)" series={[points.sys.sysMemUsed, points.sys.sysMemFree]} unit="GiB" forceZeroMin />
+          <LineChart title="Memory (GB)" series={[points.sys.sysMemUsed]} unit="GB" yMin={0} yMax={points.sysMemYMax} forceZeroMin />
           <LineChart title="Load Average" series={[points.sys.sysLoad1, points.sys.sysLoad5, points.sys.sysLoad15]} forceZeroMin />
         </SimpleGrid>
 
@@ -323,7 +377,7 @@ export default function HardwareMetricPage() {
               <LineChart title="Utilization (%)" series={points.gpuSeries[`util_${gi}`]} unit="%" yMin={0} yMax={100} />
               <LineChart title="Clocks (MHz)" series={points.gpuSeries[`clock_${gi}`]} unit="MHz" forceZeroMin />
               <LineChart title="PCIe (GB/s)" series={points.gpuSeries[`pcie_${gi}`]} unit="GB/s" forceZeroMin />
-              <LineChart title="VRAM (GiB)" series={points.gpuSeries[`vram_${gi}`]} unit="GiB" forceZeroMin />
+              <LineChart title="VRAM (GB)" series={points.gpuSeries[`vram_${gi}`]} unit="GB" yMin={0} yMax={(points as any).gpuVramYMax?.[gi]} forceZeroMin />
             </SimpleGrid>
           </VStack>
         ))}

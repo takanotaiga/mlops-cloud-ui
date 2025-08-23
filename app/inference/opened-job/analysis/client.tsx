@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Heading, HStack, VStack, Text, Link, Badge, Select, CheckboxGroup, Checkbox, Separator, SkeletonText, Skeleton, createListCollection, Portal, Input, Button } from "@chakra-ui/react";
+import { Box, Heading, HStack, VStack, Text, Link, Badge, Select, CheckboxGroup, Checkbox, Separator, SkeletonText, Skeleton, createListCollection, Portal, Input, Button, SimpleGrid } from "@chakra-ui/react";
 import NextLink from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -265,9 +265,9 @@ export default function ClientDetailedAnalysisPage() {
         <Separator />
 
         {/* Controls */}
-        <HStack gap="16px" align="stretch" wrap="wrap">
+        <SimpleGrid columns={{ base: 1, md: 2, xl: 3 }} gap="16px">
           {/* Chart & Axes */}
-          <Box minW="360px" flexShrink={0} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
+          <Box w="100%" minW={{ base: 0, md: "320px" }} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
             <VStack align="stretch" gap="10px">
               <Text textStyle="sm" fontWeight="semibold" color="gray.700">Chart & Axes</Text>
               <VStack align="stretch">
@@ -328,7 +328,7 @@ export default function ClientDetailedAnalysisPage() {
           </Box>
 
           {/* Scale & Smoothing */}
-          <Box minW="280px" flexShrink={0} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
+          <Box w="100%" minW={{ base: 0, md: "280px" }} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
             <VStack align="stretch" gap="10px">
               <Text textStyle="sm" fontWeight="semibold" color="gray.700">Scale & Smoothing</Text>
               {(chartType === "line" || chartType === "derivative") && (
@@ -378,7 +378,7 @@ export default function ClientDetailedAnalysisPage() {
           </Box>
 
           {/* Filter */}
-          <Box minW="420px" flex={1} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
+          <Box w="100%" minW={{ base: 0, md: "360px" }} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
             <VStack align="stretch" gap="10px">
               <Text textStyle="sm" fontWeight="semibold" color="gray.700">Filter</Text>
               {(chartType === "line" || chartType === "derivative") && (
@@ -397,7 +397,7 @@ export default function ClientDetailedAnalysisPage() {
           </Box>
 
           {/* Export */}
-          <Box minW="420px" flex={1} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
+          <Box w="100%" minW={{ base: 0, md: "360px" }} borderWidth="1px" rounded="md" p="12px" bg="bg.panel">
             <VStack align="stretch" gap="10px">
               <Text textStyle="sm" fontWeight="semibold" color="gray.700">Export</Text>
               {(chartType === "line" || chartType === "derivative") && (
@@ -442,10 +442,10 @@ export default function ClientDetailedAnalysisPage() {
               )}
             </VStack>
           </Box>
-        </HStack>
+        </SimpleGrid>
 
         {/* Chart */}
-        <Box rounded="md" borderWidth="1px" bg="bg.panel" p="12px" minH="300px">
+        <Box rounded="md" borderWidth="1px" bg="bg.panel" p="12px" minH="300px" w="100%">
           {loading ? (
             <>
               <SkeletonText noOfLines={1} w="30%" />
