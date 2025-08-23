@@ -7,7 +7,6 @@ import {
   Heading,
   HStack,
   Link,
-  SkeletonText,
   Spinner,
   Text,
   VStack,
@@ -275,32 +274,8 @@ export default function PlayerClient() {
               {/* Accessibility: provide an empty captions track to satisfy a11y rule when captions are unavailable */}
               <track kind="captions" label="captions" srcLang="en" src="data:," />
             </video>
-            <Box mt={2}>
-              <Text fontSize="sm" color="gray.600">
-                If your browser can’t play HLS natively, open the playlist directly:
-                {" "}
-                <Link href={m3u8Url || "#"} target="_blank" rel="noreferrer">index.m3u8</Link>
-              </Text>
-              {typeof playlist.totalSegments === "number" && (
-                <Text fontSize="sm" color="gray.600">Segments: {playlist.totalSegments}</Text>
-              )}
-            </Box>
           </Box>
         )}
-
-        <Box>
-          <Heading size="md">Info</Heading>
-          {fileLoading ? (
-            <SkeletonText noOfLines={3} mt={2} />
-          ) : (
-            <VStack align="stretch" mt={2} fontSize="sm" color="gray.700">
-              <HStack justify="space-between"><Text color="gray.500">Dataset</Text><Text>{file?.dataset || datasetName || "-"}</Text></HStack>
-              <HStack justify="space-between"><Text color="gray.500">Bucket</Text><Text>{playlist?.bucket || file?.bucket || fallbackBucket || "-"}</Text></HStack>
-              <HStack justify="space-between"><Text color="gray.500">Playlist Key</Text><Text style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{playlist?.key || "-"}</Text></HStack>
-              <HStack justify="space-between"><Text color="gray.500">File ID</Text><Text style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{file?.id || (fileId || "-")}</Text></HStack>
-            </VStack>
-          )}
-        </Box>
       </VStack>
     </Box>
   );

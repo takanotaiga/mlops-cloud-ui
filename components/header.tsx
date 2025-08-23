@@ -32,7 +32,9 @@ export default function Header() {
             <HStack justify="space-between" align="center" w="85%" maxW="7xl" mx="auto">
                 <LinkBox h="25px">
                     <LinkOverlay href="/" >
-                        <Heading size="md" >MLOps Cloud</Heading>
+                        <Heading size="md" >
+                            MLOps Cloud v1.5
+                        </Heading>
                     </LinkOverlay>
                 </LinkBox>
 

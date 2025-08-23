@@ -4,7 +4,6 @@ import { Box, Heading, HStack, VStack, Text, Badge, Button, ButtonGroup, Dialog,
 import { useI18n } from "@/components/i18n/LanguageProvider";
 import { useEffect, useState } from "react";
 import { getTotalCachedBytes, clearAllCached } from "@/components/utils/storage-cache";
-import AppInfoCard from "@/components/meta/AppInfoCard";
 
 function humanizeBytes(n: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -115,10 +114,6 @@ export default function SettingsPage() {
             </HStack>
           </HStack>
         </Box>
-
-        {/* About card */}
-        <AppInfoCard />
-
       </VStack>
     </HStack>
   );
