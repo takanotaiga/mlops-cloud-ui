@@ -107,7 +107,7 @@ export default function ClientOpenedDatasetPage() {
   const filesByName = useMemo(() => Object.fromEntries((files || []).map((ff) => [String(ff.name), ff])), [files]);
 
   // HLS job status per file in this dataset
-  type HlsStatus = "complete" | "in-progress" | "unknown";
+  type HlsStatus = "complete" | "in_progress" | "queued" | "unknown";
   const { data: hlsStatusMap = {} } = useQuery({
     queryKey: ["hls-status", datasetName, refreshToken],
     enabled: isSuccess && !!datasetName,
@@ -124,8 +124,9 @@ export default function ClientOpenedDatasetPage() {
         if (!fid || map[fid]) continue; // keep the latest seen first
         const st = String(r?.status ?? "").toLowerCase();
         const isComplete = st === "complete" || st === "completed" || st === "finished" || st === "success" || st === "succeeded" || st === "done";
-        const isInProgress = st === "in-progress" || st === "processing" || st === "running" || st === "pending" || st === "queued" || st === "waiting";
-        map[fid] = isComplete ? "complete" : (isInProgress ? "in-progress" : "unknown");
+        const isQueued = st === "queued" || st === "queue" || st === "waiting" || st === "pending";
+        const isInProgress = st === "in_progress" || st === "processing" || st === "running";
+        map[fid] = isComplete ? "complete" : (isQueued ? "queued" : (isInProgress ? "in_progress" : "unknown"));
       }
       return map;
     },
@@ -591,7 +592,13 @@ export default function ClientOpenedDatasetPage() {
                 const st: HlsStatus | undefined = hlsStatusMap[f.id];
                 clickable = st === "complete";
                 if (!clickable) {
-                  overlayText = st === "in-progress" ? t("encode.inProgress", "Encoding...") : t("encode.none", "Not encoded");
+                  if (st === "queued") {
+                    overlayText = t("encode.queued", "Queued");
+                  } else if (st === "in_progress") {
+                    overlayText = t("encode.inProgress", "Encoding...");
+                  } else {
+                    overlayText = t("encode.none", "Not encoded");
+                  }
                 }
               }
 
