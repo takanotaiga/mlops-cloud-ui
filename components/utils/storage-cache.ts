@@ -169,7 +169,15 @@ export async function downloadAndCacheWithProgress(bucket: string, key: string, 
       if (total > 0 && onProgress) onProgress(Math.min(100, Math.round((downloaded / total) * 100)));
     }
   }
-  const blob = new Blob(chunks);
+  // Merge chunks into a fresh ArrayBuffer to avoid SharedArrayBuffer-backed views
+  const totalBytes = chunks.reduce((acc, cur) => acc + cur.byteLength, 0);
+  const merged = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const blob = new Blob([merged.buffer]);
   if ("caches" in self) {
     const c = await caches.open(CACHE_NAME);
     await c.put(url, new Response(blob, { headers: { "Content-Type": resp.headers.get("Content-Type") || "application/octet-stream" } }));

@@ -1,18 +1,14 @@
 # --- Builder stage ---
-FROM node:18-bookworm-slim AS builder
+FROM node:25-bookworm-slim AS builder
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1
 
-# Install Yarn classic (v1) to match the repo
-# Some Node images ship a yarn/corepack shim at /usr/local/bin/yarn; force overwrite
-RUN npm i -g yarn@1.22.22 --force && yarn -v
-
 WORKDIR /app
 
 # Only install deps first for better caching
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile
+COPY package.json package-lock.json ./
+RUN npm ci
 
 # Copy the rest of the source
 COPY . .
@@ -31,11 +27,11 @@ ENV NEXT_PUBLIC_SURREAL_URL=$NEXT_PUBLIC_SURREAL_URL \
     NEXT_PUBLIC_SURREAL_PASS=$NEXT_PUBLIC_SURREAL_PASS
 
 # Build the Next.js app
-RUN yarn build
+RUN npm run build
 
 
 # --- Runner stage ---
-FROM node:18-bookworm-slim AS runner
+FROM node:25-bookworm-slim AS runner
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \

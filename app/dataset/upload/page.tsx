@@ -413,14 +413,15 @@ export default function Page() {
     setUploadedInfos(new Array(selectedFiles.length).fill(null));
     setView("progress");
 
-    const toUint8Array = (dataUrl: string): Uint8Array => {
+    const toArrayBuffer = (dataUrl: string): ArrayBuffer => {
       // data:[<mediatype>][;base64],<data>
       const parts = dataUrl.split(",");
       const b64 = parts[1] || "";
       const bin = atob(b64);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      return bytes;
+      // Ensure we hand Blob an ArrayBuffer (not SharedArrayBuffer)
+      return bytes.buffer;
     };
 
     const getThumbNameFor = (name: string) => `${name.replace(/\/+$/, "")}.jpg`;
@@ -454,7 +455,7 @@ export default function Page() {
               if (thumbDataUrl) {
                 try {
                   const form = new FormData();
-                  form.set("file", new Blob([toUint8Array(thumbDataUrl)], { type: "image/jpeg" }), getThumbNameFor(file.name));
+                  form.set("file", new Blob([toArrayBuffer(thumbDataUrl)], { type: "image/jpeg" }), getThumbNameFor(file.name));
                   form.set("dataset", title);
                   form.set("filename", getThumbNameFor(file.name));
                   form.set("contentType", "image/jpeg");
