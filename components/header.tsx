@@ -59,6 +59,11 @@ export default function Header() {
                         </LinkOverlay>
                     </LinkBox>
                     <LinkBox px="10px" h="25px">
+                        <LinkOverlay href="/terminal" >
+                            <Text textStyle="sm">{t("nav.terminal", "Terminal")}</Text>
+                        </LinkOverlay>
+                    </LinkBox>
+                    <LinkBox px="10px" h="25px">
                         <LinkOverlay href="/hardware_metric" >
                             <Text textStyle="sm">{t("nav.hardware", "Hardware")}</Text>
                         </LinkOverlay>
@@ -108,6 +113,13 @@ export default function Header() {
                                             <NextLink href="/inference">
                                                 <Button variant="ghost" justifyContent="flex-start" onClick={() => setOpen(false)}>
                                                     {t("nav.inference", "Inference")}
+                                                </Button>
+                                            </NextLink>
+                                        </Link>
+                                        <Link asChild>
+                                            <NextLink href="/terminal">
+                                                <Button variant="ghost" justifyContent="flex-start" onClick={() => setOpen(false)}>
+                                                    {t("nav.terminal", "Terminal")}
                                                 </Button>
                                             </NextLink>
                                         </Link>
