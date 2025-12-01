@@ -241,6 +241,116 @@ export default function TerminalPage() {
     appendSystem("Console cleared.");
   };
 
+  type AnsiStyle = { fg?: string; bg?: string; bold?: boolean };
+
+  const ansiColor = (code: number): string | undefined => {
+    const base: Record<number, string> = {
+      30: "#6b7280",
+      31: "#ef4444",
+      32: "#10b981",
+      33: "#eab308",
+      34: "#3b82f6",
+      35: "#a855f7",
+      36: "#06b6d4",
+      37: "#f3f4f6",
+      90: "#9ca3af",
+      91: "#f87171",
+      92: "#34d399",
+      93: "#facc15",
+      94: "#60a5fa",
+      95: "#c084fc",
+      96: "#22d3ee",
+      97: "#ffffff",
+    };
+    return base[code];
+  };
+
+  const parseAnsi = (input: string) => {
+    const nodes: { text: string; style: AnsiStyle }[] = [];
+    let i = 0;
+    let buffer = "";
+    let style: AnsiStyle = {};
+
+    const flush = () => {
+      if (buffer.length === 0) return;
+      nodes.push({ text: buffer, style: { ...style } });
+      buffer = "";
+    };
+
+    while (i < input.length) {
+      const ch = input[i];
+      if (ch === "\x1b") {
+        const next = input[i + 1];
+        // OSC
+        if (next === "]") {
+          const end = input.indexOf("\x07", i + 2);
+          const st = input.indexOf("\x1b\\", i + 2);
+          let term = -1;
+          if (end !== -1 && st !== -1) term = Math.min(end, st + 2);
+          else term = end !== -1 ? end + 1 : st !== -1 ? st + 2 : input.length;
+          i = term;
+          continue;
+        }
+        // CSI
+        if (next === "[") {
+          let end = i + 2;
+          while (end < input.length && !/[A-Za-z]/.test(input[end])) end++;
+          if (end >= input.length) break;
+          const cmd = input[end];
+          const params = input.slice(i + 2, end).split(";").filter(Boolean).map((n) => Number(n));
+          if (cmd === "m") {
+            if (params.length === 0) {
+              style = {};
+            }
+            for (const code of params) {
+              if (code === 0) {
+                style = {};
+              } else if (code === 1) {
+                style.bold = true;
+              } else if (code === 22) {
+                style.bold = false;
+              } else if (code >= 30 && code <= 37 || (code >= 90 && code <= 97)) {
+                style.fg = ansiColor(code);
+              } else if (code === 39) {
+                style.fg = undefined;
+              } else if (code >= 40 && code <= 47) {
+                style.bg = ansiColor(code - 10);
+              } else if (code >= 100 && code <= 107) {
+                style.bg = ansiColor(code - 60);
+              } else if (code === 49) {
+                style.bg = undefined;
+              }
+            }
+          }
+          // Skip other CSI commands (e.g., K, H)
+          i = end + 1;
+          continue;
+        }
+      }
+      buffer += ch;
+      i++;
+    }
+    flush();
+    return nodes;
+  };
+
+  const renderAnsiText = (value: string, keyPrefix: string) => {
+    const nodes = parseAnsi(value);
+    if (nodes.length === 0) return value;
+    return nodes.map((seg, idx) => (
+      <Box
+        as="span"
+        key={`${keyPrefix}-${idx}`}
+        color={seg.style.fg || undefined}
+        bg={seg.style.bg || undefined}
+        fontWeight={seg.style.bold ? "bold" : "normal"}
+        whiteSpace="pre-wrap"
+      >
+        {seg.text}
+      </Box>
+    ));
+  };
+
   return (
     <Box bgGradient={heroBg} minH="calc(100vh - 64px)" py={12}>
       <VStack gap={8} maxW="100%" mx="auto" px={{ base: 4, md: 8 }} align="stretch">
@@ -303,10 +413,10 @@ export default function TerminalPage() {
                           ? "cyan.200"
                           : entry.type === "input"
                             ? "green.200"
-                            : terminalText
+                            : undefined
                     }
                   >
-                    {entry.text}
+                    {entry.type === "output" ? renderAnsiText(entry.text, `${entry.at}`) : entry.text}
                   </Text>
                 ))
               )}
