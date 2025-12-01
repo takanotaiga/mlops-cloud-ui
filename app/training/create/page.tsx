@@ -85,7 +85,7 @@ export default function Page() {
     if (!taskType) { setModelValue(""); return; }
     const values = new Set(modelItems.map((i) => i.value));
     if (!values.has(modelValue)) setModelValue("");
-  }, [taskType, modelItems]);
+  }, [taskType, modelItems, modelValue]);
   // Object Detection labels state and query
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
   const {
@@ -116,9 +116,10 @@ export default function Page() {
     staleTime: 5_000,
     refetchOnWindowFocus: false,
   });
+  const selectedDatasetsKey = useMemo(() => selectedDatasets.join("|"), [selectedDatasets]);
   useEffect(() => {
     setSelectedLabels([]);
-  }, [taskType, selectedDatasets.join("|")]);
+  }, [taskType, selectedDatasetsKey]);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const filteredDatasets = useMemo(() => {
@@ -197,7 +198,7 @@ export default function Page() {
       }
       refetchJob();
       router.push(`/training/opened-job?j=${encodeBase64Utf8(trimmedJobName)}`);
-    } catch (e) {
+    } catch (_e) {
       // swallow
     }
   }

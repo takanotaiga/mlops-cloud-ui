@@ -1,4 +1,4 @@
-import Surreal from "surrealdb";
+import SurrealDb from "surrealdb";
 
 export function getSurrealConfig() {
   return {
@@ -10,9 +10,9 @@ export function getSurrealConfig() {
   } as const;
 }
 
-export async function withSurreal<T>(fn: (client: Surreal) => Promise<T>): Promise<T> {
+export async function withSurreal<T>(fn: (client: SurrealDb) => Promise<T>): Promise<T> {
   const cfg = getSurrealConfig();
-  const client = new (Surreal as any)();
+  const client = new (SurrealDb as any)();
   try {
     await client.connect(cfg.url);
     try {
@@ -26,4 +26,3 @@ export async function withSurreal<T>(fn: (client: Surreal) => Promise<T>): Promi
     try { await client.close(); } catch { /* noop */ }
   }
 }
-

@@ -47,7 +47,7 @@ export async function HEAD(req: NextRequest) {
     if (out.ETag) headers["ETag"] = out.ETag;
     if (out.LastModified) headers["Last-Modified"] = new Date(out.LastModified).toUTCString();
     return new Response(null, { headers });
-  } catch (e: any) {
+  } catch (_e: any) {
     return new Response(null, { status: 404 });
   }
 }

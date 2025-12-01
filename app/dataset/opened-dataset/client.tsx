@@ -28,7 +28,7 @@ import {
   CloseButton,
  Badge, Accordion } from "@chakra-ui/react";
 import { useSearchParams , useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, Fragment } from "react";
+import { useCallback, useEffect, useMemo, useState, Fragment } from "react";
 import { decodeBase64Utf8, encodeBase64Utf8 } from "@/components/utils/base64";
 import NextLink from "next/link";
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider";
@@ -212,7 +212,7 @@ export default function ClientOpenedDatasetPage() {
   type MediaType = (typeof MEDIA_OPTIONS)[number]
   const [selectedMedia, setSelectedMedia] = useState<MediaType[]>([...MEDIA_OPTIONS]);
 
-  const classifyMedia = (f: FileRow): MediaType | "Other" => {
+  const classifyMedia = useCallback((f: FileRow): MediaType | "Other" => {
     const mime = (f.mime || "").toLowerCase();
     if (mime.startsWith("image/")) return "Image";
     if (mime.startsWith("video/")) return "Video";
@@ -221,7 +221,7 @@ export default function ClientOpenedDatasetPage() {
     if (key.endsWith(".jpg") || key.endsWith(".jpeg") || key.endsWith(".png") || key.endsWith(".webp") || key.endsWith(".gif") || key.endsWith(".avif")) return "Image";
     if (key.endsWith(".mp4") || key.endsWith(".mov") || key.endsWith(".mkv") || key.endsWith(".avi") || key.endsWith(".webm")) return "Video";
     return "Other";
-  };
+  }, []);
 
   const visibleFiles = useMemo(() => {
     if (!files || selectedMedia.length === 0) return [];
@@ -238,7 +238,7 @@ export default function ClientOpenedDatasetPage() {
       }
       return true;
     });
-  }, [files, selectedMedia, labelPresence, labelFilter]);
+  }, [files, selectedMedia, labelPresence, labelFilter, classifyMedia]);
 
   // Load merge group for this dataset when present to detect "All Merge" first item
   const { data: mergeInfo } = useQuery({
@@ -274,7 +274,7 @@ export default function ClientOpenedDatasetPage() {
       const bn = (b.name || b.key || "").toString();
       return an.localeCompare(bn, undefined, { sensitivity: "base", numeric: true });
     });
-  }, [visibleFiles, mergeInfo?.first]);
+  }, [visibleFiles, mergeInfo]);
 
   // Pagination (20 items per page)
   const PAGE_SIZE = 20;

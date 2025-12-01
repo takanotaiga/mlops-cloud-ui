@@ -3,7 +3,7 @@
 import { Box, Heading, HStack, VStack, Stack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table, Separator, Steps, Accordion } from "@chakra-ui/react";
 import NextLink from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { decodeBase64Utf8 } from "@/components/utils/base64";
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -315,7 +315,7 @@ export default function ClientOpenedInferenceJobPage() {
     }
     run();
     return () => { cancelled = true; };
-  }, [current?.key, job?.status, job?.taskType]);
+  }, [current, downloading, isParquetResult, job, job?.status, job?.taskType]);
 
   function formatTimestamp(ts?: string): string {
     if (!ts) return "";
@@ -414,7 +414,7 @@ export default function ClientOpenedInferenceJobPage() {
   const [pqLoading, setPqLoading] = useState<boolean>(false);
   const [pqError, setPqError] = useState<string | null>(null);
 
-  async function queryParquetPage(url: string, page: number, bucketForCache?: string, keyForCache?: string) {
+  const queryParquetPage = useCallback(async (url: string, page: number, bucketForCache?: string, keyForCache?: string) => {
     setPqLoading(true);
     setPqError(null);
     try {
@@ -476,7 +476,7 @@ export default function ClientOpenedInferenceJobPage() {
     } finally {
       setPqLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -491,7 +491,7 @@ export default function ClientOpenedInferenceJobPage() {
     }
     run();
     return () => { cancelled = true; };
-  }, [current?.id, tablePage]);
+  }, [current, isParquetResult, queryParquetPage, tablePage]);
 
   return (
     <Box px="10%" py="20px">

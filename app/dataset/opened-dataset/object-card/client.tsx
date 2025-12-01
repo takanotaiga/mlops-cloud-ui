@@ -23,7 +23,7 @@ import {
 import NextLink from "next/link";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 import { useSearchParams , useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { decodeBase64Utf8, encodeBase64Utf8 } from "@/components/utils/base64";
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -269,14 +269,14 @@ export default function ClientObjectCardPage() {
   });
 
   // Media classifier for nav list
-  const classifyMedia = (n?: string): MediaType | "Other" => {
+  const classifyMedia = useCallback((n?: string): MediaType | "Other" => {
     const name = (n || "").toLowerCase();
     if (/\.(jpg|jpeg|png|webp|gif|avif)$/.test(name)) return "Image";
     if (/\.(mp4|mov|mkv|avi|webm)$/.test(name)) return "Video";
     if (/\.(pcd|ply|las|laz|bin)$/.test(name)) return "PointCloud";
     if (/\.(bag|mcap)$/.test(name)) return "ROSBag";
     return "Other";
-  };
+  }, []);
 
   const filteredNavList = useMemo(() => {
     if (!navList || navList.length === 0) return [];
@@ -293,7 +293,7 @@ export default function ClientObjectCardPage() {
       if (labelFilter.text === "no" && pres.text) return false;
       return true;
     });
-  }, [navList, selectedMedia, labelPresence, labelFilter]);
+  }, [navList, selectedMedia, labelPresence, labelFilter, classifyMedia]);
 
   const { prevItem, nextItem } = useMemo(() => {
     if (!filteredNavList || filteredNavList.length === 0) return { prevItem: undefined, nextItem: undefined };
@@ -489,7 +489,7 @@ export default function ClientObjectCardPage() {
       }
       const r = Date.now().toString();
       router.push(`/dataset/opened-dataset?d=${encodeURIComponent(d)}&r=${encodeURIComponent(r)}`);
-    } catch (e) {
+    } catch (_e) {
       // On timeout or failure, do not block the user. Navigate back and refresh silently.
       const d = params.get("d") || "";
       if (datasetName) {
@@ -551,7 +551,7 @@ export default function ClientObjectCardPage() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [prevItem, nextItem, router]);
+  }, [prevItem, nextItem, router, makeHref]);
 
   return (
     <Box px="10%" py="20px">
@@ -1003,6 +1003,8 @@ function ImageAnnotator(props: {
       onMouseLeave={() => { setCursor(null); }}
       cursor={canAnnotate ? "crosshair" : "default"}
     >
+      {/* Using native img for overlay/annotation simplicity */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
         alt="preview"
