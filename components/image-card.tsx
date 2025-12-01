@@ -1,4 +1,4 @@
-import React, { memo } from "react";
+import { memo } from "react";
 import { Box, Heading, Text, Image, VStack, LinkOverlay, LinkBox } from "@chakra-ui/react";
 
 type ImageCardProps = {
