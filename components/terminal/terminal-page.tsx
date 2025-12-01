@@ -11,7 +11,7 @@ import {
 } from "@chakra-ui/react";
 import { useColorModeValue } from "@/components/ui/color-mode";
 import {
-  LuActivity,
+  LuCopy,
   LuTerminal,
   LuTrash2,
 } from "react-icons/lu";
@@ -85,7 +85,9 @@ export default function TerminalPage() {
 
   useEffect(() => {
     if (entries.length === 0) return;
-    outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight });
+    const el = outputRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
   }, [entries]);
 
   useEffect(() => {
@@ -218,22 +220,19 @@ export default function TerminalPage() {
     }
   };
 
-  const sendPing = () => {
-    if (!isOpen) {
-      appendSystem("Not connected. Open a session first.");
-      return;
-    }
-    try {
-      socketRef.current?.send(JSON.stringify({ type: "ping" }));
-      appendSystem("ping →");
-    } catch (err) {
-      appendError(`Ping failed: ${String(err)}`);
-    }
-  };
-
   const softClear = () => {
     clear();
     appendSystem("Console cleared.");
+  };
+
+  const copyAll = async () => {
+    try {
+      const text = entries.map((entry) => entry.text).join("\n");
+      await navigator.clipboard.writeText(text);
+      appendSystem("Copied terminal output to clipboard.");
+    } catch (err) {
+      appendError(`Copy failed: ${String(err)}`);
+    }
   };
 
   type AnsiStyle = { fg?: string; bg?: string; bold?: boolean };
@@ -348,7 +347,7 @@ export default function TerminalPage() {
 
   return (
     <Box bg={heroBg} minH="calc(100vh - 64px)" py={4}>
-      <VStack gap={4} maxW="1200px" mx="auto" px={{ base: 4, md: 6 }} align="stretch">
+      <VStack gap={4} maxW="100%" mx="auto" px={{ base: 3, md: 4 }} align="stretch">
         <Box
           rounded="lg"
           bg={panelBg}
@@ -387,8 +386,8 @@ export default function TerminalPage() {
                 </VStack>
               </HStack>
               <HStack gap={2}>
-                <IconButton aria-label="Ping" size="sm" variant="ghost" onClick={sendPing}>
-                  <LuActivity />
+                <IconButton aria-label="Copy output" size="sm" variant="ghost" onClick={copyAll}>
+                  <LuCopy />
                 </IconButton>
                 <IconButton aria-label="Clear output" size="sm" variant="ghost" onClick={softClear}>
                   <LuTrash2 />
@@ -398,7 +397,7 @@ export default function TerminalPage() {
           </Box>
 
           <Box
-            px={{ base: 4, md: 6 }}
+            px={{ base: 3, md: 4 }}
             py={3}
             bg={terminalBg}
             color={terminalText}
@@ -407,7 +406,9 @@ export default function TerminalPage() {
             gap={3}
             ref={outputRef}
             borderBottomRadius="lg"
-            minH="80vh"
+            minH="75vh"
+            maxH="80vh"
+            overflowY="auto"
           >
             <VStack align="start" gap={1} flex="1" overflowY="visible">
               {entries.length === 0 ? (
