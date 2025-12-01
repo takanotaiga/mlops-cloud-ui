@@ -3,17 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
-  Button,
   HStack,
   IconButton,
+  Input,
   Text,
-  Textarea,
   VStack,
 } from "@chakra-ui/react";
 import { useColorModeValue } from "@/components/ui/color-mode";
 import {
   LuActivity,
-  LuSend,
   LuTerminal,
   LuTrash2,
 } from "react-icons/lu";
@@ -52,11 +50,8 @@ function useLog() {
 }
 
 export default function TerminalPage() {
-  const heroBg = useColorModeValue(
-    "linear-gradient(135deg, #f8fafc 0%, #eef2ff 35%, #e0f2fe 100%)",
-    "linear-gradient(135deg, #0b1222 0%, #0f172a 35%, #0b1222 100%)",
-  );
-  const panelBg = useColorModeValue("white", "gray.800");
+  const heroBg = useColorModeValue("white", "gray.900");
+  const panelBg = useColorModeValue("white", "gray.900");
   const panelBorder = useColorModeValue("gray.200", "gray.700");
   const terminalBg = useColorModeValue("#0f172a", "#0b1020");
   const terminalText = useColorModeValue("teal.100", "teal.100");
@@ -352,18 +347,28 @@ export default function TerminalPage() {
   };
 
   return (
-    <Box bgGradient={heroBg} minH="calc(100vh - 64px)" py={12}>
-      <VStack gap={8} maxW="100%" mx="auto" px={{ base: 4, md: 8 }} align="stretch">
+    <Box bg={heroBg} minH="calc(100vh - 64px)" py={4}>
+      <VStack gap={4} maxW="1200px" mx="auto" px={{ base: 4, md: 6 }} align="stretch">
         <Box
-          rounded="2xl"
+          rounded="lg"
           bg={panelBg}
           borderWidth="1px"
           borderColor={panelBorder}
-          shadow="md"
+          shadow="sm"
           overflow="hidden"
           w="100%"
+          display="flex"
+          flexDir="column"
+          minH="0"
         >
-          <Box px={{ base: 4, md: 6 }} py={4} borderBottomWidth="1px" borderColor={panelBorder} bg="whiteAlpha.70">
+          <Box
+            px={{ base: 3, md: 4 }}
+            py={2}
+            borderBottomWidth="1px"
+            borderColor={panelBorder}
+            bg="whiteAlpha.60"
+            borderTopRadius="lg"
+          >
             <HStack justify="space-between" align="center">
               <HStack gap={3}>
                 <Box
@@ -379,7 +384,6 @@ export default function TerminalPage() {
                 </Box>
                 <VStack align="start" gap={0}>
                   <Text fontWeight="semibold">Interactive shell</Text>
-                  <Text color="gray.600" fontSize="sm">Live stdout/stderr stream</Text>
                 </VStack>
               </HStack>
               <HStack gap={2}>
@@ -393,8 +397,19 @@ export default function TerminalPage() {
             </HStack>
           </Box>
 
-          <Box px={{ base: 4, md: 6 }} py={4} bg={terminalBg} color={terminalText} minH="420px" maxH="560px" overflowY="auto" ref={outputRef}>
-            <VStack align="start" gap={1}>
+          <Box
+            px={{ base: 4, md: 6 }}
+            py={3}
+            bg={terminalBg}
+            color={terminalText}
+            display="flex"
+            flexDir="column"
+            gap={3}
+            ref={outputRef}
+            borderBottomRadius="lg"
+            minH="80vh"
+          >
+            <VStack align="start" gap={1} flex="1" overflowY="visible">
               {entries.length === 0 ? (
                 <Text color="teal.200" fontFamily="mono">
                   Waiting for output...
@@ -421,30 +436,29 @@ export default function TerminalPage() {
                 ))
               )}
             </VStack>
-          </Box>
-
-          <Box px={{ base: 4, md: 6 }} py={4} borderTopWidth="1px" borderColor={panelBorder} bg="whiteAlpha.80">
-            <Text mb={2} fontWeight="semibold">Send command</Text>
-            <Textarea
-              placeholder="Type a command, press Enter to send. Shift+Enter adds a newline."
-              rows={3}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  sendInput();
-                }
-              }}
-              fontFamily="mono"
-            />
-            <HStack justify="flex-end" mt={3}>
-              <Button size="sm" onClick={sendInput} colorPalette="teal">
-                <HStack gap={2}>
-                  <LuSend />
-                  <Text>Send</Text>
-                </HStack>
-              </Button>
+            <HStack
+              borderTopWidth="1px"
+              borderColor={panelBorder}
+              pt={2}
+              align="center"
+              gap={2}
+              color={terminalText}
+              pb={2}
+            >
+              <Text fontFamily="mono" fontSize="sm" color="teal.200">$</Text>
+              <Input
+                variant="flushed"
+                placeholder="Type command and press Enter"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    sendInput();
+                  }
+                }}
+                fontFamily="mono"
+              />
             </HStack>
           </Box>
         </Box>
