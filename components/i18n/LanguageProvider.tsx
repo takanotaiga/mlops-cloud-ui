@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 
 type Lang = "en" | "ja"
 
@@ -308,7 +308,7 @@ export function LanguageProvider({ children, initialLang }: { children: React.Re
     return "en";
   });
 
-  const setLang = (l: Lang) => {
+  const setLang = useCallback((l: Lang) => {
     setLangState(l);
     try {
       localStorage.setItem("mlops-ui.lang", l);
@@ -316,14 +316,14 @@ export function LanguageProvider({ children, initialLang }: { children: React.Re
         document.cookie = `mlops-ui.lang=${l}; path=/; max-age=${60 * 60 * 24 * 365}`;
       }
     } catch { void 0; }
-  };
+  }, []);
 
-  const t = (key: string, fallback?: string) => {
+  const t = useCallback((key: string, fallback?: string) => {
     const d = DICTS[lang];
     return d[key] ?? fallback ?? key;
-  };
+  }, [lang]);
 
-  const value = useMemo(() => ({ lang, setLang, t }), [lang]);
+  const value = useMemo(() => ({ lang, setLang, t }), [lang, setLang, t]);
   return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
 }
 

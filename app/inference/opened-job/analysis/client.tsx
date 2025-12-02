@@ -424,7 +424,10 @@ export default function ClientDetailedAnalysisPage() {
                         const cols = [xCol, ...yCols];
                         const csv = toCSV(rows, cols);
                         const buf = await csvToParquetViaDuckDB(csv);
-                        downloadBlob(new Blob([buf], { type: "application/octet-stream" }), suggestFilename(`${jobName || "export"}_${chartType}.parquet`));
+                        // Copy into a fresh ArrayBuffer to avoid SharedArrayBuffer-backed views
+                        const arrayBuffer = new ArrayBuffer(buf.byteLength);
+                        new Uint8Array(arrayBuffer).set(buf);
+                        downloadBlob(new Blob([arrayBuffer], { type: "application/octet-stream" }), suggestFilename(`${jobName || "export"}_${chartType}.parquet`));
                       } catch (e: any) { setExportError(String(e?.message || e)); }
                       finally { setExportBusy(false); }
                     }} disabled={exportBusy || !xCol || yCols.length === 0}>Export Parquet</Button>

@@ -164,7 +164,7 @@ export default function Page() {
               const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
               cleanup();
               resolve({ thumb: dataUrl, durationSec: dur });
-            } catch (e) {
+            } catch (_e) {
               cleanup();
               resolve({ thumb: null, durationSec: 0 });
             }
@@ -402,7 +402,7 @@ export default function Page() {
         return; // block upload
       }
       setTitleExists(false);
-    } catch (e) {
+    } catch (_e) {
       setError("データセット名の重複確認に失敗しました。接続を確認してください。");
       return;
     }
@@ -413,14 +413,15 @@ export default function Page() {
     setUploadedInfos(new Array(selectedFiles.length).fill(null));
     setView("progress");
 
-    const toUint8Array = (dataUrl: string): Uint8Array => {
+    const toArrayBuffer = (dataUrl: string): ArrayBuffer => {
       // data:[<mediatype>][;base64],<data>
       const parts = dataUrl.split(",");
       const b64 = parts[1] || "";
       const bin = atob(b64);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      return bytes;
+      // Ensure we hand Blob an ArrayBuffer (not SharedArrayBuffer)
+      return bytes.buffer;
     };
 
     const getThumbNameFor = (name: string) => `${name.replace(/\/+$/, "")}.jpg`;
@@ -454,7 +455,7 @@ export default function Page() {
               if (thumbDataUrl) {
                 try {
                   const form = new FormData();
-                  form.set("file", new Blob([toUint8Array(thumbDataUrl)], { type: "image/jpeg" }), getThumbNameFor(file.name));
+                  form.set("file", new Blob([toArrayBuffer(thumbDataUrl)], { type: "image/jpeg" }), getThumbNameFor(file.name));
                   form.set("dataset", title);
                   form.set("filename", getThumbNameFor(file.name));
                   form.set("contentType", "image/jpeg");
@@ -549,8 +550,8 @@ export default function Page() {
                 },
               );
               if (file.type.startsWith("video/")) uploadedVideoNames.push(file.name);
-            } catch (e) {
-              console.error("Failed to register file in SurrealDB:", file.name, e);
+            } catch (_e) {
+              console.error("Failed to register file in SurrealDB:", file.name, _e);
             }
           }
           // When encoding mode is All Merge, persist the ordered concatenation sequence
@@ -564,12 +565,12 @@ export default function Page() {
                 "CREATE merge_group CONTENT { dataset: $dataset, mode: 'all', members: $members, createdAt: time::now() }",
                 { dataset: title, members }
               );
-            } catch (e) {
-              console.error("Failed to save merge_group sequence", e);
+            } catch (_e) {
+              console.error("Failed to save merge_group sequence", _e);
             }
           }
-        } catch (e) {
-          console.error("SurrealDB registration error:", e);
+        } catch (_e) {
+          console.error("SurrealDB registration error:", _e);
         } finally {
           setView("done");
         }
@@ -579,7 +580,7 @@ export default function Page() {
         setError("アップロードに失敗しました。設定やネットワークを確認してください。");
         setView("form");
       });
-  }, [title, counts, encodeMode, selectedFiles.length]);
+  }, [title, counts, encodeMode, selectedFiles, titleRuleError, surreal, videoThumbs]);
   if (view === "progress") {
     return (
       <HStack justify="center">

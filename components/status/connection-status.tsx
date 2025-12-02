@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Status, Text, Tooltip, Box } from "@chakra-ui/react";
 
 type Props = { variant?: "full" | "dot" };

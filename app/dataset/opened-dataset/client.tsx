@@ -28,7 +28,7 @@ import {
   CloseButton,
  Badge, Accordion } from "@chakra-ui/react";
 import { useSearchParams , useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, Fragment } from "react";
+import { useCallback, useEffect, useMemo, useState, Fragment } from "react";
 import { decodeBase64Utf8, encodeBase64Utf8 } from "@/components/utils/base64";
 import NextLink from "next/link";
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider";
@@ -106,24 +106,27 @@ export default function ClientOpenedDatasetPage() {
   const [removing, setRemoving] = useState(false);
   const filesByName = useMemo(() => Object.fromEntries((files || []).map((ff) => [String(ff.name), ff])), [files]);
 
-  // Encode job status per file in this dataset
-  type EncodeStatus = "complete" | "in-progress" | "unknown";
-  const { data: encodeStatusMap = {} } = useQuery({
-    queryKey: ["encode-status", datasetName, refreshToken],
+  // HLS job status per file in this dataset
+  type HlsStatus = "complete" | "in_progress" | "queued" | "unknown";
+  const { data: hlsStatusMap = {} } = useQuery({
+    queryKey: ["hls-status", datasetName, refreshToken],
     enabled: isSuccess && !!datasetName,
     queryFn: async () => {
-      // Fetch latest encode job per file (order by created_at desc and take first seen)
+      // Fetch latest HLS job per file (order by created_at desc and take first seen)
       const res = await surreal.query(
-        "SELECT file, status, created_at FROM encode_job WHERE file.dataset == $dataset ORDER BY created_at DESC",
+        "SELECT file, status, created_at FROM hls_job WHERE file.dataset == $dataset ORDER BY created_at DESC",
         { dataset: datasetName }
       );
       const rows = extractRows<any>(res);
-      const map: Record<string, EncodeStatus> = {};
+      const map: Record<string, HlsStatus> = {};
       for (const r of rows) {
         const fid = thingToString(r?.file);
         if (!fid || map[fid]) continue; // keep the latest seen first
         const st = String(r?.status ?? "").toLowerCase();
-        map[fid] = st === "complete" ? "complete" : "in-progress";
+        const isComplete = st === "complete" || st === "completed" || st === "finished" || st === "success" || st === "succeeded" || st === "done";
+        const isQueued = st === "queued" || st === "queue" || st === "waiting" || st === "pending";
+        const isInProgress = st === "in_progress" || st === "processing" || st === "running";
+        map[fid] = isComplete ? "complete" : (isQueued ? "queued" : (isInProgress ? "in_progress" : "unknown"));
       }
       return map;
     },
@@ -209,7 +212,7 @@ export default function ClientOpenedDatasetPage() {
   type MediaType = (typeof MEDIA_OPTIONS)[number]
   const [selectedMedia, setSelectedMedia] = useState<MediaType[]>([...MEDIA_OPTIONS]);
 
-  const classifyMedia = (f: FileRow): MediaType | "Other" => {
+  const classifyMedia = useCallback((f: FileRow): MediaType | "Other" => {
     const mime = (f.mime || "").toLowerCase();
     if (mime.startsWith("image/")) return "Image";
     if (mime.startsWith("video/")) return "Video";
@@ -218,7 +221,7 @@ export default function ClientOpenedDatasetPage() {
     if (key.endsWith(".jpg") || key.endsWith(".jpeg") || key.endsWith(".png") || key.endsWith(".webp") || key.endsWith(".gif") || key.endsWith(".avif")) return "Image";
     if (key.endsWith(".mp4") || key.endsWith(".mov") || key.endsWith(".mkv") || key.endsWith(".avi") || key.endsWith(".webm")) return "Video";
     return "Other";
-  };
+  }, []);
 
   const visibleFiles = useMemo(() => {
     if (!files || selectedMedia.length === 0) return [];
@@ -235,7 +238,7 @@ export default function ClientOpenedDatasetPage() {
       }
       return true;
     });
-  }, [files, selectedMedia, labelPresence, labelFilter]);
+  }, [files, selectedMedia, labelPresence, labelFilter, classifyMedia]);
 
   // Load merge group for this dataset when present to detect "All Merge" first item
   const { data: mergeInfo } = useQuery({
@@ -271,7 +274,7 @@ export default function ClientOpenedDatasetPage() {
       const bn = (b.name || b.key || "").toString();
       return an.localeCompare(bn, undefined, { sensitivity: "base", numeric: true });
     });
-  }, [visibleFiles, mergeInfo?.first]);
+  }, [visibleFiles, mergeInfo]);
 
   // Pagination (20 items per page)
   const PAGE_SIZE = 20;
@@ -582,14 +585,20 @@ export default function ClientOpenedDatasetPage() {
                 const memberFiles: FileRow[] = mergeInfo.members
                   .map((nm: string) => filesByName[nm])
                   .filter(Boolean);
-                const allComplete = memberFiles.length > 0 && memberFiles.every((mf) => encodeStatusMap[mf.id] === "complete");
+                const allComplete = memberFiles.length > 0 && memberFiles.every((mf) => hlsStatusMap[mf.id] === "complete");
                 clickable = allComplete;
                 if (!allComplete) overlayText = t("encode.waitingMerge", "Encoding...");
               } else {
-                const st: EncodeStatus | undefined = encodeStatusMap[f.id];
+                const st: HlsStatus | undefined = hlsStatusMap[f.id];
                 clickable = st === "complete";
                 if (!clickable) {
-                  overlayText = st === "in-progress" ? t("encode.inProgress", "Encoding...") : t("encode.none", "Not encoded");
+                  if (st === "queued") {
+                    overlayText = t("encode.queued", "Queued");
+                  } else if (st === "in_progress") {
+                    overlayText = t("encode.inProgress", "Encoding...");
+                  } else {
+                    overlayText = t("encode.none", "Not encoded");
+                  }
                 }
               }
 

@@ -18,9 +18,3 @@ export async function getObjectUrlPreferPresign(
   // Optionally, we could HEAD here to get size; skip for minimal change.
   return { url, isBlob: false };
 }
-
-export async function deleteObjectFromS3(bucket: string, key: string): Promise<void> {
-  const url = `/api/storage/object?b=${encodeURIComponent(bucket)}&k=${encodeURIComponent(key)}`;
-  const res = await fetch(url, { method: "DELETE" });
-  if (!res.ok) throw new Error(`delete failed: ${res.status}`);
-}

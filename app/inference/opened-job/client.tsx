@@ -3,7 +3,7 @@
 import { Box, Heading, HStack, VStack, Stack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table, Separator, Steps, Accordion } from "@chakra-ui/react";
 import NextLink from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { decodeBase64Utf8 } from "@/components/utils/base64";
 import { useSurreal, useSurrealClient } from "@/components/surreal/SurrealProvider";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -179,27 +179,27 @@ export default function ClientOpenedInferenceJobPage() {
     const i = name.lastIndexOf(".");
     return i >= 0 ? name.slice(i + 1).toLowerCase() : "";
   }
-  function isVideoResult(r?: InferenceResultRow): boolean {
+  const isVideoResult = useCallback((r?: InferenceResultRow): boolean => {
     if (!r) return false;
     const m = (r.mime || "").toLowerCase();
     if (m.startsWith("video/")) return true;
     const ext = getExt(r.key);
     return /^(mp4|mov|mkv|avi|webm)$/i.test(ext);
-  }
-  function isJsonResult(r?: InferenceResultRow): boolean {
+  }, []);
+  const isJsonResult = useCallback((r?: InferenceResultRow): boolean => {
     if (!r) return false;
     const m = (r.mime || "").toLowerCase();
     if (m === "application/json" || m.endsWith("+json")) return true;
     const ext = getExt(r.key);
     return ext === "json";
-  }
-  function isParquetResult(r?: InferenceResultRow): boolean {
+  }, []);
+  const isParquetResult = useCallback((r?: InferenceResultRow): boolean => {
     if (!r) return false;
     const m = (r.mime || "").toLowerCase();
     if (m === "application/parquet" || m === "application/x-parquet") return true;
     const ext = getExt(r.key);
     return ext === "parquet";
-  }
+  }, []);
 
   // HLS playlist for current video result
   type HlsPlaylist = { bucket: string; key: string; totalSegments?: number };
@@ -292,13 +292,15 @@ export default function ClientOpenedInferenceJobPage() {
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      if (!current?.key || !(job && (job.status === "Complete" || job.status === "Completed") && job.taskType === "one-shot-object-detection")) return;
+      if (!current?.key || !current?.bucket) return;
+      if (!(job?.status === "Complete" || job?.status === "Completed")) return;
+      if (job?.taskType !== "one-shot-object-detection") return;
       if (!isParquetResult(current)) return;
       setCheckingParquetLocal(true);
       try {
         const exists = await cacheExists(current.bucket, current.key);
         // no UI indicator; just proceed
-        if (!exists && !downloading) {
+        if (!exists) {
           try {
             setDownloading(true);
             setDownloadPct(0);
@@ -315,7 +317,7 @@ export default function ClientOpenedInferenceJobPage() {
     }
     run();
     return () => { cancelled = true; };
-  }, [current?.key, job?.status, job?.taskType]);
+  }, [current?.bucket, current?.key, isParquetResult, job?.status, job?.taskType]);
 
   function formatTimestamp(ts?: string): string {
     if (!ts) return "";
@@ -414,7 +416,7 @@ export default function ClientOpenedInferenceJobPage() {
   const [pqLoading, setPqLoading] = useState<boolean>(false);
   const [pqError, setPqError] = useState<string | null>(null);
 
-  async function queryParquetPage(url: string, page: number, bucketForCache?: string, keyForCache?: string) {
+  const queryParquetPage = useCallback(async (url: string, page: number, bucketForCache?: string, keyForCache?: string) => {
     setPqLoading(true);
     setPqError(null);
     try {
@@ -476,7 +478,7 @@ export default function ClientOpenedInferenceJobPage() {
     } finally {
       setPqLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -491,7 +493,7 @@ export default function ClientOpenedInferenceJobPage() {
     }
     run();
     return () => { cancelled = true; };
-  }, [current?.id, tablePage]);
+  }, [current, isParquetResult, queryParquetPage, tablePage]);
 
   return (
     <Box px="10%" py="20px">

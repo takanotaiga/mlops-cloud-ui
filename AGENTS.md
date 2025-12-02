@@ -7,12 +7,12 @@
 - next.config.js, tsconfig.json: Build and TypeScript settings; note path alias '@/*'.
 
 ## Build, Test, and Development Commands
-- Use Yarn for all local development and build verification (CI also uses Yarn). Node 18+.
-- yarn dev: Run the local dev server with HMR.
-- yarn build: Create a production build via Next.js.
-- yarn start: Serve the production build.
-- yarn type-check: Run TypeScript type checking (no emit).
-- Build verification flow: yarn install && yarn build && yarn start (do not use npm for verification).
+- Use npm for all local development and build verification (CI also uses npm). Node 18+.
+- npm run dev: Run the local dev server with HMR.
+- npm run build: Create a production build via Next.js.
+- npm run start: Serve the production build.
+- npm run type-check: Run TypeScript type checking (no emit).
+- Build verification flow: npm install && npm run build && npm run start.
 
 ## Coding Style & Naming Conventions
 - TypeScript: Strict mode enabled; ESNext modules and bundler resolution.
@@ -82,7 +82,7 @@
 ### Local Setup (example)
 - MinIO: Start a local MinIO server, create a bucket (e.g., `horus-bucket`), and set CORS to allow your dev origin. Update `endpoint`, `accessKeyId`, `secretAccessKey`, and `bucket` in `app/secrets/minio-config.tsx` or via env.
 - SurrealDB: Start SurrealDB with WebSocket enabled. Set `NEXT_PUBLIC_SURREAL_URL` to `ws://localhost:8000/rpc`, and configure `NEXT_PUBLIC_SURREAL_NS`, `NEXT_PUBLIC_SURREAL_DB`, `NEXT_PUBLIC_SURREAL_USER`, `NEXT_PUBLIC_SURREAL_PASS`.
-- Dev Flow: `yarn dev` starts the UI. The header’s connection badge reflects SurrealDB and MinIO reachability.
+- Dev Flow: `npm run dev` starts the UI. The header’s connection badge reflects SurrealDB and MinIO reachability.
 
 ## Source Map
 
@@ -107,7 +107,6 @@
 - `components/header.tsx`: App header with navigation and connection status.
 - `components/status/connection-status.tsx`: Checks SurrealDB connectivity and MinIO bucket health; displays a compact status.
 - `components/image-card.tsx`: Memoized dataset card showing a static thumbnail and a dynamic title; accepts `href` for navigation.
-- `components/content-card.tsx`: Simple content thumbnail card used in the dataset detail grid.
 
 **Surreal & Utilities**
 - `components/surreal/SurrealProvider.tsx`: Context provider creating a `surrealdb` client; manages connect, signin, and `use ns/db`.

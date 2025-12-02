@@ -1,6 +1,7 @@
 "use client";
 
 import { Box, HStack, VStack, Heading, Text, Button, Input, Textarea, Select, createListCollection, Portal } from "@chakra-ui/react";
+import NextImage from "next/image";
 import { useState } from "react";
 import { useI18n } from "@/components/i18n/LanguageProvider";
 
@@ -98,7 +99,7 @@ export default function Page() {
               <Input type="file" accept="image/*" size="sm" onChange={onPickFile} />
               {imageUrl && (
                 <Box mt="12px" rounded="md" overflow="hidden" borderWidth="1px">
-                  <img src={imageUrl} alt="preview" style={{ display: "block", width: "100%", height: "auto" }} />
+                  <NextImage src={imageUrl} alt="preview" width={800} height={600} style={{ width: "100%", height: "auto" }} />
                 </Box>
               )}
               {taskType === "image-to-text" && (
