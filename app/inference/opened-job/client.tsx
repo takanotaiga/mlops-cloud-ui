@@ -179,27 +179,27 @@ export default function ClientOpenedInferenceJobPage() {
     const i = name.lastIndexOf(".");
     return i >= 0 ? name.slice(i + 1).toLowerCase() : "";
   }
-  function isVideoResult(r?: InferenceResultRow): boolean {
+  const isVideoResult = useCallback((r?: InferenceResultRow): boolean => {
     if (!r) return false;
     const m = (r.mime || "").toLowerCase();
     if (m.startsWith("video/")) return true;
     const ext = getExt(r.key);
     return /^(mp4|mov|mkv|avi|webm)$/i.test(ext);
-  }
-  function isJsonResult(r?: InferenceResultRow): boolean {
+  }, []);
+  const isJsonResult = useCallback((r?: InferenceResultRow): boolean => {
     if (!r) return false;
     const m = (r.mime || "").toLowerCase();
     if (m === "application/json" || m.endsWith("+json")) return true;
     const ext = getExt(r.key);
     return ext === "json";
-  }
-  function isParquetResult(r?: InferenceResultRow): boolean {
+  }, []);
+  const isParquetResult = useCallback((r?: InferenceResultRow): boolean => {
     if (!r) return false;
     const m = (r.mime || "").toLowerCase();
     if (m === "application/parquet" || m === "application/x-parquet") return true;
     const ext = getExt(r.key);
     return ext === "parquet";
-  }
+  }, []);
 
   // HLS playlist for current video result
   type HlsPlaylist = { bucket: string; key: string; totalSegments?: number };
@@ -292,13 +292,15 @@ export default function ClientOpenedInferenceJobPage() {
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      if (!current?.key || !(job && (job.status === "Complete" || job.status === "Completed") && job.taskType === "one-shot-object-detection")) return;
+      if (!current?.key || !current?.bucket) return;
+      if (!(job?.status === "Complete" || job?.status === "Completed")) return;
+      if (job?.taskType !== "one-shot-object-detection") return;
       if (!isParquetResult(current)) return;
       setCheckingParquetLocal(true);
       try {
         const exists = await cacheExists(current.bucket, current.key);
         // no UI indicator; just proceed
-        if (!exists && !downloading) {
+        if (!exists) {
           try {
             setDownloading(true);
             setDownloadPct(0);
@@ -315,7 +317,7 @@ export default function ClientOpenedInferenceJobPage() {
     }
     run();
     return () => { cancelled = true; };
-  }, [current, downloading, isParquetResult, job, job?.status, job?.taskType]);
+  }, [current?.bucket, current?.key, isParquetResult, job?.status, job?.taskType]);
 
   function formatTimestamp(ts?: string): string {
     if (!ts) return "";
