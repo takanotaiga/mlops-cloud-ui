@@ -33,7 +33,7 @@ export default function Header() {
                 <LinkBox h="25px">
                     <LinkOverlay href="/" >
                         <Heading size="md" >
-                            MLOps Cloud v1.6
+                            MLOps Cloud v1.6.1
                         </Heading>
                     </LinkOverlay>
                 </LinkBox>

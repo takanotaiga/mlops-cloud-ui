@@ -25,8 +25,30 @@ type JobRow = {
   updatedAt?: string
 }
 
-type ProgressStep = { key: string; label?: string; state?: "pending" | "running" | "completed" | "failed" }
+type ProgressState = "pending" | "running" | "completed" | "faild";
+type ProgressStep = { key: string; label?: string; state?: ProgressState }
 type JobProgress = { current_key?: string | null; steps?: ProgressStep[] }
+
+const DEFAULT_PROGRESS_STEPS: { key: string; label: string }[] = [
+  { key: "download", label: "Download" },
+  { key: "preprocess", label: "Preprocess" },
+  { key: "sam2", label: "SAM2" },
+  { key: "dataset_export", label: "Dataset export" },
+  { key: "rtdetr_train", label: "RT-DETR train" },
+  { key: "trt_export", label: "TensorRT export" },
+  { key: "rtdetr_infer", label: "RT-DETR inference" },
+  { key: "aggregate", label: "Aggregate" },
+  { key: "postprocess", label: "Postprocess" },
+  { key: "upload", label: "Upload" },
+];
+
+function normalizeState(state?: string | null): ProgressState {
+  const s = (state || "").toLowerCase();
+  if (s === "running") return "running";
+  if (s === "completed" || s === "complete") return "completed";
+  if (s === "faild" || s === "failed" || s === "fail") return "faild";
+  return "pending";
+}
 
 type InferenceResultRow = {
   id: string
@@ -113,23 +135,50 @@ export default function ClientOpenedInferenceJobPage() {
       const rows = extractRows<any>(res);
       const r = rows[0] || {};
       const p = (r?.progress ?? {}) as JobProgress;
-      // Normalize shape defensively
-      const steps: ProgressStep[] = Array.isArray(p?.steps) ? p.steps.map((s: any) => ({
-        key: String(s?.key ?? ""),
-        label: s?.label ? String(s.label) : undefined,
-        state: (s?.state ?? "pending") as any,
-      })).filter((s) => s.key) : [];
-      return { current_key: p?.current_key ?? null, steps };
+
+      const serverSteps: Record<string, ProgressStep> = {};
+      if (Array.isArray(p?.steps)) {
+        for (const s of p.steps) {
+          if (!s?.key) continue;
+          const key = String(s.key);
+          serverSteps[key] = {
+            key,
+            label: s?.label ? String(s.label) : undefined,
+            state: normalizeState((s as any)?.state),
+          };
+        }
+      }
+
+      const normalizedSteps: ProgressStep[] = DEFAULT_PROGRESS_STEPS.map((d) => {
+        const matched = serverSteps[d.key];
+        return {
+          key: d.key,
+          label: matched?.label || d.label,
+          state: normalizeState(matched?.state || "pending"),
+        };
+      });
+
+      const knownKeys = new Set(DEFAULT_PROGRESS_STEPS.map((d) => d.key));
+      const extras = Object.values(serverSteps).filter((s) => !knownKeys.has(s.key));
+      const steps = normalizedSteps.concat(extras);
+
+      const currentKey = p?.current_key && knownKeys.has(String(p.current_key)) ? String(p.current_key) : (p?.current_key ?? null);
+
+      return { current_key: currentKey, steps };
     },
     refetchOnWindowFocus: false,
     refetchInterval: 800,
     staleTime: 0,
   });
 
-  const procSteps = useMemo(() => (progress?.steps ?? []).map((s) => ({ id: String(s.key), title: String(s.label ?? s.key), state: (s.state ?? "pending") as "pending" | "running" | "completed" | "failed" })), [progress?.steps]);
+  const procSteps = useMemo(() => (progress?.steps ?? []).map((s) => ({
+    id: String(s.key),
+    title: String(s.label ?? s.key),
+    state: normalizeState(s.state),
+  })), [progress?.steps]);
   const currentStepId: string | null | undefined = progress?.current_key ?? null;
   const allCompleted = useMemo(() => procSteps.length > 0 && procSteps.every((s) => (s.state ?? "pending") === "completed"), [procSteps]);
-  const firstFailedIndex = useMemo(() => procSteps.findIndex((s) => (s.state ?? "pending") === "failed"), [procSteps]);
+  const firstFailedIndex = useMemo(() => procSteps.findIndex((s) => (s.state ?? "pending") === "faild"), [procSteps]);
   const activeIndex = useMemo(() => {
     if (typeof firstFailedIndex === "number" && firstFailedIndex >= 0) return firstFailedIndex;
     if (currentStepId) {
@@ -640,8 +689,8 @@ export default function ClientOpenedInferenceJobPage() {
                           <Steps.Root orientation="vertical" count={procSteps.length} step={(allCompleted ? procSteps.length : activeIndex)}>
                             <Steps.List gap="4">
                               {procSteps.map((s, index) => {
-                                const derivedStatus: "pending" | "running" | "completed" | "failed" =
-                                  s.id === currentStepId && s.state !== "completed" ? "running" : (s.state ?? "pending");
+                                const derivedStatus: ProgressState =
+                                  s.id === currentStepId && s.state !== "completed" && s.state !== "faild" ? "running" : (s.state ?? "pending");
                                 return (
                                   <Steps.Item key={s.id} index={index} title={s.title} py="3">
                                     <Steps.Indicator />
@@ -651,7 +700,7 @@ export default function ClientOpenedInferenceJobPage() {
                                       <VStack align="stretch" gap={3} mt={3} mb={6} w="full">
                                         <HStack justify="space-between">
                                           <Badge rounded="full" variant="subtle" colorPalette={
-                                            derivedStatus === "running" ? "blue" : derivedStatus === "completed" ? "green" : derivedStatus === "failed" ? "red" : "gray"
+                                            derivedStatus === "running" ? "blue" : derivedStatus === "completed" ? "green" : derivedStatus === "faild" ? "red" : "gray"
                                           }>
                                             {derivedStatus}
                                           </Badge>

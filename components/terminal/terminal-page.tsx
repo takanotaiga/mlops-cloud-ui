@@ -6,6 +6,7 @@ import {
   HStack,
   IconButton,
   Input,
+  Button,
   Text,
   VStack,
 } from "@chakra-ui/react";
@@ -55,6 +56,7 @@ export default function TerminalPage() {
   const panelBorder = useColorModeValue("gray.200", "gray.700");
   const terminalBg = useColorModeValue("#0f172a", "#0b1020");
   const terminalText = useColorModeValue("teal.100", "teal.100");
+  const statusTextColor = useColorModeValue("gray.600", "gray.300");
   const defaultEndpoint = useMemo(() => {
     if (typeof window === "undefined") return "ws://127.0.0.1:8765";
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
@@ -62,6 +64,9 @@ export default function TerminalPage() {
     const port = "8765";
     return `${proto}://${host}:${port}`;
   }, []);
+  const [endpoint, setEndpoint] = useState(defaultEndpoint);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [cols, setCols] = useState(120);
   const [rows, setRows] = useState(32);
   const [status, setStatus] = useState<"idle" | "connecting" | "ready" | "closed" | "error">("idle");
@@ -71,13 +76,12 @@ export default function TerminalPage() {
   const { entries, push, clear } = useLog();
 
   const fullUrl = useMemo(() => {
-    const base = defaultEndpoint.trim();
+    const base = endpoint.trim();
     const withProtocol = base.startsWith("ws://") || base.startsWith("wss://") ? base : `ws://${base}`;
     return `${withProtocol.replace(/\/$/, "")}`;
-  }, [defaultEndpoint]);
+  }, [endpoint]);
 
   const isOpen = socketRef.current?.readyState === WebSocket.OPEN;
-  const autoConnectRef = useRef(false);
 
   const appendSystem = (text: string) => push({ type: "system", text });
   const appendOutput = (text: string) => push({ type: "output", text });
@@ -113,12 +117,6 @@ export default function TerminalPage() {
   }, []);
 
   useEffect(() => {
-    if (autoConnectRef.current) return;
-    autoConnectRef.current = true;
-    connect();
-  }, []);
-
-  useEffect(() => {
     if (!isOpen || status !== "ready") return;
     try {
       socketRef.current?.send(JSON.stringify({ type: "resize", cols, rows }));
@@ -129,8 +127,20 @@ export default function TerminalPage() {
   }, [cols, rows, isOpen, status]);
 
   const connect = () => {
-    if (isOpen) {
-      socketRef.current?.close();
+    if (!endpoint.trim()) {
+      appendError("Endpoint is required to connect.");
+      return;
+    }
+    if (!username.trim() || !password.trim()) {
+      appendError("Username and password are required to authenticate.");
+      return;
+    }
+    if (socketRef.current) {
+      socketRef.current.onclose = null;
+      socketRef.current.onerror = null;
+      socketRef.current.onmessage = null;
+      socketRef.current.onopen = null;
+      socketRef.current.close();
     }
     try {
       const ws = new WebSocket(fullUrl);
@@ -139,7 +149,22 @@ export default function TerminalPage() {
       appendSystem(`Connecting to ${fullUrl} ...`);
 
       ws.onopen = () => {
-        appendSystem("WebSocket open. Waiting for ready …");
+        appendSystem("WebSocket open. Sending credentials ...");
+        try {
+          ws.send(
+            JSON.stringify({
+              type: "auth",
+              username: username.trim(),
+              password,
+              cols,
+              rows,
+            }),
+          );
+          appendSystem("Auth frame sent. Waiting for ready ...");
+        } catch (err) {
+          setStatus("error");
+          appendError(`Failed to send auth frame: ${String(err)}`);
+        }
       };
 
       ws.onerror = () => {
@@ -148,8 +173,12 @@ export default function TerminalPage() {
       };
 
       ws.onclose = (event) => {
-        setStatus("closed");
-        appendSystem(`Connection closed${typeof event.code === "number" ? ` (code ${event.code})` : ""}.`);
+        setStatus((prev) => (prev === "error" ? "error" : "closed"));
+        appendSystem(
+          `Connection closed${typeof event.code === "number" ? ` (code ${event.code})` : ""}${
+            event.reason ? `: ${event.reason}` : "."
+          }`,
+        );
       };
 
       ws.onmessage = (event) => {
@@ -193,6 +222,12 @@ export default function TerminalPage() {
             appendSystem("pong");
             break;
           }
+          case "error": {
+            const message = (msg as any)?.message ?? "error";
+            setStatus("error");
+            appendError(`Server error: ${String(message)}`);
+            break;
+          }
           default: {
             appendSystem(`Received ${msg.type}`);
           }
@@ -205,7 +240,7 @@ export default function TerminalPage() {
   };
 
   const sendInput = () => {
-    if (!isOpen) {
+    if (!isOpen || status !== "ready") {
       appendSystem("Not connected. Open a session first.");
       return;
     }
@@ -393,6 +428,45 @@ export default function TerminalPage() {
                   <LuTrash2 />
                 </IconButton>
               </HStack>
+            </HStack>
+            <HStack gap={2} mt={3} flexWrap="wrap">
+              <Input
+                placeholder="ws://host:8765"
+                value={endpoint}
+                onChange={(e) => setEndpoint(e.target.value)}
+                size="sm"
+                maxW="260px"
+              />
+              <Input
+                placeholder="Username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                size="sm"
+                maxW="180px"
+              />
+              <Input
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    connect();
+                  }
+                }}
+                type="password"
+                size="sm"
+                maxW="180px"
+              />
+              <Button size="sm" colorScheme="teal" onClick={connect} disabled={status === "connecting"}>
+                {status === "ready" ? "Reconnect" : "Connect"}
+              </Button>
+              <Text
+                fontSize="sm"
+                color={status === "ready" ? "green.500" : status === "error" ? "red.500" : statusTextColor}
+              >
+                Status: {status}
+              </Text>
             </HStack>
           </Box>
 
