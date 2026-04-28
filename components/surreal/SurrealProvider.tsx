@@ -1,5 +1,6 @@
 "use client";
 
+import { resolveDbOperation } from "@/lib/db/operation-map";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 interface SurrealProviderProps {
   children: React.ReactNode
@@ -42,10 +43,14 @@ export function SurrealProvider({ children, autoConnect = true }: SurrealProvide
 
   const apiClient: ApiSurrealLike = useMemo(() => ({
     query: async (sql: string, vars?: Record<string, unknown>) => {
+      const operation = resolveDbOperation(sql);
+      if (!operation) {
+        throw new Error("DB operation is not allowed");
+      }
       const res = await fetch("/api/db/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sql, vars }),
+        body: JSON.stringify({ operation, vars }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({} as any));
