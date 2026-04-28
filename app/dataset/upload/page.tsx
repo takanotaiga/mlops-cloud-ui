@@ -99,7 +99,6 @@ export default function Page() {
   const [hasLongVideo15, setHasLongVideo15] = useState<boolean>(false);
   const [view, setView] = useState<"form" | "progress" | "done">("form");
   const [progress, setProgress] = useState<number[]>([]);
-  const [uploadedInfos, setUploadedInfos] = useState<Array<{ bucket: string; key: string } | null>>([]);
   const [titleRuleError, setTitleRuleError] = useState<string | null>(null);
   const titleCheckSeq = useRef(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -410,8 +409,8 @@ export default function Page() {
     setTitleInvalid(false);
     // Start real upload to MinIO (URL unchanged)
     setProgress(new Array(selectedFiles.length).fill(0));
-    setUploadedInfos(new Array(selectedFiles.length).fill(null));
     setView("progress");
+    const uploadResults: Array<{ bucket: string; key: string } | null> = new Array(selectedFiles.length).fill(null);
 
     const toArrayBuffer = (dataUrl: string): ArrayBuffer => {
       // data:[<mediatype>][;base64],<data>
@@ -446,7 +445,7 @@ export default function Page() {
             try {
               const data = JSON.parse(xhr.responseText || "{}");
               if (data && data.bucket && data.key) {
-                setUploadedInfos((prev) => { const next = [...prev]; next[idx] = { bucket: String(data.bucket), key: String(data.key) }; return next; });
+                uploadResults[idx] = { bucket: String(data.bucket), key: String(data.key) };
               }
             } catch { /* ignore */ }
             // Upload thumbnail if present (non-blocking errors)
@@ -530,7 +529,7 @@ export default function Page() {
           const uploadedVideoNames: string[] = [];
           for (let i = 0; i < selectedFiles.length; i++) {
             const file = selectedFiles[i];
-            const key = uploadedInfos[i]?.key || `${title}/${file.name}`;
+            const key = uploadResults[i]?.key || `${title}/${file.name}`;
             const thumbKey = file.type.startsWith("video/") && videoThumbs[i]
               ? `${title}/.thumbs/${file.name}.jpg`
               : undefined;
@@ -540,7 +539,7 @@ export default function Page() {
                 {
                   name: file.name,
                   key,
-                  bucket: uploadedInfos[i]?.bucket || "mlops-datasets",
+                  bucket: uploadResults[i]?.bucket || "mlops-datasets",
                   size: file.size,
                   mime: file.type || "application/octet-stream",
                   dataset: title,
