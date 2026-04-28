@@ -2,15 +2,20 @@ import { DB_OPERATION_SQL, type DbOperation, isDbOperation } from "@/lib/db/oper
 import { withSurreal } from "@/lib/server/surreal";
 
 type Vars = Record<string, unknown>;
-type VarKind = "string" | "number" | "stringArray" | "optionalString" | "optionalNumber";
+type VarKind = "string" | "number" | "positiveInteger" | "stringArray" | "optionalString" | "optionalNumber";
 type VarRule = { kind: VarKind; values?: readonly string[] };
 type VarSchema = Record<string, VarRule>;
 
 const stringRule: VarRule = { kind: "string" };
 const numberRule: VarRule = { kind: "number" };
+const positiveIntegerRule: VarRule = { kind: "positiveInteger" };
 const stringArrayRule: VarRule = { kind: "stringArray" };
 const optionalStringRule: VarRule = { kind: "optionalString" };
 const optionalNumberRule: VarRule = { kind: "optionalNumber" };
+const inferenceBackendRule: VarRule = {
+  kind: "string",
+  values: ["pytorch-fp32", "pytorch-fp16", "tensorrt-fp16"],
+};
 
 const MUTATION_OPERATIONS = new Set<DbOperation>([
   "datasetCreateFile",
@@ -96,6 +101,8 @@ const OPERATION_SCHEMAS: Partial<Record<DbOperation, VarSchema>> = {
     taskType: stringRule,
     model: stringRule,
     modelSource: { kind: "string", values: ["internet", "trained"] },
+    inferenceBackend: inferenceBackendRule,
+    rtdetrEpochs: positiveIntegerRule,
     datasets: stringArrayRule,
   },
   inferenceJobUpdate: {
@@ -104,6 +111,8 @@ const OPERATION_SCHEMAS: Partial<Record<DbOperation, VarSchema>> = {
     taskType: stringRule,
     model: stringRule,
     modelSource: { kind: "string", values: ["internet", "trained"] },
+    inferenceBackend: inferenceBackendRule,
+    rtdetrEpochs: positiveIntegerRule,
     datasets: stringArrayRule,
   },
   inferenceJobSoftDelete: { name: stringRule },
@@ -113,6 +122,8 @@ const OPERATION_SCHEMAS: Partial<Record<DbOperation, VarSchema>> = {
     taskType: stringRule,
     model: stringRule,
     modelSource: optionalStringRule,
+    inferenceBackend: inferenceBackendRule,
+    rtdetrEpochs: positiveIntegerRule,
     datasets: stringArrayRule,
   },
   inferenceResultsByJob: { job: stringRule },
@@ -215,6 +226,13 @@ function validateValue(key: string, value: unknown, rule: VarRule): unknown {
 
   if (kind === "number") {
     if (typeof value !== "number" || !Number.isFinite(value)) {
+      throw new DbOperationError(`Invalid variable: ${key}`, 400);
+    }
+    return value;
+  }
+
+  if (kind === "positiveinteger") {
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
       throw new DbOperationError(`Invalid variable: ${key}`, 400);
     }
     return value;

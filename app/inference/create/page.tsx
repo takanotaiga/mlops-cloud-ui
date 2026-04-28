@@ -55,6 +55,15 @@ const taskOptions = createListCollection({
   ],
 });
 
+const DEFAULT_SAMURAI_INFERENCE_BACKEND = "tensorrt-fp16";
+const DEFAULT_SAMURAI_RTDETR_EPOCHS = 4;
+const SAMURAI_INFERENCE_BACKENDS = [
+  { label: "TensorRT FP16", value: "tensorrt-fp16" },
+  { label: "PyTorch FP32", value: "pytorch-fp32" },
+  { label: "PyTorch FP16", value: "pytorch-fp16" },
+] as const;
+type SamuraiInferenceBackend = (typeof SAMURAI_INFERENCE_BACKENDS)[number]["value"];
+
 export default function Page() {
   const { t } = useI18n();
   const surreal = useSurrealClient();
@@ -94,6 +103,8 @@ export default function Page() {
   const [modelSource, setModelSource] = useState<"internet" | "trained">("internet");
   const [internetModel, setInternetModel] = useState<string>("");
   const [trainedModelName, setTrainedModelName] = useState<string>("");
+  const [inferenceBackend, setInferenceBackend] = useState<SamuraiInferenceBackend>(DEFAULT_SAMURAI_INFERENCE_BACKEND);
+  const [rtdetrEpochs, setRtdetrEpochs] = useState<number>(DEFAULT_SAMURAI_RTDETR_EPOCHS);
   const [selectedDatasets, setSelectedDatasets] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -105,10 +116,17 @@ export default function Page() {
 
   const internetModelItems = useMemo(() => (taskType ? (INTERNET_MODELS_BY_TASK[taskType] ?? []) : []), [taskType]);
   const internetModelCollection = useMemo(() => createListCollection({ items: internetModelItems }), [internetModelItems]);
+  const samuraiInferenceBackendCollection = useMemo(
+    () => createListCollection({ items: [...SAMURAI_INFERENCE_BACKENDS] }),
+    [],
+  );
+  const showSamuraiInferenceBackend = modelSource === "internet" && internetModel === "samurai-ulr";
   useEffect(() => {
     // Reset models when task or source changes
     setInternetModel("");
     setTrainedModelName("");
+    setInferenceBackend(DEFAULT_SAMURAI_INFERENCE_BACKEND);
+    setRtdetrEpochs(DEFAULT_SAMURAI_RTDETR_EPOCHS);
   }, [taskType, modelSource]);
 
   // Lock when the same job is in progress
@@ -138,6 +156,8 @@ export default function Page() {
       taskType,
       model: chosenModel,
       modelSource,
+      inferenceBackend,
+      rtdetrEpochs,
       datasets: selectedDatasets,
     };
     try {
@@ -145,12 +165,12 @@ export default function Page() {
       const rows = extractRows<any>(check);
       if (rows.length > 0) {
         await surreal.query(
-          "UPDATE inference_job SET dead = false, status = 'ProcessWaiting', taskType = $taskType, model = $model, modelSource = $modelSource, datasets = $datasets, updatedAt = time::now() WHERE name == $name",
+          "UPDATE inference_job SET dead = false, status = 'ProcessWaiting', taskType = $taskType, model = $model, modelSource = $modelSource, inferenceBackend = $inferenceBackend, rtdetrEpochs = $rtdetrEpochs, datasets = $datasets, updatedAt = time::now() WHERE name == $name",
           { name: trimmedJobName, ...payload },
         );
       } else {
         await surreal.query(
-          "CREATE inference_job CONTENT { name: $name, dead: false, status: 'ProcessWaiting', taskType: $taskType, model: $model, modelSource: $modelSource, datasets: $datasets, createdAt: time::now(), updatedAt: time::now() }",
+          "CREATE inference_job CONTENT { name: $name, dead: false, status: 'ProcessWaiting', taskType: $taskType, model: $model, modelSource: $modelSource, inferenceBackend: $inferenceBackend, rtdetrEpochs: $rtdetrEpochs, datasets: $datasets, createdAt: time::now(), updatedAt: time::now() }",
           { name: trimmedJobName, ...payload },
         );
       }
@@ -344,6 +364,72 @@ export default function Page() {
                         </Select.Positioner>
                       </Portal>
                     </Select.Root>
+                  </Box>
+                )}
+
+                {/* SAMURAI ULR Inference Backend */}
+                {showSamuraiInferenceBackend && (
+                  <Box>
+                    <Text textStyle="sm" color="gray.600" mb="6px">Inference Backend</Text>
+                    <Select.Root
+                      collection={samuraiInferenceBackendCollection}
+                      size="sm"
+                      width="100%"
+                      value={[inferenceBackend]}
+                      onValueChange={(details: any) => {
+                        const next = details?.value?.[0] as SamuraiInferenceBackend | undefined;
+                        setInferenceBackend(next ?? DEFAULT_SAMURAI_INFERENCE_BACKEND);
+                      }}
+                      disabled={locked}
+                    >
+                      <Select.HiddenSelect />
+                      <Select.Control>
+                        <Select.Trigger>
+                          <Select.ValueText placeholder="Inference Backend" />
+                        </Select.Trigger>
+                        <Select.IndicatorGroup>
+                          <Select.Indicator />
+                        </Select.IndicatorGroup>
+                      </Select.Control>
+                      <Portal>
+                        <Select.Positioner>
+                          <Select.Content>
+                            {SAMURAI_INFERENCE_BACKENDS.map((item) => (
+                              <Select.Item item={item} key={item.value}>
+                                {item.label}
+                                <Select.ItemIndicator />
+                              </Select.Item>
+                            ))}
+                          </Select.Content>
+                        </Select.Positioner>
+                      </Portal>
+                    </Select.Root>
+                    <Text textStyle="xs" color="gray.500" mt="4px">
+                      Default is TensorRT FP16 for compatibility. Use PyTorch FP32/FP16 when TensorRT conversion is unreliable.
+                    </Text>
+                  </Box>
+                )}
+
+                {/* SAMURAI ULR RT-DETR Training Epochs */}
+                {showSamuraiInferenceBackend && (
+                  <Box>
+                    <Text textStyle="sm" color="gray.600" mb="6px">RT-DETR Epochs</Text>
+                    <Input
+                      type="number"
+                      min={1}
+                      step={1}
+                      size="sm"
+                      variant="flushed"
+                      value={rtdetrEpochs}
+                      onChange={(e) => {
+                        const next = Number.parseInt(e.target.value, 10);
+                        setRtdetrEpochs(Number.isFinite(next) && next > 0 ? next : DEFAULT_SAMURAI_RTDETR_EPOCHS);
+                      }}
+                      disabled={locked}
+                    />
+                    <Text textStyle="xs" color="gray.500" mt="4px">
+                      Default is 4 epochs. Increase this for deeper training or overfit checks.
+                    </Text>
                   </Box>
                 )}
 

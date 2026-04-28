@@ -20,6 +20,8 @@ type JobRow = {
   taskType?: string
   model?: string
   modelSource?: string
+  inferenceBackend?: string
+  rtdetrEpochs?: number
   datasets?: string[]
   createdAt?: string
   updatedAt?: string
@@ -107,6 +109,8 @@ export default function ClientOpenedInferenceJobPage() {
         taskType: r?.taskType,
         model: r?.model,
         modelSource: r?.modelSource,
+        inferenceBackend: r?.inferenceBackend,
+        rtdetrEpochs: typeof r?.rtdetrEpochs === "number" ? r.rtdetrEpochs : undefined,
         datasets: Array.isArray(r?.datasets) ? r.datasets : [],
         createdAt: r?.createdAt,
         updatedAt: r?.updatedAt,
@@ -579,8 +583,16 @@ export default function ClientOpenedInferenceJobPage() {
                   const newName = `${jobName}_copy`;
                   // Create a new job with the same parameters (taskType/model/datasets), fresh status/time
                   await surreal.query(
-                    "CREATE inference_job SET name = $name, status = 'ProcessWaiting', taskType = $taskType, model = $model, modelSource = $modelSource, datasets = $datasets, createdAt = time::now(), updatedAt = time::now()",
-                    { name: newName, taskType: job.taskType, model: job.model, modelSource: job.modelSource, datasets: job.datasets || [] }
+                    "CREATE inference_job SET name = $name, status = 'ProcessWaiting', taskType = $taskType, model = $model, modelSource = $modelSource, inferenceBackend = $inferenceBackend, rtdetrEpochs = $rtdetrEpochs, datasets = $datasets, createdAt = time::now(), updatedAt = time::now()",
+                    {
+                      name: newName,
+                      taskType: job.taskType,
+                      model: job.model,
+                      modelSource: job.modelSource,
+                      inferenceBackend: job.inferenceBackend || "tensorrt-fp16",
+                      rtdetrEpochs: job.rtdetrEpochs || 4,
+                      datasets: job.datasets || [],
+                    }
                   );
                   queryClient.invalidateQueries({ queryKey: ["inference-jobs"] });
                   const enc = (s: string) => {
@@ -658,6 +670,8 @@ export default function ClientOpenedInferenceJobPage() {
               </HStack>
               <Text textStyle="sm" color="gray.700">Task: {job.taskType || "-"}</Text>
               <Text textStyle="sm" color="gray.700">Model: {job.model || "-"}</Text>
+              <Text textStyle="sm" color="gray.700">Inference Backend: {job.inferenceBackend || "tensorrt-fp16"}</Text>
+              <Text textStyle="sm" color="gray.700">RT-DETR Epochs: {job.rtdetrEpochs || 4}</Text>
               <Box>
                 <Text textStyle="sm" color="gray.700" fontWeight="bold">Datasets</Text>
                 {(!job.datasets || job.datasets.length === 0) ? (
