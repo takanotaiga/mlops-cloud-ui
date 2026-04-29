@@ -59,18 +59,8 @@ export default function Header() {
                         </LinkOverlay>
                     </LinkBox>
                     <LinkBox px="10px" h="25px">
-                        <LinkOverlay href="/terminal" >
-                            <Text textStyle="sm">{t("nav.terminal", "Terminal")}</Text>
-                        </LinkOverlay>
-                    </LinkBox>
-                    <LinkBox px="10px" h="25px">
                         <LinkOverlay href="/hardware_metric" >
                             <Text textStyle="sm">{t("nav.hardware", "Hardware")}</Text>
-                        </LinkOverlay>
-                    </LinkBox>
-                    <LinkBox px="10px" h="25px">
-                        <LinkOverlay href="/docs" >
-                            <Text textStyle="sm">{t("nav.docs", "Docs")}</Text>
                         </LinkOverlay>
                     </LinkBox>
                     <LinkBox px="10px" h="25px">
@@ -117,23 +107,9 @@ export default function Header() {
                                             </NextLink>
                                         </Link>
                                         <Link asChild>
-                                            <NextLink href="/terminal">
-                                                <Button variant="ghost" justifyContent="flex-start" onClick={() => setOpen(false)}>
-                                                    {t("nav.terminal", "Terminal")}
-                                                </Button>
-                                            </NextLink>
-                                        </Link>
-                                        <Link asChild>
                                             <NextLink href="/hardware_metric">
                                                 <Button variant="ghost" justifyContent="flex-start" onClick={() => setOpen(false)}>
                                                     {t("nav.hardware", "Hardware")}
-                                                </Button>
-                                            </NextLink>
-                                        </Link>
-                                        <Link asChild>
-                                            <NextLink href="/docs">
-                                                <Button variant="ghost" justifyContent="flex-start" onClick={() => setOpen(false)}>
-                                                    {t("nav.docs", "Docs")}
                                                 </Button>
                                             </NextLink>
                                         </Link>

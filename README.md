@@ -1,6 +1,6 @@
 # MLOps Cloud UI
 
-MLOps Cloud の Next.js UI です。Dataset、Inference、Training、Terminal、Hardware、Docs、Settings 画面と、SurrealDB / MinIO を扱う Next.js API routes を提供します。
+MLOps Cloud の Next.js UI です。Dataset、Inference、Training、Hardware、Settings 画面と、SurrealDB / MinIO を扱う Next.js API routes を提供します。
 
 ## Stack
 
@@ -40,6 +40,8 @@ UI は browser-only app ではありません。SurrealDB / MinIO 操作は Next
 - MinIO/S3: uploaded files, generated videos, HLS playlist/segments, parquet/json artifacts
 
 Backend worker とは直接通信せず、DB record と S3 object を介して非同期に連携します。
+
+Terminal UI とアプリ内 Docs 画面は削除済みです。ホスト操作や運用手順はリポジトリ内 Markdown を参照してください。
 
 ## Environment Variables
 
@@ -139,4 +141,4 @@ docker compose -f e2e/compose.phase1.yml up --build --abort-on-container-exit --
 docker compose -f e2e/compose.phase1.yml down -v
 ```
 
-Current Phase1 expected result is `6 passed, 3 skipped`.
+Current Phase1 expected result is `7 passed, 3 skipped`.
