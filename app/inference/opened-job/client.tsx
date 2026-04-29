@@ -62,6 +62,23 @@ type InferenceResultRow = {
   meta?: any
 }
 
+type InferenceJobLogRow = {
+  source: "mlx" | "cv" | string
+  stream: "stdout" | "stderr" | string
+  message: string
+  seq?: number
+  createdAt?: string
+}
+
+type InferenceJobLogArchiveRow = {
+  bucket: string
+  key: string
+  rowCount?: number
+  firstSeq?: number
+  lastSeq?: number
+  createdAt?: string
+}
+
 function thingToString(v: unknown): string {
   if (v == null) return "";
   if (typeof v === "string") return v;
@@ -71,6 +88,58 @@ function thingToString(v: unknown): string {
     return `${t.tb}:${id}`;
   }
   return String(v);
+}
+
+async function readLogArchives(archives: InferenceJobLogArchiveRow[]): Promise<InferenceJobLogRow[]> {
+  if (archives.length === 0) return [];
+  const allRows: InferenceJobLogRow[] = [];
+  const linePattern = /^\[(.*?)\]\s+\[(.*?)\/(.*?)\]\s+\[#(.*?)\]\s?(.*)$/;
+  for (const archive of archives) {
+    const url = await getSignedObjectUrl(archive.bucket, archive.key, 60 * 10);
+    const resp = await fetch(url);
+    const text = await resp.text();
+    for (const line of text.split(/\n/)) {
+      if (!line) continue;
+      const matched = line.match(linePattern);
+      if (!matched) {
+        allRows.push({ source: "log", stream: "stdout", message: line });
+        continue;
+      }
+      allRows.push({
+        createdAt: matched[1],
+        source: matched[2] || "log",
+        stream: matched[3] || "stdout",
+        seq: matched[4] ? Number(matched[4]) : undefined,
+        message: (matched[5] || "").replace(/\\n/g, "\n"),
+      });
+    }
+  }
+  return allRows;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function suggestFilename(base: string): string {
+  return base.replace(/[^a-zA-Z0-9._-]+/g, "_");
+}
+
+function formatLogArchiveLine(line: InferenceJobLogRow): string {
+  const createdAt = line.createdAt || "";
+  const source = line.source || "log";
+  const stream = line.stream || "stdout";
+  const seq = line.seq ?? "";
+  const message = (line.message || "").replace(/\r/g, "").replace(/\n/g, "\\n");
+  return `[${createdAt}] [${source}/${stream}] [#${seq}] ${message}`;
 }
 
 export default function ClientOpenedInferenceJobPage() {
@@ -91,8 +160,12 @@ export default function ClientOpenedInferenceJobPage() {
   const [downloading, setDownloading] = useState<boolean>(false);
   const [downloadPct, setDownloadPct] = useState<number>(0);
   const [checkingParquetLocal, setCheckingParquetLocal] = useState<boolean>(false);
+  const [contentPanel, setContentPanel] = useState<"logs" | "artifacts">("logs");
+  const [logDialogOpen, setLogDialogOpen] = useState(false);
+  const [downloadingLogFile, setDownloadingLogFile] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<any>(null);
+  const logEndRef = useRef<HTMLDivElement | null>(null);
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
   const setVideoNode = useCallback((node: HTMLVideoElement | null) => {
     videoRef.current = node;
@@ -199,6 +272,75 @@ export default function ClientOpenedInferenceJobPage() {
     procSteps.forEach((s, i) => { if ((s.state ?? "pending") === "completed") lastCompleted = i; });
     return Math.min(procSteps.length - 1, Math.max(0, lastCompleted + 1));
   }, [procSteps, currentStepId, firstFailedIndex]);
+
+  const jobIsTerminal = useMemo(() => {
+    const s = (job?.status || "").toLowerCase();
+    return s === "complete" || s === "completed" || s === "failed" || s === "faild" || s === "error" || s === "stopinterrept";
+  }, [job?.status]);
+
+  const jobIsCompleted = useMemo(() => {
+    const s = (job?.status || "").toLowerCase();
+    return s === "complete" || s === "completed";
+  }, [job?.status]);
+
+  const { data: dbLogs = [] } = useQuery({
+    queryKey: ["inference-job-logs", job?.id],
+    enabled: isSuccess && !!job?.id,
+    queryFn: async (): Promise<InferenceJobLogRow[]> => {
+      if (!job?.id) return [];
+      const res = await surreal.query(
+        "SELECT source, stream, message, seq, createdAt FROM inference_job_log WHERE job = <record> $job ORDER BY createdAt ASC, seq ASC",
+        { job: job.id }
+      );
+      return extractRows<any>(res).map((row) => ({
+        source: String(row?.source || "log"),
+        stream: String(row?.stream || "stdout"),
+        message: String(row?.message || ""),
+        seq: typeof row?.seq === "number" ? row.seq : undefined,
+        createdAt: row?.createdAt,
+      }));
+    },
+    refetchOnWindowFocus: false,
+    refetchInterval: jobIsTerminal ? 5000 : 1200,
+    staleTime: 0,
+  });
+
+  const { data: logArchives = [] } = useQuery({
+    queryKey: ["inference-job-log-archives", job?.id],
+    enabled: isSuccess && !!job?.id,
+    queryFn: async (): Promise<InferenceJobLogArchiveRow[]> => {
+      if (!job?.id) return [];
+      const res = await surreal.query(
+        "SELECT bucket, key, rowCount, firstSeq, lastSeq, createdAt FROM inference_job_log_archive WHERE job = <record> $job ORDER BY firstSeq ASC, createdAt ASC",
+        { job: job.id }
+      );
+      return extractRows<any>(res).map((row) => ({
+        bucket: String(row?.bucket || ""),
+        key: String(row?.key || ""),
+        rowCount: typeof row?.rowCount === "number" ? row.rowCount : undefined,
+        firstSeq: typeof row?.firstSeq === "number" ? row.firstSeq : undefined,
+        lastSeq: typeof row?.lastSeq === "number" ? row.lastSeq : undefined,
+        createdAt: row?.createdAt,
+      })).filter((row) => row.bucket && row.key);
+    },
+    refetchOnWindowFocus: false,
+    refetchInterval: jobIsTerminal ? false : 5000,
+    staleTime: 0,
+  });
+
+  const { data: archivedLogs = [], isFetching: archivedLogsFetching } = useQuery({
+    queryKey: ["inference-job-log-archive-rows", logArchives.map((a) => a.key).join("|")],
+    enabled: logArchives.length > 0,
+    queryFn: async (): Promise<InferenceJobLogRow[]> => readLogArchives(logArchives),
+    refetchOnWindowFocus: false,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
+  const logs = useMemo(() => [...archivedLogs, ...dbLogs], [archivedLogs, dbLogs]);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ block: "end" });
+  }, [logs.length]);
 
   // Query inference results for this job when completed and task matches (newest first)
   const { data: results = [] } = useQuery({
@@ -389,6 +531,15 @@ export default function ClientOpenedInferenceJobPage() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
+  function formatLogTime(ts?: string): string {
+    if (!ts) return "";
+    const normalized = ts.startsWith("d'") && ts.endsWith("'") ? ts.slice(2, -1) : ts;
+    const d = new Date(normalized);
+    if (isNaN(d.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+
   function formatBytes(size?: number): string {
     const n = Number(size ?? 0);
     if (!Number.isFinite(n) || n <= 0) return "-";
@@ -569,6 +720,56 @@ export default function ClientOpenedInferenceJobPage() {
     run();
     return () => { cancelled = true; };
   }, [current, isParquetResult, queryParquetPage, tablePage]);
+
+  async function handleDownloadLogFile() {
+    if (downloadingLogFile) return;
+    setDownloadingLogFile(true);
+    try {
+      const text = logs.map(formatLogArchiveLine).join("\n") + "\n";
+      const filename = suggestFilename(`${jobName || "inference_job"}_execution_logs.log`);
+      downloadBlob(new Blob([text], { type: "text/plain;charset=utf-8" }), filename);
+    } finally {
+      setDownloadingLogFile(false);
+    }
+  }
+
+  const renderLogConsole = (height: string) => (
+    <Box
+      rounded="lg"
+      borderWidth="1px"
+      bg="gray.950"
+      color="gray.100"
+      p="12px"
+      h={height}
+      overflowY="auto"
+      fontFamily="mono"
+      fontSize="xs"
+      whiteSpace="pre-wrap"
+      wordBreak="break-word"
+    >
+      {logs.length === 0 ? (
+        <Text color="gray.400">ログはまだありません。ジョブが開始されるとここに表示されます。</Text>
+      ) : (
+        <VStack align="stretch" gap="2">
+          {logs.map((line, idx) => (
+            <HStack key={`${line.createdAt || "log"}-${line.seq ?? idx}-${idx}`} align="start" gap="2">
+              <Text as="span" color="gray.500" flexShrink={0}>{formatLogTime(line.createdAt)}</Text>
+              <Badge
+                size="xs"
+                rounded="sm"
+                colorPalette={line.source === "mlx" ? "blue" : line.source === "cv" ? "teal" : "gray"}
+                flexShrink={0}
+              >
+                {line.source}
+              </Badge>
+              <Text as="span" color={line.stream === "stderr" ? "orange.200" : "gray.100"}>{line.message}</Text>
+            </HStack>
+          ))}
+          <Box ref={logEndRef} />
+        </VStack>
+      )}
+    </Box>
+  );
 
   return (
     <Box px={{ base: "24px", xl: "5%" }} py="20px" overflowX="hidden">
@@ -755,17 +956,62 @@ export default function ClientOpenedInferenceJobPage() {
 
         <Box flex="1" w={{ base: "100%", xl: "auto" }} minW={0} rounded="md" borderWidth="1px" bg="bg.panel" p="16px" minH="240px">
           <VStack align="stretch" gap="12px" minW={0}>
-            <HStack justify="space-between" align="start" minW={0}>
+            <HStack justify="space-between" align="center" minW={0}>
               <Box minW={0}>
-                <Heading size="md">成果物ブラウザ</Heading>
-                <Text textStyle="sm" color="gray.600" mt="1">生成されたファイルをクリックして全画面で確認できます。</Text>
+                <Heading size="md">{jobIsCompleted ? "ジョブ出力" : "実行ログ"}</Heading>
+                <Text textStyle="sm" color="gray.600" mt="1">
+                  {jobIsCompleted ? "実行ログと成果物を切り替えて確認できます。" : "MLX / CV backend の出力をこのジョブだけに絞って表示します。"}
+                </Text>
               </Box>
-              {results.length > 0 ? (
-                <Badge rounded="full" variant="subtle" colorPalette="teal">{results.length} files</Badge>
-              ) : null}
+              <HStack gap="8px" flexShrink={0}>
+                {jobIsCompleted ? (
+                  <ButtonGroup size="sm" variant="outline">
+                    <Button
+                      rounded="full"
+                      colorPalette={contentPanel === "logs" ? "teal" : "gray"}
+                      variant={contentPanel === "logs" ? "solid" : "outline"}
+                      onClick={() => setContentPanel("logs")}
+                    >
+                      実行ログ
+                    </Button>
+                    <Button
+                      rounded="full"
+                      colorPalette={contentPanel === "artifacts" ? "teal" : "gray"}
+                      variant={contentPanel === "artifacts" ? "solid" : "outline"}
+                      onClick={() => setContentPanel("artifacts")}
+                    >
+                      成果物
+                    </Button>
+                  </ButtonGroup>
+                ) : null}
+                <Badge rounded="full" variant="subtle" colorPalette={jobIsTerminal ? "gray" : "green"}>
+                  {jobIsTerminal ? "snapshot" : "streaming"}
+                </Badge>
+              </HStack>
             </HStack>
-
-            {job && (job.status === "Complete" || job.status === "Completed") && job.taskType === "one-shot-object-detection" ? (
+            {contentPanel === "logs" || !jobIsCompleted ? (
+              <VStack align="stretch" gap="10px">
+                <HStack justify="space-between" align="center" minW={0}>
+                  <HStack gap="8px" flexWrap="wrap">
+                    <Badge rounded="full" variant="subtle" colorPalette="gray">{logs.length.toLocaleString()} lines</Badge>
+                    {archivedLogsFetching ? (
+                      <Badge rounded="full" variant="subtle" colorPalette="orange">syncing logs</Badge>
+                    ) : null}
+                  </HStack>
+                  <HStack gap="8px" flexShrink={0}>
+                    <Button size="sm" rounded="full" variant="outline" onClick={() => setLogDialogOpen(true)}>
+                      拡大
+                    </Button>
+                    {jobIsCompleted ? (
+                      <Button size="sm" rounded="full" onClick={handleDownloadLogFile} disabled={downloadingLogFile}>
+                        {downloadingLogFile ? "Exporting..." : "ダウンロード"}
+                      </Button>
+                    ) : null}
+                  </HStack>
+                </HStack>
+                {renderLogConsole("420px")}
+              </VStack>
+            ) : job && jobIsCompleted && job.taskType === "one-shot-object-detection" ? (
               (!results || results.length === 0) ? (
                 <Text color="gray.600">Result not ready yet.</Text>
               ) : (
@@ -826,11 +1072,40 @@ export default function ClientOpenedInferenceJobPage() {
                 </VStack>
               )
             ) : (
-              <Text color="gray.500">ジョブ完了後に成果物ファイルが表示されます。</Text>
+              <Text color="gray.500">このジョブの成果物はありません。</Text>
             )}
           </VStack>
         </Box>
       </Stack>
+
+      <Dialog.Root open={logDialogOpen} onOpenChange={(e: any) => setLogDialogOpen(!!e.open)}>
+        <Portal>
+          <Dialog.Backdrop bg="blackAlpha.700" backdropFilter="blur(4px)" />
+          <Dialog.Positioner p="0" alignItems="center" justifyContent="center" overflow="hidden">
+            <Dialog.Content w="96vw" h="92dvh" maxW="1800px" rounded="xl" overflow="hidden" display="flex" flexDirection="column">
+              <Dialog.Header borderBottomWidth="1px" gap="3" flexShrink={0}>
+                <VStack align="stretch" gap="1" flex="1" minW={0}>
+                  <Dialog.Title>実行ログ</Dialog.Title>
+                  <Text textStyle="xs" color="gray.600">
+                    {logs.length.toLocaleString()} lines
+                  </Text>
+                </VStack>
+                <HStack gap="8px" flexShrink={0}>
+                  {jobIsCompleted ? (
+                    <Button size="sm" rounded="full" onClick={handleDownloadLogFile} disabled={downloadingLogFile}>
+                      {downloadingLogFile ? "Exporting..." : "ダウンロード"}
+                    </Button>
+                  ) : null}
+                  <CloseButton size="sm" onClick={() => setLogDialogOpen(false)} />
+                </HStack>
+              </Dialog.Header>
+              <Dialog.Body p="16px" overflow="hidden" bg="gray.50" flex="1" minH={0}>
+                {renderLogConsole("100%")}
+              </Dialog.Body>
+            </Dialog.Content>
+          </Dialog.Positioner>
+        </Portal>
+      </Dialog.Root>
 
       <Dialog.Root open={artifactDialogOpen} onOpenChange={(e: any) => setArtifactDialogOpen(!!e.open)}>
         <Portal>

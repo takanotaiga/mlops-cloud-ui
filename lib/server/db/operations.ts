@@ -127,6 +127,8 @@ const OPERATION_SCHEMAS: Partial<Record<DbOperation, VarSchema>> = {
     datasets: stringArrayRule,
   },
   inferenceResultsByJob: { job: stringRule },
+  inferenceJobLogsByJob: { job: stringRule },
+  inferenceJobLogArchivesByJob: { job: stringRule },
 
   trainingJobByName: { name: stringRule },
   trainingJobCheckByName: { name: stringRule },
