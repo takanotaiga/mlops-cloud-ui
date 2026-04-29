@@ -42,6 +42,8 @@ export const DB_OPERATION_SQL = {
   inferenceJobStop: "UPDATE inference_job SET status = 'StopInterrept', updatedAt = time::now() WHERE name == $name",
   inferenceJobCopy: "CREATE inference_job SET name = $name, status = 'ProcessWaiting', taskType = $taskType, model = $model, modelSource = $modelSource, inferenceBackend = $inferenceBackend, rtdetrEpochs = $rtdetrEpochs, datasets = $datasets, createdAt = time::now(), updatedAt = time::now()",
   inferenceResultsByJob: "SELECT * FROM inference_result WHERE job == <record> $job ORDER BY createdAt DESC",
+  inferenceJobLogsByJob: "SELECT source, stream, message, seq, createdAt FROM inference_job_log WHERE job = <record> $job ORDER BY createdAt ASC, seq ASC",
+  inferenceJobLogArchivesByJob: "SELECT bucket, key, rowCount, firstSeq, lastSeq, createdAt FROM inference_job_log_archive WHERE job = <record> $job ORDER BY firstSeq ASC, createdAt ASC",
 
   completedTrainingJobs: "SELECT name FROM training_job WHERE status IN ['Complete', 'Completed']",
   trainingJobsList: "SELECT * FROM training_job ORDER BY updatedAt DESC",
