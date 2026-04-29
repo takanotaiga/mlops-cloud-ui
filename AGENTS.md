@@ -104,7 +104,7 @@ docker compose -f e2e/compose.phase1.yml up --build --abort-on-container-exit --
 docker compose -f e2e/compose.phase1.yml down -v
 ```
 
-2026-04-29 時点の Phase1 は `6 passed, 3 skipped` が期待値です。skip は未確定仕様の `test.fixme` です。
+2026-04-29 時点の Phase1 は `7 passed, 3 skipped` が期待値です。skip は未確定仕様の `test.fixme` です。
 
 画面構造や route handler に触れた場合は `npm run build` も実行してください。
 

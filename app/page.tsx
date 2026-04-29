@@ -1,12 +1,5 @@
-import { Suspense } from "react";
-import { HomeHero } from "@/components/home/hero";
-import { HomeFeatures } from "@/components/home/features";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return (
-    <Suspense fallback={<div />}> 
-      <HomeHero />
-      <HomeFeatures />
-    </Suspense>
-  );
+  redirect("/dataset");
 }

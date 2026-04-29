@@ -11,25 +11,8 @@ const en: Dict = {
   "nav.datasets": "Datasets",
   "nav.training": "Training",
   "nav.inference": "Inference",
-  "nav.docs": "Docs",
   "nav.playground": "Playground",
   "nav.settings": "Settings",
-
-  // Home
-  "home.introducing": "Introducing",
-  "home.title": "MLOps Cloud ✨",
-  "home.subtitle": "Build delightful ML workflows — store, train, and infer with a smile 😄",
-  "cta.get_started": "Get Started 🎉",
-  "cta.view_training": "View Training 🚀",
-  "cta.try_playground": "Try Playground ⚡",
-  "features.dataset.title": "Dataset Management 📚",
-  "features.dataset.desc": "Version, preview, and search datasets with ease.",
-  "features.training.title": "Automated Training 🚀",
-  "features.training.desc": "Start, monitor, and tune runs from the UI.",
-  "features.registry.title": "Model Registry 🏷️",
-  "features.registry.desc": "Track best checkpoints and promote to prod.",
-  "features.observability.title": "Observability 📈",
-  "features.observability.desc": "Metrics, artifacts, and GPU usage in one place.",
 
   // Datasets
   "datasets.title": "Datasets 📚",
@@ -150,25 +133,8 @@ const ja: Dict = {
   "nav.datasets": "データセット",
   "nav.training": "トレーニング",
   "nav.inference": "推論",
-  "nav.docs": "ドキュメント",
   "nav.settings": "設定",
   "nav.playground": "お試しエリア",
-
-  // Home
-  "home.introducing": "ご紹介",
-  "home.title": "MLOps Cloud ✨",
-  "home.subtitle": "楽しくMLワークフローを構築 — 保存・学習・推論までスマイルで 😄",
-  "cta.get_started": "はじめる 🎉",
-  "cta.view_training": "トレーニングを見る 🚀",
-  "cta.try_playground": "お試しエリアを試す ⚡",
-  "features.dataset.title": "データセット管理 📚",
-  "features.dataset.desc": "バージョン管理、プレビュー、検索がかんたん。",
-  "features.training.title": "自動トレーニング 🚀",
-  "features.training.desc": "UIから実行・監視・チューニング。",
-  "features.registry.title": "モデルレジストリ 🏷️",
-  "features.registry.desc": "ベストチェックポイントを管理し本番へ。",
-  "features.observability.title": "可観測性 📈",
-  "features.observability.desc": "メトリクス/成果物/GPU使用率をひと目で。",
 
   // Datasets
   "datasets.title": "データセット 📚",
