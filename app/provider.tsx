@@ -10,6 +10,16 @@ import { LanguageProvider } from "@/components/i18n/LanguageProvider";
 const queryClient = new QueryClient();
 
 export default function RootLayout(props: { children: React.ReactNode; initialLang?: "en" | "ja" }) {
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return null;
+  }
+
   return (
     <ChakraProvider value={defaultSystem}>
       <ColorModeProvider forcedTheme="light" attribute="class" disableTransitionOnChange>
