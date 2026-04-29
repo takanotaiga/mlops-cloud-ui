@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Heading, HStack, VStack, Stack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table, Separator, Steps, Accordion } from "@chakra-ui/react";
+import { Box, Heading, HStack, VStack, Stack, Text, Button, Badge, Link, SkeletonText, Skeleton, Dialog, Portal, CloseButton, Progress, ButtonGroup, IconButton, Pagination, Table, Steps } from "@chakra-ui/react";
 import NextLink from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -93,6 +93,11 @@ export default function ClientOpenedInferenceJobPage() {
   const [checkingParquetLocal, setCheckingParquetLocal] = useState<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<any>(null);
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+  const setVideoNode = useCallback((node: HTMLVideoElement | null) => {
+    videoRef.current = node;
+    setVideoEl(node);
+  }, []);
 
   const { data: job, isPending, isError, error, refetch } = useQuery({
     queryKey: ["inference-job-detail", jobName],
@@ -219,6 +224,7 @@ export default function ClientOpenedInferenceJobPage() {
 
   // Selection state for results
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
+  const [artifactDialogOpen, setArtifactDialogOpen] = useState(false);
   useEffect(() => {
     setSelectedIndex(0);
   }, [results.length]);
@@ -286,7 +292,8 @@ export default function ClientOpenedInferenceJobPage() {
 
   // Attach source: native HLS or hls.js
   useEffect(() => {
-    const video = videoRef.current;
+    if (!artifactDialogOpen) return;
+    const video = videoEl;
     if (!video) return;
     if (!m3u8Url) return;
     const canNativeHls = video.canPlayType("application/vnd.apple.mpegurl") !== "" ||
@@ -294,9 +301,10 @@ export default function ClientOpenedInferenceJobPage() {
     if (canNativeHls) {
       if (hlsRef.current) { try { hlsRef.current.destroy(); } catch { /* noop */ } hlsRef.current = null; }
       video.src = m3u8Url;
+      try { video.load(); } catch { /* noop */ }
       return;
     }
-    const cancelled = false;
+    let cancelled = false;
     (async () => {
       try {
         const mod = await import("hls.js");
@@ -337,9 +345,10 @@ export default function ClientOpenedInferenceJobPage() {
       }
     })();
     return () => {
+      cancelled = true;
       if (hlsRef.current) { try { hlsRef.current.destroy(); } catch { /* noop */ } hlsRef.current = null; }
     };
-  }, [m3u8Url]);
+  }, [artifactDialogOpen, m3u8Url, videoEl]);
 
   // For parquet: check OPFS cache presence when selected and auto-download if missing
   useEffect(() => {
@@ -370,7 +379,7 @@ export default function ClientOpenedInferenceJobPage() {
     }
     run();
     return () => { cancelled = true; };
-  }, [current?.bucket, current?.key, isParquetResult, job?.status, job?.taskType]);
+  }, [current, current?.bucket, current?.key, isParquetResult, job?.status, job?.taskType]);
 
   function formatTimestamp(ts?: string): string {
     if (!ts) return "";
@@ -378,6 +387,19 @@ export default function ClientOpenedInferenceJobPage() {
     if (isNaN(d.getTime())) return String(ts);
     const pad = (n: number) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function formatBytes(size?: number): string {
+    const n = Number(size ?? 0);
+    if (!Number.isFinite(n) || n <= 0) return "-";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let value = n;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit += 1;
+    }
+    return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
   }
 
   // removed minute grouping helper
@@ -549,7 +571,7 @@ export default function ClientOpenedInferenceJobPage() {
   }, [current, isParquetResult, queryParquetPage, tablePage]);
 
   return (
-    <Box px="10%" py="20px">
+    <Box px={{ base: "24px", xl: "5%" }} py="20px" overflowX="hidden">
       <Stack direction={{ base: "column", md: "row" }} align="stretch" justify="space-between" gap="8px">
         <HStack gap="3" align="center">
           <Heading size="2xl">
@@ -633,8 +655,8 @@ export default function ClientOpenedInferenceJobPage() {
         </HStack>
       </Stack>
 
-      <Stack direction={{ base: "column", md: "row" }} align="stretch" gap="16px" mt="16px" w="100%">
-        <Box w={{ base: "100%", md: "420px" }} flexShrink={0} rounded="md" borderWidth="1px" bg="bg.panel" p="16px">
+      <Stack direction={{ base: "column", xl: "row" }} align="stretch" gap="16px" mt="16px" w="100%" minW={0}>
+        <Box w={{ base: "100%", xl: "340px" }} flexShrink={0} rounded="md" borderWidth="1px" bg="bg.panel" p="16px" minW={0}>
           {isPending ? (
             <>
               <SkeletonText noOfLines={1} w="30%" />
@@ -650,6 +672,7 @@ export default function ClientOpenedInferenceJobPage() {
             <Text color="gray.500">Job not found</Text>
           ) : (
             <VStack align="stretch" gap="8px">
+              <Heading size="md">ジョブ詳細</Heading>
               <HStack justify="space-between">
                 <HStack gap="3">
                   <Heading size="lg">{job.name}</Heading>
@@ -687,306 +710,326 @@ export default function ClientOpenedInferenceJobPage() {
               <Text textStyle="xs" color="gray.500">Created: {formatTimestamp(job.createdAt)}</Text>
               <Text textStyle="xs" color="gray.500">Updated: {formatTimestamp(job.updatedAt)}</Text>
 
-              {/* Progress: placed under info on the left */}
-              {procSteps.length > 0 && (
-                <Accordion.Root multiple defaultValue={((job?.status === "Complete" || job?.status === "Completed") ? [] : ["progress"]) }>
-                  <Accordion.Item value="progress">
-                    <Accordion.ItemTrigger>
-                      <HStack justify="space-between" w="full">
-                        <Heading size="sm">Progress</Heading>
-                        <Accordion.ItemIndicator />
-                      </HStack>
-                    </Accordion.ItemTrigger>
-                    <Accordion.ItemContent>
-                      <Accordion.ItemBody>
-                        <Box rounded="md" borderWidth="1px" p="12px" minH="300px" maxH="70vh" overflowY="auto" bg="bg.canvas">
-                          <Steps.Root orientation="vertical" count={procSteps.length} step={(allCompleted ? procSteps.length : activeIndex)}>
-                            <Steps.List gap="4">
-                              {procSteps.map((s, index) => {
-                                const derivedStatus: ProgressState =
-                                  s.id === currentStepId && s.state !== "completed" && s.state !== "faild" ? "running" : (s.state ?? "pending");
-                                return (
-                                  <Steps.Item key={s.id} index={index} title={s.title} py="3">
-                                    <Steps.Indicator />
-                                    <Steps.Title>{s.title}</Steps.Title>
-                                    <Steps.Separator my="3" borderLeftWidth="2px" borderColor="gray.300" opacity={1} />
-                                    <Steps.Content index={index}>
-                                      <VStack align="stretch" gap={3} mt={3} mb={6} w="full">
-                                        <HStack justify="space-between">
-                                          <Badge rounded="full" variant="subtle" colorPalette={
-                                            derivedStatus === "running" ? "blue" : derivedStatus === "completed" ? "green" : derivedStatus === "faild" ? "red" : "gray"
-                                          }>
-                                            {derivedStatus}
-                                          </Badge>
-                                        </HStack>
-                                      </VStack>
-                                    </Steps.Content>
-                                  </Steps.Item>
-                                );
-                              })}
-                            </Steps.List>
-                            <Steps.CompletedContent>All steps are complete!</Steps.CompletedContent>
-                          </Steps.Root>
-                        </Box>
-                      </Accordion.ItemBody>
-                    </Accordion.ItemContent>
-                  </Accordion.Item>
-                </Accordion.Root>
-              )}
+            </VStack>
+          )}
+        </Box>
 
-              {/* Results list (flat) */}
-              {(job.status === "Complete" || job.status === "Completed") && job.taskType === "one-shot-object-detection" && (
-                <VStack align="stretch" gap="8px" mt="8px">
-                  <Separator />
-                  <Heading size="sm">Results</Heading>
-                  {(!results || results.length === 0) ? (
-                    <Text textStyle="sm" color="gray.600">Result not ready yet.</Text>
-                  ) : (
-                    <VStack align="stretch" gap="8px" maxH="500px" overflowY="auto" style={{ scrollbarGutter: "stable both-edges" }}>
-                      {results.map((r, idx) => {
-                        const name = r.key.split("/").pop() || r.key;
-                        const type = isVideoResult(r) ? "Video" : isJsonResult(r) ? "JSON" : isParquetResult(r) ? "Parquet" : "File";
-                        const description = r?.meta?.description ? String(r.meta.description) : "";
-                        const selected = idx === selectedIndex;
-                        return (
-                          <Box
-                            key={r.id}
-                            as="button"
-                            onClick={() => { setSelectedIndex(idx); setTablePage(1); }}
-                            textAlign="left"
-                            rounded="md"
-                            borderWidth="1px"
-                            p="10px"
-                            bg={selected ? "teal.50" : "white"}
-                            borderColor={selected ? "teal.300" : "gray.200"}
-                            _hover={{ shadow: "sm", borderColor: selected ? "teal.400" : "gray.300" }}
-                          >
-                            <VStack align="stretch" gap={1}>
-                              <Text textStyle="sm" fontWeight="semibold" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</Text>
-                              {description ? (
-                                <Text textStyle="xs" color="gray.700"
-                                  style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-                                  {description}
-                                </Text>
-                              ) : null}
-                              <HStack justify="space-between" mt={description ? 1 : 0}>
-                                <Badge
-                                  rounded="full"
-                                  variant="subtle"
-                                  colorPalette={type === "Video" ? "teal" : type === "JSON" ? "purple" : type === "Parquet" ? "blue" : "gray"}
-                                >
-                                  {type}
+        <Box w={{ base: "100%", xl: "340px" }} flexShrink={0} rounded="md" borderWidth="1px" bg="bg.panel" p="16px" minH="240px" minW={0}>
+          <VStack align="stretch" gap="12px">
+            <Heading size="md">プログレス</Heading>
+            {procSteps.length > 0 ? (
+              <Box rounded="md" borderWidth="1px" p="12px" minH="300px" maxH="70vh" overflowY="auto" bg="bg.canvas">
+                <Steps.Root orientation="vertical" count={procSteps.length} step={(allCompleted ? procSteps.length : activeIndex)}>
+                  <Steps.List gap="4">
+                    {procSteps.map((s, index) => {
+                      const derivedStatus: ProgressState =
+                        s.id === currentStepId && s.state !== "completed" && s.state !== "faild" ? "running" : (s.state ?? "pending");
+                      return (
+                        <Steps.Item key={s.id} index={index} title={s.title} py="3">
+                          <Steps.Indicator />
+                          <Steps.Title>{s.title}</Steps.Title>
+                          <Steps.Separator my="3" borderLeftWidth="2px" borderColor="gray.300" opacity={1} />
+                          <Steps.Content index={index}>
+                            <VStack align="stretch" gap={3} mt={3} mb={6} w="full">
+                              <HStack justify="space-between">
+                                <Badge rounded="full" variant="subtle" colorPalette={
+                                  derivedStatus === "running" ? "blue" : derivedStatus === "completed" ? "green" : derivedStatus === "faild" ? "red" : "gray"
+                                }>
+                                  {derivedStatus}
                                 </Badge>
-                                <Text textStyle="xs" color="gray.600">{formatTimestamp(r.createdAt)}</Text>
                               </HStack>
                             </VStack>
-                          </Box>
-                        );
-                      })}
-                    </VStack>
-                  )}
-                </VStack>
-              )}
-            </VStack>
-          )}
+                          </Steps.Content>
+                        </Steps.Item>
+                      );
+                    })}
+                  </Steps.List>
+                  <Steps.CompletedContent>All steps are complete!</Steps.CompletedContent>
+                </Steps.Root>
+              </Box>
+            ) : (
+              <Text textStyle="sm" color="gray.600">Progress is not available yet.</Text>
+            )}
+          </VStack>
         </Box>
 
-        <Box flex="1" w={{ base: "100%", md: "auto" }} rounded="md" borderWidth="1px" bg="bg.panel" p="16px" minH="240px">
+        <Box flex="1" w={{ base: "100%", xl: "auto" }} minW={0} rounded="md" borderWidth="1px" bg="bg.panel" p="16px" minH="240px">
+          <VStack align="stretch" gap="12px" minW={0}>
+            <HStack justify="space-between" align="start" minW={0}>
+              <Box minW={0}>
+                <Heading size="md">成果物ブラウザ</Heading>
+                <Text textStyle="sm" color="gray.600" mt="1">生成されたファイルをクリックして全画面で確認できます。</Text>
+              </Box>
+              {results.length > 0 ? (
+                <Badge rounded="full" variant="subtle" colorPalette="teal">{results.length} files</Badge>
+              ) : null}
+            </HStack>
 
-          {job && (job.status === "Complete" || job.status === "Completed") && job.taskType === "one-shot-object-detection" ? (
-            <VStack align="stretch" gap={3}>
-              {(!results || results.length === 0) ? (
+            {job && (job.status === "Complete" || job.status === "Completed") && job.taskType === "one-shot-object-detection" ? (
+              (!results || results.length === 0) ? (
                 <Text color="gray.600">Result not ready yet.</Text>
               ) : (
-                <>
-                  {/* Top action bar: Download / Copy JSON */}
-                  <HStack justify="flex-end" mb="8px" gap="8px">
-                    {current ? (
-                      <>
-                        {isJsonResult(current) && (
-                          <Button size="sm" rounded="full" variant="outline" onClick={async () => {
-                            try {
-                              // Ensure we have jsonData loaded, otherwise fetch then copy
-                              if (!jsonData) {
-                                await refetchJson();
-                              }
-                              const text = (jsonData && jsonData._raw) ? String(jsonData._raw) : JSON.stringify(jsonData ?? {}, null, 2);
-                              await navigator.clipboard.writeText(text);
-                            } catch { /* ignore */ }
-                          }} disabled={jsonLoading || !!jsonError}>Copy JSON</Button>
-                        )}
-                        {!isParquetResult(current) && (
-                          <Button size="sm" rounded="full" onClick={() => downloadDirect(current.bucket, current.key)}>
-                            Download
-                          </Button>
-                        )}
-                      </>
-                    ) : null}
-                  </HStack>
-                  {/* Current Result */}
-                  {current && isVideoResult(current) ? (
-                    <>
-                      {playlistLoading ? (
-                        <Text textStyle="sm" color="gray.600">Loading player...</Text>
-                      ) : !playlist ? (
-                        <Box>
-                          <Text fontWeight="bold">HLS playlist not available.</Text>
-                          <Text textStyle="sm" color="gray.600" mt={1}>The video is not yet segmented or unavailable.</Text>
-                        </Box>
-                      ) : (
-                        <Box>
-                          <video
-                            ref={videoRef}
-                            controls
-                            playsInline
-                            style={{ width: "100%", maxHeight: "70vh", background: "black" }}
-                          >
-                            <track kind="captions" label="captions" srcLang="en" src="data:," />
-                          </video>
-                        </Box>
-                      )}
-                    </>
-                  ) : current && isJsonResult(current) ? (
-                    <>
-                      {jsonLoading ? (
-                        <Text textStyle="sm" color="gray.600">Loading JSON...</Text>
-                      ) : jsonError ? (
-                        <HStack color="red.500" justify="space-between">
-                          <Box>Failed to load JSON</Box>
-                          <Button size="xs" variant="outline" onClick={() => refetchJson()}>Retry</Button>
-                        </HStack>
-                      ) : (
-                        <Box as="pre" p="12px" bg="gray.50" borderWidth="1px" rounded="md" overflow="auto" maxH="70vh">
-                          {(() => {
-                            try {
-                              const text = jsonData && jsonData._raw ? String(jsonData._raw) : JSON.stringify(jsonData, null, 2);
-                              return highlightJsonToNodes(text);
-                            } catch {
-                              return String(jsonData);
-                            }
-                          })()}
-                        </Box>
-                      )}
-                      {/* Buttons moved to the top action bar */}
-                    </>
-                  ) : current && isParquetResult(current) ? (
-                    <>
-                      {pqError ? (
-                        <HStack color="red.500" justify="space-between">
-                          <Box>Failed to load table: {pqError}</Box>
-                          <Button size="xs" variant="outline" onClick={async () => {
-                            if (!current) return;
-                            try {
-                              const url = await getSignedObjectUrl(current.bucket, current.key, 60 * 10);
-                              await queryParquetPage(url, tablePage, current.bucket, current.key);
-                            } catch { void 0; }
-                          }}>Retry</Button>
-                        </HStack>
-                      ) : pqLoading ? (
-                        <Text textStyle="sm" color="gray.600">Loading table...</Text>
-                      ) : (
-                        <>
-                          {checkingParquetLocal ? (
-                            <Text textStyle="xs" color="gray.600">Checking local cache...</Text>
-                          ) : null}
-                          {downloading && (
-                            <Box maxW="360px">
-                              <Progress.Root value={downloadPct}>
-                                <Progress.Track>
-                                  <Progress.Range />
-                                </Progress.Track>
-                              </Progress.Root>
-                              <Text textStyle="xs" color="gray.600" mt={1}>{downloadPct}%</Text>
-                            </Box>
-                          )}
-                          <HStack justify="flex-end" mb="8px" gap="8px">
-                            <Button
-                              size="sm"
+                <VStack align="stretch" gap="8px" maxH="70vh" overflowY="auto" minW={0} style={{ scrollbarGutter: "stable both-edges" }}>
+                  {results.map((r, idx) => {
+                    const name = r.key.split("/").pop() || r.key;
+                    const type = isVideoResult(r) ? "Video" : isJsonResult(r) ? "JSON" : isParquetResult(r) ? "Parquet" : "File";
+                    const description = r?.meta?.description ? String(r.meta.description) : "";
+                    const selected = idx === selectedIndex;
+                    return (
+                      <Box
+                        key={r.id}
+                        as="button"
+                        onClick={() => {
+                          setSelectedIndex(idx);
+                          setTablePage(1);
+                          setArtifactDialogOpen(true);
+                        }}
+                        textAlign="left"
+                        rounded="lg"
+                        borderWidth="1px"
+                        p="12px"
+                        bg={selected ? "teal.50" : "white"}
+                        borderColor={selected ? "teal.300" : "gray.200"}
+                        cursor="pointer"
+                        transition="all 0.15s ease"
+                        _hover={{ shadow: "md", borderColor: selected ? "teal.400" : "gray.400" }}
+                      >
+                        <VStack align="stretch" gap={2} minW={0}>
+                          <HStack justify="space-between" gap="12px" minW={0}>
+                            <Text textStyle="sm" fontWeight="semibold" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</Text>
+                            <Badge
                               rounded="full"
-                              onClick={() => {
-                                if (!current) return;
-                                try {
-                                  const j = params.get("j") || "";
-                                  const enc = (s: string) => {
-                                    try { return btoa(unescape(encodeURIComponent(s))); } catch { return ""; }
-                                  };
-                                  const qb = enc(current.bucket);
-                                  const qk = enc(current.key);
-                                  const url = `/inference/opened-job/analysis?j=${encodeURIComponent(j)}&b=${encodeURIComponent(qb)}&k=${encodeURIComponent(qk)}`;
-                                  router.push(url);
-                                } catch { void 0; }
-                              }}
+                              variant="subtle"
+                              colorPalette={type === "Video" ? "teal" : type === "JSON" ? "purple" : type === "Parquet" ? "blue" : "gray"}
+                              flexShrink={0}
                             >
-                              {t("inference.detailed_analysis", "Detailed Analysis")}
-                            </Button>
-                            <Button size="sm" rounded="full" variant="outline" onClick={() => current && downloadDirect(current.bucket, current.key)}>
-                              Download Parquet
-                            </Button>
+                              {type}
+                            </Badge>
                           </HStack>
-                          <Box overflowX="auto" borderWidth="1px" rounded="md">
-                            <Table.Root size="sm" variant="outline" striped>
-                              <Table.Header>
-                                <Table.Row>
-                                  {pqCols.map((c) => (
-                                    <Table.ColumnHeader key={c}>{c}</Table.ColumnHeader>
-                                  ))}
-                                </Table.Row>
-                              </Table.Header>
-                              <Table.Body>
-                                {pqRows.map((row, idx) => (
-                                  <Table.Row key={idx}>
-                                    {pqCols.map((c) => (
-                                      <Table.Cell key={c}>{String(row?.[c] ?? "")}</Table.Cell>
-                                    ))}
-                                  </Table.Row>
-                                ))}
-                              </Table.Body>
-                            </Table.Root>
-                          </Box>
-                          <Pagination.Root
-                            count={pqTotal}
-                            pageSize={PAGE_SIZE}
-                            page={tablePage}
-                            onPageChange={(e: any) => setTablePage(e.page)}
-                          >
-                            <ButtonGroup variant="ghost" size="sm" wrap="wrap">
-                              <Pagination.PrevTrigger asChild>
-                                <IconButton aria-label="Prev page">
-                                  <LuChevronLeft />
-                                </IconButton>
-                              </Pagination.PrevTrigger>
-                              <Pagination.Items
-                                render={(p: any) => (
-                                  <IconButton aria-label={`Go to page ${p.value}`} variant={{ base: "ghost", _selected: "outline" }}>
-                                    {p.value}
-                                  </IconButton>
-                                )}
-                              />
-                              <Pagination.NextTrigger asChild>
-                                <IconButton aria-label="Next page">
-                                  <LuChevronRight />
-                                </IconButton>
-                              </Pagination.NextTrigger>
-                            </ButtonGroup>
-                          </Pagination.Root>
-                        </>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <HStack>
-                        <Button size="sm" rounded="full" onClick={() => current && downloadDirect(current.bucket, current.key)}>Download</Button>
-                      </HStack>
-                    </>
-                  )}
-                </>
-              )}
-            </VStack>
-          ) : (
-            <Text color="gray.500">Inference charts / logs can appear here.</Text>
-          )}
+                          {description ? (
+                            <Text textStyle="xs" color="gray.700"
+                              style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                              {description}
+                            </Text>
+                          ) : null}
+                          <HStack justify="space-between" gap="12px" minW={0}>
+                            <Text textStyle="xs" color="gray.600" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.key}</Text>
+                            <HStack gap="8px" flexShrink={0}>
+                              <Text textStyle="xs" color="gray.600">{formatBytes(r.size)}</Text>
+                              <Text textStyle="xs" color="gray.600">{formatTimestamp(r.createdAt)}</Text>
+                            </HStack>
+                          </HStack>
+                        </VStack>
+                      </Box>
+                    );
+                  })}
+                </VStack>
+              )
+            ) : (
+              <Text color="gray.500">ジョブ完了後に成果物ファイルが表示されます。</Text>
+            )}
+          </VStack>
         </Box>
       </Stack>
+
+      <Dialog.Root open={artifactDialogOpen} onOpenChange={(e: any) => setArtifactDialogOpen(!!e.open)}>
+        <Portal>
+          <Dialog.Backdrop bg="blackAlpha.700" backdropFilter="blur(4px)" />
+          <Dialog.Positioner p="0" alignItems="center" justifyContent="center" overflow="hidden">
+            <Dialog.Content w="96vw" h="92dvh" maxW="1800px" rounded="xl" overflow="hidden" display="flex" flexDirection="column">
+              <Dialog.Header borderBottomWidth="1px" gap="3" flexShrink={0}>
+                <VStack align="stretch" gap="1" flex="1" minW={0}>
+                  <HStack gap="3" minW={0}>
+                    <Dialog.Title>
+                      {current?.key.split("/").pop() || "成果物プレビュー"}
+                    </Dialog.Title>
+                    {current ? (
+                      <Badge
+                        rounded="full"
+                        variant="subtle"
+                        colorPalette={isVideoResult(current) ? "teal" : isJsonResult(current) ? "purple" : isParquetResult(current) ? "blue" : "gray"}
+                        flexShrink={0}
+                      >
+                        {isVideoResult(current) ? "Video" : isJsonResult(current) ? "JSON" : isParquetResult(current) ? "Parquet" : "File"}
+                      </Badge>
+                    ) : null}
+                  </HStack>
+                  {current ? (
+                    <Text textStyle="xs" color="gray.600" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{current.key}</Text>
+                  ) : null}
+                </VStack>
+                <HStack gap="8px" flexShrink={0} align="center">
+                  {current && isJsonResult(current) ? (
+                    <Button size="sm" rounded="full" variant="outline" onClick={async () => {
+                      try {
+                        if (!jsonData) {
+                          await refetchJson();
+                        }
+                        const text = (jsonData && jsonData._raw) ? String(jsonData._raw) : JSON.stringify(jsonData ?? {}, null, 2);
+                        await navigator.clipboard.writeText(text);
+                      } catch { /* ignore */ }
+                    }} disabled={jsonLoading || !!jsonError}>Copy JSON</Button>
+                  ) : null}
+                  {current && isParquetResult(current) ? (
+                    <Button
+                      size="sm"
+                      rounded="full"
+                      onClick={() => {
+                        if (!current) return;
+                        try {
+                          const j = params.get("j") || "";
+                          const enc = (s: string) => {
+                            try { return btoa(unescape(encodeURIComponent(s))); } catch { return ""; }
+                          };
+                          const qb = enc(current.bucket);
+                          const qk = enc(current.key);
+                          const url = `/inference/opened-job/analysis?j=${encodeURIComponent(j)}&b=${encodeURIComponent(qb)}&k=${encodeURIComponent(qk)}`;
+                          router.push(url);
+                        } catch { void 0; }
+                      }}
+                    >
+                      {t("inference.detailed_analysis", "Detailed Analysis")}
+                    </Button>
+                  ) : null}
+                  {current ? (
+                    <Button size="sm" rounded="full" variant="outline" onClick={() => downloadDirect(current.bucket, current.key)}>
+                      Download
+                    </Button>
+                  ) : null}
+                  <CloseButton size="sm" onClick={() => setArtifactDialogOpen(false)} />
+                </HStack>
+              </Dialog.Header>
+              <Dialog.Body p="16px" overflow="auto" bg="gray.50" flex="1" minH={0}>
+                {!current ? (
+                  <Text color="gray.600">Select a file to preview.</Text>
+                ) : isVideoResult(current) ? (
+                  playlistLoading ? (
+                    <Text textStyle="sm" color="gray.600">Loading player...</Text>
+                  ) : !playlist ? (
+                    <Box>
+                      <Text fontWeight="bold">HLS playlist not available.</Text>
+                      <Text textStyle="sm" color="gray.600" mt={1}>The video is not yet segmented or unavailable.</Text>
+                    </Box>
+                  ) : (
+                    <Box h="100%" minH={0} display="flex" alignItems="center" justifyContent="center">
+                      <video
+                        ref={setVideoNode}
+                        controls
+                        playsInline
+                        style={{ width: "100%", maxHeight: "100%", background: "black", borderRadius: "12px" }}
+                      >
+                        <track kind="captions" label="captions" srcLang="en" src="data:," />
+                      </video>
+                    </Box>
+                  )
+                ) : isJsonResult(current) ? (
+                  jsonLoading ? (
+                    <Text textStyle="sm" color="gray.600">Loading JSON...</Text>
+                  ) : jsonError ? (
+                    <HStack color="red.500" justify="space-between">
+                      <Box>Failed to load JSON</Box>
+                      <Button size="xs" variant="outline" onClick={() => refetchJson()}>Retry</Button>
+                    </HStack>
+                  ) : (
+                    <Box as="pre" p="16px" bg="white" borderWidth="1px" rounded="lg" overflow="auto" minH="100%" fontSize="sm">
+                      {(() => {
+                        try {
+                          const text = jsonData && jsonData._raw ? String(jsonData._raw) : JSON.stringify(jsonData, null, 2);
+                          return highlightJsonToNodes(text);
+                        } catch {
+                          return String(jsonData);
+                        }
+                      })()}
+                    </Box>
+                  )
+                ) : isParquetResult(current) ? (
+                  pqError ? (
+                    <HStack color="red.500" justify="space-between">
+                      <Box>Failed to load table: {pqError}</Box>
+                      <Button size="xs" variant="outline" onClick={async () => {
+                        if (!current) return;
+                        try {
+                          const url = await getSignedObjectUrl(current.bucket, current.key, 60 * 10);
+                          await queryParquetPage(url, tablePage, current.bucket, current.key);
+                        } catch { void 0; }
+                      }}>Retry</Button>
+                    </HStack>
+                  ) : pqLoading ? (
+                    <Text textStyle="sm" color="gray.600">Loading table...</Text>
+                  ) : (
+                    <VStack align="stretch" gap="12px">
+                      {checkingParquetLocal ? (
+                        <Text textStyle="xs" color="gray.600">Checking local cache...</Text>
+                      ) : null}
+                      {downloading && (
+                        <Box maxW="360px">
+                          <Progress.Root value={downloadPct}>
+                            <Progress.Track>
+                              <Progress.Range />
+                            </Progress.Track>
+                          </Progress.Root>
+                          <Text textStyle="xs" color="gray.600" mt={1}>{downloadPct}%</Text>
+                        </Box>
+                      )}
+                      <Box overflowX="auto" borderWidth="1px" rounded="lg" bg="white">
+                        <Table.Root size="sm" variant="outline" striped>
+                          <Table.Header>
+                            <Table.Row>
+                              {pqCols.map((c) => (
+                                <Table.ColumnHeader key={c}>{c}</Table.ColumnHeader>
+                              ))}
+                            </Table.Row>
+                          </Table.Header>
+                          <Table.Body>
+                            {pqRows.map((row, idx) => (
+                              <Table.Row key={idx}>
+                                {pqCols.map((c) => (
+                                  <Table.Cell key={c}>{String(row?.[c] ?? "")}</Table.Cell>
+                                ))}
+                              </Table.Row>
+                            ))}
+                          </Table.Body>
+                        </Table.Root>
+                      </Box>
+                      <Pagination.Root
+                        count={pqTotal}
+                        pageSize={PAGE_SIZE}
+                        page={tablePage}
+                        onPageChange={(e: any) => setTablePage(e.page)}
+                      >
+                        <ButtonGroup variant="ghost" size="sm" wrap="wrap">
+                          <Pagination.PrevTrigger asChild>
+                            <IconButton aria-label="Prev page">
+                              <LuChevronLeft />
+                            </IconButton>
+                          </Pagination.PrevTrigger>
+                          <Pagination.Items
+                            render={(p: any) => (
+                              <IconButton aria-label={`Go to page ${p.value}`} variant={{ base: "ghost", _selected: "outline" }}>
+                                {p.value}
+                              </IconButton>
+                            )}
+                          />
+                          <Pagination.NextTrigger asChild>
+                            <IconButton aria-label="Next page">
+                              <LuChevronRight />
+                            </IconButton>
+                          </Pagination.NextTrigger>
+                        </ButtonGroup>
+                      </Pagination.Root>
+                    </VStack>
+                  )
+                ) : (
+                  <VStack align="start" gap="12px">
+                    <Text color="gray.600">Preview is not available for this file type.</Text>
+                    <Button rounded="full" onClick={() => downloadDirect(current.bucket, current.key)}>Download</Button>
+                  </VStack>
+                )}
+              </Dialog.Body>
+            </Dialog.Content>
+          </Dialog.Positioner>
+        </Portal>
+      </Dialog.Root>
     </Box>
   );
 }
