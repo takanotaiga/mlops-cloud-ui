@@ -1,144 +1,142 @@
 # MLOps Cloud UI
 
-Modern Next.js + TypeScript + Chakra UI app for managing datasets, launching training, and shipping models.
+MLOps Cloud の Next.js UI です。Dataset、Inference、Training、Terminal、Hardware、Docs、Settings 画面と、SurrealDB / MinIO を扱う Next.js API routes を提供します。
 
-## Tech Stack
-- Next.js App Router (TypeScript, strict mode)
-- Chakra UI (primitive components, color mode via next-themes)
-- Yarn (Node 18+)
+## Stack
 
-## Scripts
-- `yarn dev`: Run local dev server with HMR
-- `yarn build`: Generate production build (offline font usage)
-- `yarn start`: Serve the production build
-- `yarn type-check`: TypeScript type check (no emit)
+- Next.js 16 App Router
+- React 19
+- TypeScript strict
+- Chakra UI v3
+- React Query
+- hls.js
+- DuckDB WASM for parquet preview
+- npm / `package-lock.json`
 
-## Project Structure
-- `app/`: Routes, layouts, and pages
-  - `/dataset`: Listing, details, and upload
-  - `/training`: Model training dashboard
-- `components/`: Reusable UI components
-- `components/ui/color-mode.tsx`: Color mode provider and toggle button
-- `public/static/`: Static assets served from `/static/*`
+## Commands
 
-## Development Notes
-- Use Yarn for all local development and CI.
-- Path alias: import with `@/*` as needed.
-- Chakra styling stays co-located with components.
-- Color mode toggle is available in the header; it uses `next-themes` under the hood.
-
-## Environment & Security
-- Put secrets in `.env.local` (git-ignored). Access via `process.env`.
-- Avoid importing large assets into client bundles; put assets in `public/static`.
-
-## Accessibility
-- Prefer semantic markup and Chakra components.
-- Verify color-mode contrast via the header toggle.
-
-## Contributing
-- Conventional Commits (e.g., `feat:`, `fix:`) are preferred.
-- Keep PRs small and focused; include screenshots for UI changes.
-
-To enable TypeScript's features, we install the type declarations for React and
-Node.
-
-```
-npm install --save-dev @types/react @types/react-dom @types/node
+```bash
+npm ci
+npm run dev
+npm run type-check
+npm run lint
+npm run build
+npm run start
 ```
 
-When we run `next dev` the next time, Next.js will start looking for any `.ts`
-or `.tsx` files in our project and builds it. It even automatically creates a
-`tsconfig.json` file for our project with the recommended settings.
+局所変更では対象ファイル lint も有効です。
 
-Next.js has built-in TypeScript declarations, so we'll get autocompletion for
-Next.js' modules straight away.
+```bash
+npx eslint app/inference/opened-job/client.tsx
+```
 
-A `type-check` script is also added to `package.json`, which runs TypeScript's
-`tsc` CLI in `noEmit` mode to run type-checking separately. You can then include
-this, for example, in your `test` scripts.
+## Runtime Architecture
+
+UI は browser-only app ではありません。SurrealDB / MinIO 操作は Next.js API routes を通します。
+
+- Browser: UI 操作、React Query、Chakra UI
+- API routes: DB/S3 proxy, status, upload, HLS playlist rewriting
+- SurrealDB: file, dataset, inference_job, inference_result, hls_* records
+- MinIO/S3: uploaded files, generated videos, HLS playlist/segments, parquet/json artifacts
+
+Backend worker とは直接通信せず、DB record と S3 object を介して非同期に連携します。
+
+## Environment Variables
+
+Client-visible Surreal settings:
+
+```bash
+NEXT_PUBLIC_SURREAL_URL=ws://database:8000/rpc
+NEXT_PUBLIC_SURREAL_NS=mlops
+NEXT_PUBLIC_SURREAL_DB=cloud_ui
+NEXT_PUBLIC_SURREAL_USER=root
+NEXT_PUBLIC_SURREAL_PASS=root
+```
+
+Server-side settings used by API routes:
+
+```bash
+SURREAL_URL=ws://database:8000/rpc
+SURREAL_NS=mlops
+SURREAL_DB=cloud_ui
+SURREAL_USER=root
+SURREAL_PASS=root
+MINIO_ENDPOINT_INTERNAL=http://object-storage:9000
+MINIO_REGION=us-east-1
+MINIO_ACCESS_KEY_ID=minioadmin
+MINIO_SECRET_ACCESS_KEY=minioadmin
+MINIO_BUCKET=mlops-datasets
+MINIO_FORCE_PATH_STYLE=true
+S3_MULTIPART_THRESHOLD_BYTES=1000000000
+```
+
+Do not bake real secrets into images. In compose, use service names instead of localhost.
 
 ## Docker
 
-- Build local image:
-  - `docker build -t ghcr.io/<OWNER>/<REPO>:dev .`
-- Run locally:
-  - `docker run --rm -p 3000:3000 \
-    -e NEXT_PUBLIC_SURREAL_URL=ws://127.0.0.1:8000/rpc \
-    -e NEXT_PUBLIC_SURREAL_NS=mlops \
-    -e NEXT_PUBLIC_SURREAL_DB=cloud_ui \
-    -e NEXT_PUBLIC_SURREAL_USER=root \
-    -e NEXT_PUBLIC_SURREAL_PASS=root \
-    ghcr.io/takanotaiga/mlops-cloud-ui:main`
-- Open: http://localhost:3000
-
-Notes:
-- Replace `<OWNER>/<REPO>` with your GitHub org/repo.
-- Set `NEXT_PUBLIC_*` as needed for your environment; values above are local examples.
-
-## Backend Environment Variables (Server)
-
-The UI now proxies SurrealDB and S3/MinIO through Next.js API routes (no direct browser credentials). Configure server-side envs via `docker run -e` or your orchestrator:
-
-- SurrealDB
-  - `SURREAL_URL`: e.g., `ws://surreal:8000/rpc` (must include `/rpc`)
-  - `SURREAL_NS`, `SURREAL_DB`
-  - `SURREAL_USER`, `SURREAL_PASS`
-
-- MinIO / S3
-  - `MINIO_ENDPOINT_INTERNAL`: server-visible endpoint (e.g., `http://minio:9000`)
-  - `MINIO_REGION`: default `us-east-1`
-  - `MINIO_ACCESS_KEY_ID`, `MINIO_SECRET_ACCESS_KEY`
-  - `MINIO_BUCKET`: e.g., `mlops-datasets`
-  - `MINIO_FORCE_PATH_STYLE`: default `true`
-  - `S3_MULTIPART_THRESHOLD_BYTES` (optional): default `1000000000` (1GB). Files below use PutObject; above use multipart.
-
-Example:
-
-```
+```bash
+docker build -t mlops-cloud-ui:dev .
 docker run --rm -p 3000:3000 \
-  -e NEXT_PUBLIC_SURREAL_URL=ws://127.0.0.1:8000/rpc \
-  -e NEXT_PUBLIC_SURREAL_NS=mlops \
-  -e NEXT_PUBLIC_SURREAL_DB=cloud_ui \
-  -e NEXT_PUBLIC_SURREAL_USER=root \
-  -e NEXT_PUBLIC_SURREAL_PASS=root \
-  -e SURREAL_URL=ws://surreal:8000/rpc \
+  -e SURREAL_URL=ws://database:8000/rpc \
   -e SURREAL_NS=mlops \
   -e SURREAL_DB=cloud_ui \
   -e SURREAL_USER=root \
   -e SURREAL_PASS=root \
-  -e MINIO_ENDPOINT_INTERNAL=http://minio:9000 \
+  -e MINIO_ENDPOINT_INTERNAL=http://object-storage:9000 \
   -e MINIO_REGION=us-east-1 \
   -e MINIO_ACCESS_KEY_ID=minioadmin \
   -e MINIO_SECRET_ACCESS_KEY=minioadmin \
   -e MINIO_BUCKET=mlops-datasets \
   -e MINIO_FORCE_PATH_STYLE=true \
-  -e S3_MULTIPART_THRESHOLD_BYTES=1000000000 \
-  ghcr.io/takanotaiga/mlops-cloud-ui:main
+  mlops-cloud-ui:dev
 ```
 
-In Compose, prefer service names for `SURREAL_URL`/`MINIO_ENDPOINT_INTERNAL` (e.g., `ws://surreal:8000/rpc`, `http://minio:9000`). Do not bake real keys into the image.
+Usually prefer the integrated compose in `../mlops-cloud`.
 
-## Docker Compose
-
-An example Compose file is provided at `docker-compose.example.yml` that starts the UI, SurrealDB, and MinIO together.
-
-Quick start:
-
-```
-cp docker-compose.example.yml docker-compose.yml
-docker compose up -d --build
+```bash
+cd ../mlops-cloud
+docker compose -f docker-compose.dev.yml up --build
 ```
 
+## Important Routes
 
-Services:
-- `surreal`: WebSocket RPC at `ws://localhost:8000/rpc` (inside Compose: `ws://surreal:8000/rpc`)
-- `minio`: S3-compatible at `http://localhost:9000` (console at `http://localhost:9001`); healthcheck waits for readiness
-- `app`: UI at `http://localhost:3000`
+| Route | Purpose |
+|---|---|
+| `/api/status` | SurrealDB / MinIO health |
+| `/api/db/query` | allowlisted DB operation proxy |
+| `/api/storage/upload` | server-side upload |
+| `/api/storage/object` | server-side object proxy with range support |
+| `/api/storage/hls/playlist` | HLS playlist proxy that rewrites segment URLs |
+| `/dataset` | dataset listing |
+| `/dataset/upload` | upload flow |
+| `/inference` | inference job listing |
+| `/inference/create` | inference job creation |
+| `/inference/opened-job` | inference job detail, progress, artifact browser |
+| `/inference/opened-job/analysis` | parquet analysis |
 
-The UI calls Surreal/S3 via server-side API routes. Ensure the server envs in the Compose file reflect your desired bucket and credentials. For large uploads, tune `S3_MULTIPART_THRESHOLD_BYTES`.
+## Inference UI Notes
 
-If you see `S3: Error (minio not found)` in the UI:
-- Ensure Compose is running all services: `docker compose ps`
-- Verify app can resolve the service name: services are on the same Compose network; `MINIO_ENDPOINT_INTERNAL` must be `http://minio:9000` (not localhost)
-- MinIO may still be starting; the provided healthcheck should gate the app start, but a browser refresh after 5–10s can help
-- Check logs: `docker compose logs minio -f` and `docker compose logs app -f`
+- Inference result videos are expected to be HLS encoded by backend `video_manager.py` / `cv-backend`.
+- The artifact browser opens videos, JSON, parquet and other files in a full-screen dialog.
+- HLS playback in dialogs must attach after the `<video>` element is mounted. Preserve the ref/state pattern in `app/inference/opened-job/client.tsx`.
+- Long artifact keys must be ellipsized and contained with `minW={0}` to avoid horizontal overflow.
+
+## Validation
+
+For normal UI work:
+
+```bash
+npm run type-check
+npx eslint <changed-file>
+npm run build
+```
+
+For UI + DB/S3 flows:
+
+```bash
+cd ../mlops-cloud
+docker compose -f e2e/compose.phase1.yml up --build --abort-on-container-exit --exit-code-from e2e e2e
+docker compose -f e2e/compose.phase1.yml down -v
+```
+
+Current Phase1 expected result is `6 passed, 3 skipped`.
