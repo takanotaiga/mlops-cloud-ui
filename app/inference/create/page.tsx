@@ -34,6 +34,7 @@ const INTERNET_MODELS_BY_TASK: Record<string, { label: string; value: string }[]
   // ],
   "one-shot-object-detection": [
     // { label: "SAM2 (internet)", value: "sam2" },
+    { label: "T260 ULR (SAM2.1 + RF-DETR)", value: "t260-ulr" },
     { label: "SAMURAI ULR (internet)", value: "samurai-ulr" },
   ],
   // "image-to-text": [
@@ -56,6 +57,7 @@ const taskOptions = createListCollection({
 });
 
 const DEFAULT_SAMURAI_INFERENCE_BACKEND = "tensorrt-fp16";
+const DEFAULT_T260_INFERENCE_BACKEND = "pytorch-fp16";
 const DEFAULT_SAMURAI_RTDETR_EPOCHS = 4;
 const SAMURAI_INFERENCE_BACKENDS = [
   { label: "TensorRT FP16", value: "tensorrt-fp16" },
@@ -63,6 +65,7 @@ const SAMURAI_INFERENCE_BACKENDS = [
   { label: "PyTorch FP16", value: "pytorch-fp16" },
 ] as const;
 type SamuraiInferenceBackend = (typeof SAMURAI_INFERENCE_BACKENDS)[number]["value"];
+const ULR_INTERNET_MODELS = new Set(["samurai-ulr", "t260-ulr"]);
 
 export default function Page() {
   const { t } = useI18n();
@@ -120,7 +123,7 @@ export default function Page() {
     () => createListCollection({ items: [...SAMURAI_INFERENCE_BACKENDS] }),
     [],
   );
-  const showSamuraiInferenceBackend = modelSource === "internet" && internetModel === "samurai-ulr";
+  const showSamuraiInferenceBackend = modelSource === "internet" && ULR_INTERNET_MODELS.has(internetModel);
   useEffect(() => {
     // Reset models when task or source changes
     setInternetModel("");
@@ -128,6 +131,14 @@ export default function Page() {
     setInferenceBackend(DEFAULT_SAMURAI_INFERENCE_BACKEND);
     setRtdetrEpochs(DEFAULT_SAMURAI_RTDETR_EPOCHS);
   }, [taskType, modelSource]);
+
+  useEffect(() => {
+    if (internetModel === "t260-ulr") {
+      setInferenceBackend(DEFAULT_T260_INFERENCE_BACKEND);
+    } else if (internetModel === "samurai-ulr") {
+      setInferenceBackend(DEFAULT_SAMURAI_INFERENCE_BACKEND);
+    }
+  }, [internetModel]);
 
   // Lock when the same job is in progress
   const { data: existingJob } = useQuery({
@@ -367,7 +378,7 @@ export default function Page() {
                   </Box>
                 )}
 
-                {/* SAMURAI ULR Inference Backend */}
+                {/* ULR Inference Backend */}
                 {showSamuraiInferenceBackend && (
                   <Box>
                     <Text textStyle="sm" color="gray.600" mb="6px">Inference Backend</Text>
@@ -405,12 +416,12 @@ export default function Page() {
                       </Portal>
                     </Select.Root>
                     <Text textStyle="xs" color="gray.500" mt="4px">
-                      Default is TensorRT FP16 for compatibility. Use PyTorch FP32/FP16 when TensorRT conversion is unreliable.
+                      SAMURAI defaults to TensorRT FP16 for compatibility. T260 defaults to PyTorch FP16 while RF-DETR TensorRT export is being validated.
                     </Text>
                   </Box>
                 )}
 
-                {/* SAMURAI ULR RT-DETR Training Epochs */}
+                {/* ULR Detection Training Epochs */}
                 {showSamuraiInferenceBackend && (
                   <Box>
                     <Text textStyle="sm" color="gray.600" mb="6px">RT-DETR Epochs</Text>

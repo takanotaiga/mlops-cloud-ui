@@ -92,7 +92,7 @@ Compose 内では `localhost` ではなく service name を使います。例: `
 - `inferenceBackend` は `tensorrt-fp16`, `pytorch-fp16`, `pytorch-fp32` を扱います。
 - 互換性のためデフォルトは `tensorrt-fp16` です。
 - `rtdetrEpochs` は UI から可変、既定値は 4 です。
-- 現状の実行 worker は `taskType=one-shot-object-detection`, `model=samurai-ulr`, 単一 dataset / 単一 video を前提にします。
+- 現状の実行 worker は `taskType=one-shot-object-detection`, `model=samurai-ulr` または `model=t260-ulr`, 単一 dataset / 単一 video を前提にします。
 
 ## E2E
 
@@ -104,7 +104,7 @@ docker compose -f e2e/compose.phase1.yml up --build --abort-on-container-exit --
 docker compose -f e2e/compose.phase1.yml down -v
 ```
 
-2026-04-29 時点の Phase1 は `7 passed, 3 skipped` が期待値です。skip は未確定仕様の `test.fixme` です。
+2026-04-29 時点の Phase1 は `8 passed, 3 skipped` が期待値です。skip は未確定仕様の `test.fixme` です。
 
 画面構造や route handler に触れた場合は `npm run build` も実行してください。
 
